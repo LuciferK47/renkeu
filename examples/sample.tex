@@ -1,0 +1,28 @@
+\documentclass{article}
+
+\usepackage{setspace}
+
+\usepackage[margin=1in]{geometry}
+
+% A minimal sample document to try the engine
+\usepackage{graphicx}
+
+\title{Sample}
+\author{Author}
+
+\begin{document}
+\onehalfspacing
+
+\maketitle
+
+This is a sample figure in Figure~\ref{fig:one}.
+
+\begin{figure}[h]
+  \centering
+  % Width may be overwritten by the engine
+  \includegraphics[width=0.9\\textwidth]{example-image-a}
+  \caption{An example figure}
+  \label{fig:one}
+\end{figure}
+
+\end{document}

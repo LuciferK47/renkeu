@@ -1,0 +1,101 @@
+# LaTeX-AI Configuration File
+# Copy this to .latex-ai.toml and customize for your environment
+
+[server]
+# Server host and port
+host = "0.0.0.0"
+port = 8000
+# Number of worker processes for production (0 = auto-detect CPU count)
+workers = 0
+# Enable development mode (auto-reload on file changes)
+dev_mode = false
+# CORS allowed origins (comma-separated)
+cors_origins = ["http://localhost:5173", "http://localhost:8000"]
+
+[compilation]
+# Maximum concurrent compilation jobs
+max_concurrent = 4
+# Compilation timeout in seconds
+timeout_seconds = 60
+# Cache directory for compiled PDFs
+cache_dir = ".compile_cache"
+# Cleanup interval for old compilation jobs (minutes)
+cleanup_interval_minutes = 10
+# Maximum cache size in MB (0 = unlimited)
+max_cache_size_mb = 500
+
+[ai]
+# AI model to use
+model = "gemini-2.0-flash-exp"
+# Maximum tokens per request
+max_tokens = 8192
+# Temperature for AI generation (0.0-1.0)
+temperature = 0.7
+# Circuit breaker threshold (failures before opening)
+circuit_breaker_threshold = 5
+# Circuit breaker timeout in seconds
+circuit_breaker_timeout = 60
+# Maximum concurrent AI requests
+max_concurrent_requests = 3
+# AI request timeout in seconds
+request_timeout = 60
+
+[rate_limits]
+# AI requests per client per minute
+ai_requests_per_minute = 20
+# Compile requests per client per minute
+compile_requests_per_minute = 100
+# Enable rate limiting
+enabled = true
+
+[security]
+# Maximum file size in MB
+max_file_size_mb = 10
+# Maximum bundle size in MB
+max_bundle_size_mb = 50
+# Allowed file extensions
+allowed_extensions = [".tex", ".bib", ".sty", ".cls", ".bst"]
+# Block dangerous LaTeX commands
+block_dangerous_commands = true
+
+[logging]
+# Log level: debug, info, warning, error, critical
+level = "info"
+# Log format: text or json
+format = "text"
+# Enable request ID tracing
+enable_request_tracing = true
+# Log file path (empty = stdout only)
+log_file = ""
+
+[cache]
+# Enable bundle context caching
+enable_bundle_cache = true
+# Enable aux file caching for faster recompilation
+enable_aux_cache = true
+# Enable SyncTeX result caching
+enable_synctex_cache = true
+# Cache TTL in seconds (0 = no expiration)
+ttl_seconds = 3600
+
+[features]
+# Enable LSP integration
+enable_lsp = true
+# Enable metrics endpoint
+enable_metrics = true
+# Enable health check endpoint
+enable_health_checks = true
+# Enable history tracking
+enable_history = true
+# Enable autosave
+enable_autosave = true
+# Autosave interval in seconds
+autosave_interval_seconds = 30
+
+[monitoring]
+# Enable Prometheus metrics
+prometheus_enabled = true
+# Metrics endpoint path
+metrics_path = "/api/metrics"
+# Enable detailed health checks
+detailed_health_checks = true

@@ -1,0 +1,35 @@
+# Docker Compose for LaTeX-AI local development and production
+
+version: '3.8'
+
+services:
+  latex-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: latex-ai-server
+    ports:
+      - "8000:8000"
+    environment:
+      - LATEX_AI_HOST=0.0.0.0
+      - LATEX_AI_PORT=8000
+      - LATEX_AI_LOG_LEVEL=info
+      - LATEX_AI_CACHE_DIR=/app/.latex-ai/compile_cache
+      # Add your AI API keys here or use .env file
+      # - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      # Persist cache between container restarts
+      - latex-ai-cache:/app/.latex-ai/compile_cache
+      # Optional: Mount local workspace for development
+      # - ./examples:/app/workspace:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  latex-ai-cache:
+    driver: local

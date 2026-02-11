@@ -1,0 +1,131 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# PyTest / Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+test-results/
+
+# Virtual Environments (NEVER commit these!)
+venv/
+.venv/
+.venv*/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.swo
+*~
+.DS_Store
+.editorconfig
+.project
+.pydevproject
+.settings/
+
+# Node.js / Frontend / Build outputs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+frontend/dist/
+frontend/.svelte-kit/
+# NEVER commit built frontend assets - generate at deployment time
+src/latex_ai/static/assets/
+src/latex_ai/static/*.js
+src/latex_ai/static/*.css
+src/latex_ai/static/
+dist/
+build/
+
+# Build outputs
+*.egg-info
+/dist
+/build
+
+# LaTeX compilation artifacts
+*.pdf
+*.aux
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.dvi
+*.ps
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.example
+
+# Temporary files & caches
+*.tmp
+*.bak
+*.bak.*
+*.backup
+*.swp
+*~
+.#*
+*.temp
+
+# OS specific
+.DS_Store
+Thumbs.db
+*.swp
+.AppleDouble
+.LSOverride
+
+# Project specific
+/examples/*.pdf
+compile_output/
+temp_compile/
+.latex-ai/
+history.db
+
+# Agent / AI tooling
+.agent/
+.gemini/
+.gsd/
