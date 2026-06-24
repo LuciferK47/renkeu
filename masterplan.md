@@ -1093,7 +1093,7 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: Cargo workspace green; old Python `src/latex_ai/` deleted; Tectonic compiles `examples/sample.tex` in-process; axum serves `/health` alive.
 
 **Deliverables**:
-- [ ] `Cargo.toml` workspace with members: `crates/{compiler,lsp,synctex,visual,latex_ai_core,latex_ai_server,latex_ai_tauri}`.
+- [ ] `Cargo.toml` workspace with members: `crates/{compiler,latex_ai_core,latex_ai_server}`. (synctex/visual/lsp at M3/M5, latex_ai_tauri at M5 — created when implemented, not scaffolded empty per rust.md I.15.)
 - [ ] `cargo deny init` + `.cargo-deny.toml` (advisories + license + bans config).
 - [ ] `crates/compiler/src/lib.rs`: `tectonic::latex_to_pdf` wrapper + global mutex + tiny in-memory compile cache (moka replaces at M2).
 - [ ] `crates/latex_ai_server/src/main.rs`: axum app with `health` route only + `TraceLayer` configured.

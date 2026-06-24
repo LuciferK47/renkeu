@@ -1868,10 +1868,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "latex-ai-lsp"
-version = "0.1.0"
-
-[[package]]
 name = "latex-ai-server"
 version = "0.1.0"
 dependencies = [
@@ -1889,14 +1885,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
 ]
-
-[[package]]
-name = "latex-ai-synctex"
-version = "0.1.0"
-
-[[package]]
-name = "latex-ai-visual"
-version = "0.1.0"
 
 [[package]]
 name = "lazy_static"

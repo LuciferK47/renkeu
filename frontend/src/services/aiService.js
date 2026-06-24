@@ -7,6 +7,7 @@
  */
 
 import { api } from '../lib/api/client.js'
+import { streamSSE } from './_stream.js'
 
 export async function requestAIPlan(filePath, requestText, model = null) {
   return api.request('POST', '/plan', {
@@ -38,38 +39,10 @@ export async function streamAIPlan(
         session_id: sessionId
       })
     })
+    if (!response.ok) throw new Error('AI stream failed')
 
-    if (!response.ok) {
-      throw new Error('AI stream failed')
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) {
-        if (onComplete) onComplete()
-        break
-      }
-
-      buffer += decoder.decode(value)
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const payload = line.slice(6)
-          if (!payload.trim()) continue
-          try {
-            onProgress(JSON.parse(payload))
-          } catch (e) {
-            console.error('Failed to parse AI stream:', e)
-          }
-        }
-      }
-    }
+    for await (const { data } of streamSSE(response)) onProgress(data)
+    if (onComplete) onComplete()
   } catch (error) {
     if (onError) onError(error)
   }
@@ -93,40 +66,10 @@ export async function streamSuggestions(
         context: context.map(m => ({ role: m.role, content: m.content }))
       })
     })
-
     if (!response.ok) throw new Error('Suggestions request failed')
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let currentEvent = 'message'
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) {
-        if (onComplete) onComplete()
-        break
-      }
-
-      buffer += decoder.decode(value)
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim()
-        } else if (line.startsWith('data: ')) {
-          const payload = line.slice(6)
-          if (!payload.trim()) continue
-          try {
-            const data = JSON.parse(payload)
-            onProgress({ event: currentEvent, data })
-          } catch (e) {
-            console.error('Failed to parse suggestion stream:', e)
-          }
-        }
-      }
-    }
+    for await (const evt of streamSSE(response)) onProgress(evt)
+    if (onComplete) onComplete()
   } catch (error) {
     if (onError) onError(error)
   }
@@ -145,40 +88,10 @@ export async function streamCodeReview(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_path: filePath, session_id: sessionId })
     })
-
     if (!response.ok) throw new Error('Code review request failed')
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let currentEvent = 'message'
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) {
-        if (onComplete) onComplete()
-        break
-      }
-
-      buffer += decoder.decode(value)
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim()
-        } else if (line.startsWith('data: ')) {
-          const payload = line.slice(6)
-          if (!payload.trim()) continue
-          try {
-            const data = JSON.parse(payload)
-            onProgress({ event: currentEvent, data })
-          } catch (e) {
-            console.error('Failed to parse review stream:', e)
-          }
-        }
-      }
-    }
+    for await (const evt of streamSSE(response)) onProgress(evt)
+    if (onComplete) onComplete()
   } catch (error) {
     if (onError) onError(error)
   }
@@ -208,40 +121,10 @@ export async function streamExplainErrors(
         context: context.map(m => ({ role: m.role, content: m.content }))
       })
     })
-
     if (!response.ok) throw new Error('AI error explanation request failed')
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let currentEvent = 'message'
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) {
-        if (onComplete) onComplete()
-        break
-      }
-
-      buffer += decoder.decode(value)
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim()
-        } else if (line.startsWith('data: ')) {
-          const payload = line.slice(6)
-          if (!payload.trim()) continue
-          try {
-            const data = JSON.parse(payload)
-            onProgress({ event: currentEvent, data })
-          } catch (e) {
-            console.error('Failed to parse explain stream:', e)
-          }
-        }
-      }
-    }
+    for await (const evt of streamSSE(response)) onProgress(evt)
+    if (onComplete) onComplete()
   } catch (error) {
     if (onError) onError(error)
   }

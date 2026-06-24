@@ -7,6 +7,7 @@
  */
 
 import { api, APIError } from '../lib/api/client.js'
+import { streamSSE } from './_stream.js'
 
 export async function checkCompileCache(filePath, outputDir = null, signal) {
   return api.checkCompileCache(filePath, outputDir, signal)
@@ -38,24 +39,8 @@ export async function streamCompilationStatus(jobId, onProgress, onComplete, onE
     const response = await fetch(url)
     if (!response.ok) throw new Error('Stream failed')
 
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) {
-        if (onComplete) onComplete()
-        break
-      }
-      const text = decoder.decode(value)
-      const lines = text.split('\n')
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const payload = line.slice(6)
-          if (!payload.trim()) continue
-          try { onProgress(JSON.parse(payload)) } catch (e) { console.error('Stream parse error', e) }
-        }
-      }
-    }
+    for await (const { data } of streamSSE(response)) onProgress(data)
+    if (onComplete) onComplete()
   } catch (error) {
     if (onError) onError(error)
   }
