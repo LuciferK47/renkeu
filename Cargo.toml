@@ -1,0 +1,68 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/compiler",
+    "crates/synctex",
+    "crates/visual",
+    "crates/lsp",
+    "crates/latex_ai_core",
+    "crates/latex_ai_server",
+]
+# latex_ai_tauri deferred to M5 — not a member until the shell exists (rust.md I.15: don't scaffold empty)
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.87"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sahid/Latex-AI"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "signal", "sync", "time", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+axum = { version = "0.8", features = ["macros", "tokio"] }
+tower-http = { version = "0.6", features = ["trace"] }
+
+# tectonic: NO default-features=false — that kills the bundle downloader (geturl backend).
+tectonic = "0.16"
+
+blake3 = "1.5"
+thiserror = "2"
+anyhow = "1"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+clap = { version = "4.5", features = ["derive", "env"] }
+moka = { version = "0.12", features = ["future"] }
+nucleo-matcher = "0.3"
+
+# rust.md II.12 lint baseline, centralized. Crates opt in with `[lints] workspace = true`.
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+module_name_repetitions = "allow"
+needless_pass_by_value = "allow"
+cast_precision_loss = "allow"
+
+[workspace.lints.rust]
+unused_must_use = "deny"
+unreachable_pub = "deny"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

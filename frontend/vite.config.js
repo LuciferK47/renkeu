@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        // Point dev proxy to the FastAPI backend (default port 3000)
+        // Point dev proxy to the Rust axum backend (default port 3000)
         target: 'http://localhost:3000',
         changeOrigin: true
       },
@@ -18,7 +18,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../src/latex_ai/static',
+    outDir: 'dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 1500,
     rollupOptions: {

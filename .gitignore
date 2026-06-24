@@ -1,3 +1,8 @@
+# Rust
+/target/
+**/*.rs.bk
+# (Cargo.lock IS committed — workspace ships a binary)
+
 # Python
 __pycache__/
 *.py[cod]
@@ -14,8 +19,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/
@@ -129,3 +132,6 @@ history.db
 .agent/
 .gemini/
 .gsd/
+
+# Agent tooling runtime state
+.omo/

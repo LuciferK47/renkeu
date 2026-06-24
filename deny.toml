@@ -1,0 +1,27 @@
+# cargo-deny config (rust.md I.5). We are MIT OR Apache-2.0; reject (A)GPL.
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+# Permissive set per rust.md plus the SPDX ids the tectonic/axum dep tree pulls.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

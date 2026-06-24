@@ -1,6 +1,5 @@
 import { mount } from 'svelte'
 import App from './App.svelte'
-import 'svelte-splitpanes/theme/default.css'
 
 // Crash-visible bootstrap: never show a silent blank screen
 function showFatalError(err) {
@@ -27,32 +26,21 @@ function showFatalError(err) {
 }
 
 try {
-  const app = mount(App, {
+  mount(App, {
     target: document.getElementById('app'),
   })
-  
+
   // Catch unhandled errors after mount
   window.addEventListener('error', (e) => {
     console.error('Unhandled error:', e.error || e.message)
     showFatalError(e.error || e.message)
   })
-  
+
   window.addEventListener('unhandledrejection', (e) => {
     console.error('Unhandled promise rejection:', e.reason)
     showFatalError(e.reason)
   })
-  
-  export default app
 } catch (err) {
   console.error('Mount failed:', err)
   showFatalError(err)
-}
-
-// Register a basic service worker for asset caching in production builds
-if ('serviceWorker' in navigator && import.meta.env && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // Ignore registration errors
-    })
-  })
 }

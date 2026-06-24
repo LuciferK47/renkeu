@@ -1,5 +1,8 @@
 # Docker ignore file - excludes unnecessary files from build context
 
+# Rust
+/target/
+
 # Git
 .git
 .gitignore
