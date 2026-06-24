@@ -1304,6 +1304,7 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 | Q8 | `tower-lsp` maturity | community fork stable; if upstream matures by M3, swap | tracked |
 | Q9 | Tectonic async API | sync in 0.16; use `spawn_blocking` + tokio select; refactor if future release offers async | tracked |
 | Q10 | Auth surface | None for V1 (local-first 127.0.0.1 binding) | locked |
+| Q11 | Optional local LLM (Ollama) for fully-offline mode | Cloud Gemini only for V1. A provider abstraction allowing a local model (Ollama) fits the local-first pillar, but conflicts with the genai-rs design where Gemini's `previous_interaction_id` makes the server own chat history — Ollama would force us to manage history ourselves (the `HashMap<session, Vec<Content>>` §12-M2 audit forbids). Defer; revisit only with a concrete offline requirement. (Inspiration: interviewstreet/hiring-agent dual Ollama/Gemini backend.) | M6+ |
 
 ---
 
