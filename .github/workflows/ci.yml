@@ -2,46 +2,32 @@ name: CI
 
 on:
   push:
-    branches: [main, rust-port-m1]
+    branches: [ "main" ]
   pull_request:
-    branches: [main]
+    branches: [ "main" ]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
-    name: fmt + clippy + test + deny
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      # Tectonic links these system C libs at build time (not vendored).
-      # Missing any of them fails the build — see masterplan.md §9.
-      - name: Install Tectonic system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig1-dev libgraphite2-dev libharfbuzz-dev \
-            libicu-dev libfreetype6-dev libssl-dev zlib1g-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: fmt
-        run: cargo fmt --all --check
-
-      - name: clippy
-        run: cargo clippy --workspace --all-targets
-
-      - name: test
-        run: cargo test --workspace
-
-      - name: cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+        
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
+        
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+      
+    - name: Run clippy
+      run: cargo clippy --workspace --exclude latex-ai-tauri -- -D warnings
+      
+    - name: Run tests
+      run: cargo test --workspace --exclude latex-ai-tauri

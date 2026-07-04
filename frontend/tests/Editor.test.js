@@ -22,11 +22,6 @@ describe('Editor Component', () => {
       }
     })
     
-    let savedCalled = false
-    component.$on('save', () => {
-      savedCalled = true
-    })
-    
     // Simulate Ctrl+S keypress
     const saveEvent = new KeyboardEvent('keydown', {
       key: 's',

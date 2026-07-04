@@ -1,19 +1,18 @@
 <script>
-  import { onDestroy } from 'svelte'
-  import { onMount } from 'svelte'
-  
-  import { createEventDispatcher } from 'svelte'
+  import { onDestroy, onMount, createEventDispatcher } from 'svelte'
+  import { api } from '../lib/api/client.js'
   
   const dispatch = createEventDispatcher()
   
   export let pdfPath = ""
+  export let filePath = ""
   export let loading = false
   export let numPages = 0
   export let currentPage = 1
-  export let jobId = null  // Compilation job ID for status polling
+  export let jobId = null
 
   let error = ""
-  let compilationStatus = "idle"  // idle, queued, compiling, completed, failed
+  let compilationStatus = "idle"
   let compilationProgress = 0
   let eventSource = null
   let sseActive = false
@@ -21,20 +20,23 @@
   let sseReconnectTimer = null
   let containerRef = null
   let isVisible = false
-  let iframeSrc = ''
+  let imgContainer = null
 
-  // Watch for new compilation jobs
+  let visualFixMode = false;
+  let visualFixing = false;
+  let isDrawing = false;
+  let startX = 0, startY = 0;
+  let box = null;
+
   $: if (jobId) {
     startSse()
   }
 
-  // Update iframe src only when visible and path changes
-  $: if (isVisible && pdfPath) {
-    iframeSrc = `${pdfPath}#page=${currentPage}`
-  }
+  $: pageImgUrl = (isVisible && pdfPath && filePath) 
+    ? api.buildUrl(`/pdf/page?file=${encodeURIComponent(filePath)}&n=${currentPage}`) 
+    : '';
 
   onMount(() => {
-    // Lazy-load iframe when viewer enters viewport
     if ('IntersectionObserver' in window) {
       const observer = new IntersectionObserver((entries) => {
         for (const entry of entries) {
@@ -47,7 +49,6 @@
       }, { root: null, threshold: 0.1 })
       if (containerRef) observer.observe(containerRef)
     } else {
-      // Fallback: assume visible
       isVisible = true
     }
   })
@@ -75,12 +76,10 @@
 
   function startSse() {
     stopSse()
-
     compilationStatus = "queued"
     loading = true
     error = ""
     sseReconnectAttempts = 0
-
     connectSse()
   }
 
@@ -88,16 +87,13 @@
     if (!jobId) return
 
     try {
-      eventSource = new EventSource(`/api/compile/stream/${jobId}`)
+      eventSource = new EventSource(api.buildUrl(`/compile/stream/${jobId}`))
       sseActive = true
 
       eventSource.addEventListener('progress', (evt) => {
-        const payload = safeParse(evt.data)
+        const payload = JSON.parse(evt.data)
         if (!payload) return
-        
-        // Reset reconnect attempts on successful message
         sseReconnectAttempts = 0
-        
         compilationStatus = payload.status || compilationStatus
         compilationProgress = payload.progress ?? compilationProgress
 
@@ -110,21 +106,11 @@
         }
       })
 
-      eventSource.addEventListener('open', () => {
-        // Connection opened successfully
-        sseReconnectAttempts = 0
-      })
+      eventSource.addEventListener('open', () => { sseReconnectAttempts = 0 })
 
       eventSource.onerror = (err) => {
         console.warn('SSE connection error:', err)
-        
-        // Close the failed connection
-        if (eventSource) {
-          eventSource.close()
-          eventSource = null
-        }
-        
-        // Only reconnect if job is still active (not completed/failed)
+        if (eventSource) { eventSource.close(); eventSource = null; }
         if (compilationStatus === 'queued' || compilationStatus === 'compiling') {
           reconnectSse()
         }
@@ -138,22 +124,14 @@
 
   function reconnectSse() {
     sseReconnectAttempts++
-    
-    // Exponential backoff: 1s, 2s, 4s, 8s, max 10s
     const delay = Math.min(1000 * Math.pow(2, sseReconnectAttempts - 1), 10000)
-    
-    // Give up after 10 attempts (about 1 minute total)
     if (sseReconnectAttempts > 10) {
       error = 'Lost connection to compilation stream. Please refresh.'
       loading = false
       return
     }
-    
     clearReconnectTimer()
-    sseReconnectTimer = setTimeout(() => {
-      console.log(`Reconnecting SSE (attempt ${sseReconnectAttempts})...`)
-      connectSse()
-    }, delay)
+    sseReconnectTimer = setTimeout(() => { connectSse() }, delay)
   }
 
   function handleCompletion(payload) {
@@ -161,6 +139,7 @@
     numPages = payload.diagnostics?.page_count || 0
     loading = false
     error = ""
+    // We increment page here simply to trigger reload if it was already on page 1, but svelte handles reactivity
     dispatch('compiled', {
       pdf_url: payload.pdf_url,
       diagnostics: payload.diagnostics,
@@ -177,68 +156,128 @@
     })
   }
 
-  onDestroy(() => {
-    stopStatusPolling()
-    stopSse()
-  })
+  function handleMouseDown(e) {
+    if (!visualFixMode || visualFixing) return;
+    const rect = imgContainer.getBoundingClientRect();
+    startX = e.clientX - rect.left;
+    startY = e.clientY - rect.top;
+    isDrawing = true;
+    box = { x: startX, y: startY, w: 0, h: 0 };
+  }
 
-  function handlePageChange(e) {
-    const page = parseInt(e.target.value)
-    if (page >= 1 && page <= numPages) {
-      currentPage = page
+  function handleMouseMove(e) {
+    if (!isDrawing) return;
+    const rect = imgContainer.getBoundingClientRect();
+    const currX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const currY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+    box = {
+      x: Math.min(startX, currX),
+      y: Math.min(startY, currY),
+      w: Math.abs(currX - startX),
+      h: Math.abs(currY - startY)
+    };
+  }
+
+  async function handleMouseUp(e) {
+    if (!isDrawing) return;
+    isDrawing = false;
+    if (box && box.w > 10 && box.h > 10) {
+      visualFixing = true;
+      const rect = imgContainer.getBoundingClientRect();
+      const imgElement = imgContainer.querySelector('img');
+      const scaleX = imgElement.naturalWidth / rect.width;
+      const scaleY = imgElement.naturalHeight / rect.height;
+      
+      const apiBox = {
+        x: Math.round(box.x * scaleX),
+        y: Math.round(box.y * scaleY),
+        w: Math.round(box.w * scaleX),
+        h: Math.round(box.h * scaleY),
+      };
+      
+      try {
+         const res = await api.repairVisualCrop(filePath, currentPage, apiBox.x, apiBox.y, apiBox.w, apiBox.h);
+         if (res && res.edits && res.edits.length > 0) {
+            dispatch('apply-selected', res.edits);
+         }
+      } catch (err) {
+         error = err.message;
+      } finally {
+         visualFixing = false;
+         box = null;
+         visualFixMode = false;
+      }
+    } else {
+      box = null;
     }
   }
 
-  function nextPage() {
-    if (currentPage < numPages) {
-      currentPage++
-    }
-  }
-
-  function prevPage() {
-    if (currentPage > 1) {
-      currentPage--
-    }
+  function onImageLoad() {
+    // Force a re-layout if needed
   }
 </script>
 
 <div class="pdf-viewer" bind:this={containerRef}>
   {#if error}
     <div class="error-message">{error}</div>
+  {/if}
+
+  {#if pdfPath && filePath}
+    <div class="pdf-controls">
+      <button on:click={() => currentPage = Math.max(1, currentPage - 1)} disabled={currentPage <= 1}>Previous</button>
+      <input type="number" bind:value={currentPage} min="1" max={numPages || 100} />
+      <span>of {numPages || '?'}</span>
+      <button on:click={() => currentPage = Math.min(numPages || 100, currentPage + 1)} disabled={numPages ? currentPage >= numPages : false}>Next</button>
+      
+      <div class="spacer"></div>
+      <button 
+        class="visual-fix-btn" 
+        class:active={visualFixMode}
+        on:click={() => { visualFixMode = !visualFixMode; box = null; }}
+        title="Draw a bounding box to fix an issue"
+      >
+        {visualFixMode ? 'Cancel Visual Fix' : 'Visual Fix'}
+      </button>
+    </div>
+    
+    <div class="pdf-frame">
+      <!-- svelte-ignore a11y-no-static-element-interactions -->
+      <div 
+        class="img-container" 
+        bind:this={imgContainer}
+        on:mousedown={handleMouseDown}
+        on:mousemove={handleMouseMove}
+        on:mouseup={handleMouseUp}
+        on:mouseleave={handleMouseUp}
+        style="cursor: {visualFixMode ? 'crosshair' : 'default'}"
+      >
+        <!-- svelte-ignore a11y-missing-attribute -->
+        <img src={pageImgUrl} class="pdf-img" on:load={onImageLoad} draggable="false" />
+        {#if box}
+          <div class="bbox" style="left: {box.x}px; top: {box.y}px; width: {box.w}px; height: {box.h}px;"></div>
+        {/if}
+        {#if visualFixing}
+          <div class="visual-overlay fixing">
+            <div class="overlay-msg">Analyzing visual selection...</div>
+          </div>
+        {/if}
+      </div>
+    </div>
   {:else if loading}
     <div class="loading">
       <div class="spinner"></div>
-      <p>
+      <div>
         {#if compilationStatus === 'queued'}
           Queued for compilation...
         {:else if compilationStatus === 'compiling'}
           Compiling LaTeX... {Math.round(compilationProgress * 100)}%
         {:else}
-          Compiling LaTeX...
+          Loading PDF...
         {/if}
-      </p>
-    </div>
-  {:else if pdfPath}
-    <div class="pdf-controls">
-      <button on:click={prevPage} disabled={currentPage === 1}>← Prev</button>
-      <input
-        type="number"
-        min="1"
-        max={numPages}
-        value={currentPage}
-        on:change={handlePageChange}
-      />
-      <span>of {numPages}</span>
-      <button on:click={nextPage} disabled={currentPage === numPages}>Next →</button>
-    </div>
-    <div class="pdf-frame">
-      <iframe
-        src={iframeSrc}
-        title="PDF Viewer"
-      ></iframe>
+      </div>
     </div>
   {:else}
-    <div class="no-pdf">No PDF yet. Compile your document first.</div>
+    <div class="no-pdf">No PDF compiled yet.</div>
   {/if}
 </div>
 
@@ -248,6 +287,64 @@
     flex-direction: column;
     height: 100%;
     background: #fafafa;
+    position: relative;
+  }
+  
+  .spacer { flex: 1; }
+  
+  .visual-fix-btn {
+    background: #4caf50 !important;
+  }
+  .visual-fix-btn.active {
+    background: #e53935 !important;
+  }
+  
+  .pdf-frame {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    background: #e0e0e0;
+    padding: 20px;
+  }
+
+  .img-container {
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    background: white;
+    display: inline-block;
+  }
+
+  .pdf-img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .bbox {
+    position: absolute;
+    border: 2px solid #e53935;
+    background: rgba(229, 57, 53, 0.2);
+    pointer-events: none;
+  }
+
+  .visual-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  
+  .overlay-msg {
+    background: white;
+    padding: 10px 20px;
+    border-radius: 4px;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   }
 
   .error-message {
@@ -326,16 +423,5 @@
   .pdf-controls span {
     font-size: 13px;
     color: #666;
-  }
-
-  .pdf-frame {
-    flex: 1;
-    overflow: auto;
-  }
-
-  .pdf-frame iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
   }
 </style>

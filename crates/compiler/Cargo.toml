@@ -13,6 +13,7 @@ moka = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+latex-ai-core = { path = "../latex_ai_core" }
 
 [dev-dependencies]
 tokio = { workspace = true }

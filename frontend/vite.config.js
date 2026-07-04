@@ -1,8 +1,15 @@
 import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 
+import path from 'path';
+
 export default defineConfig({
   plugins: [svelte()],
+  resolve: {
+    alias: {
+      '$app/environment': path.resolve(__dirname, './src/app-env-mock.js')
+    }
+  },
   server: {
     port: 5173,
     proxy: {
@@ -16,6 +23,9 @@ export default defineConfig({
         ws: true
       }
     }
+  },
+  optimizeDeps: {
+    exclude: ['$app/environment']
   },
   build: {
     outDir: 'dist',

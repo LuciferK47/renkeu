@@ -4,8 +4,6 @@
 -->
 <script>
   import FileTree from '../components/FileTree.svelte'
-  import HistorySidebar from '../components/HistorySidebar.svelte'
-
   export let filePath = ''
   export let showHistory = false
   export let showFileTree = true
@@ -14,16 +12,31 @@
   export let onFileTreeToggle = () => {}
   export let onHistoryToggle = () => {}
   export let onRestoreHistory = () => {}
+  
+  let HistorySidebar;
+  let historyLoaded = false;
+
+  $: if (showHistory && !historyLoaded) {
+    import('../components/HistorySidebar.svelte').then(module => {
+      HistorySidebar = module.default;
+      historyLoaded = true;
+    });
+  }
 </script>
 
 <div class="panel-manager">
   {#if showHistory && !showFileTree}
     <div class="panel">
-      <HistorySidebar
-        {filePath}
-        agentOnly={true}
-        on:restore={(e) => onRestoreHistory(e.detail)}
-      />
+      {#if HistorySidebar}
+        <svelte:component 
+          this={HistorySidebar}
+          {filePath}
+          agentOnly={true}
+          on:restore={(e) => onRestoreHistory(e.detail)}
+        />
+      {:else}
+        <div class="loading">Loading history...</div>
+      {/if}
     </div>
   {/if}
 

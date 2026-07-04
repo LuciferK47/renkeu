@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT NOT NULL,
+    command TEXT NOT NULL,
+    new_text TEXT NOT NULL,
+    diff TEXT NOT NULL,
+    edit_type TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
