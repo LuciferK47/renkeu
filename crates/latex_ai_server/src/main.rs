@@ -49,7 +49,29 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve(port: u16) -> anyhow::Result<()> {
-    let app = latex_ai_server::build_router();
+    let planner = std::sync::Arc::new(latex_ai_core::ai::GeminiPlanner::new("gemini-2.5-flash"));
+    let compiler = latex_ai_compiler::Engine::new(10);
+    
+    // SQLite setup
+    let db_path = std::env::current_dir()?.join(".latex-ai.db");
+    let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .with_context(|| "Failed to connect to database")?;
+        
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    
+    let store = std::sync::Arc::new(latex_ai_core::storage::Store::new(
+        pool,
+        std::env::current_dir()?,
+    ));
+
+    let queue = std::sync::Arc::new(latex_ai_compiler::queue::CompilationQueue::new(std::sync::Arc::new(compiler.clone())));
+
+    let state = latex_ai_server::AppState { planner, compiler, queue, store };
+    let app = latex_ai_server::build_router(state);
     let addr = format!("127.0.0.1:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -63,7 +85,7 @@ async fn compile(file: &std::path::Path, out: &std::path::Path) -> anyhow::Resul
     let latex = tokio::fs::read_to_string(file)
         .await
         .with_context(|| format!("reading {}", file.display()))?;
-    let engine = Engine::default();
+    let engine = Engine::new(10);
     let result = engine
         .compile(&latex, &CancellationToken::new())
         .await

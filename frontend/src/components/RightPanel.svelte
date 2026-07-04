@@ -4,7 +4,7 @@
   import { createEventDispatcher } from 'svelte'
   
   export let diff = ''
-  export let pdfUrl = ''
+  export let pdfUrl = ''; export let filePath = ''
   export let pdfPages = 0
   export let compileErrors = []
   export let compileWarnings = []
@@ -243,7 +243,7 @@ Wrap up and future work.
     {:else if activeTab === 'pdf'}
       <div id="pdf-panel" role="tabpanel" aria-labelledby="tab-pdf">
         <PdfViewer 
-          pdfPath={pdfUrl}
+          pdfPath={pdfUrl} {filePath}
           numPages={pdfPages}
           {jobId}
           loading={compiling}
@@ -338,16 +338,31 @@ Wrap up and future work.
         {#if aiPlan}
           <div class="ai-panel">
             <h3>Proposed Plan</h3>
-            <div class="ai-actions">
-              <button 
-                class="apply-all-btn" 
-                on:click={applyAll} 
-                aria-label="Apply all AI steps"
-              >
-                Apply All Steps
-              </button>
-            </div>
-            {#if aiPlan.steps}
+            {#if aiPlan.edits}
+              <div class="ai-actions">
+                <button 
+                  class="apply-all-btn" 
+                  on:click={() => dispatch('apply-selected', { hunks: aiPlan.edits, selected: aiPlan.edits.map(() => true) })} 
+                  aria-label="Apply all AI edits"
+                >
+                  Apply All Edits
+                </button>
+              </div>
+              <DiffView 
+                edits={aiPlan.edits}
+                on:apply-selected={(e) => dispatch('apply-selected', e.detail)}
+                on:reject-all={() => dispatch('reject-all')}
+              />
+            {:else if aiPlan.steps}
+              <div class="ai-actions">
+                <button 
+                  class="apply-all-btn" 
+                  on:click={applyAll} 
+                  aria-label="Apply all AI steps"
+                >
+                  Apply All Steps
+                </button>
+              </div>
               <div role="list" aria-label="AI plan steps">
                 {#each aiPlan.steps as step, i}
                   <div class="ai-step" role="listitem">
@@ -367,11 +382,11 @@ Wrap up and future work.
                           >
                             Apply
                           </button>
+                        </div>
+                      {/if}
                     </div>
-                  {/if}
-                </div>
-              </div>
-            {/each}
+                  </div>
+                {/each}
               </div>
             {:else}
               <pre class="ai-json">{JSON.stringify(aiPlan, null, 2)}</pre>

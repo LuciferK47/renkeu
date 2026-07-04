@@ -87,6 +87,12 @@ export class APIClient {
   getPdfUrl(jobId) {
     return `${BASE_URL}/compile/stream/${jobId}`
   }
+
+  repairVisualCrop(filePath, page, x, y, w, h) {
+    return this.request('POST', '/visual-fix', {
+      body: { file_path: filePath, page, x, y, w, h }
+    })
+  }
 }
 
 export const api = new APIClient()

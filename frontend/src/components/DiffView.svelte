@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte'
 
   export let diff = ''
+  export let edits = null
   export let conflicts = []  // Array of conflict objects: {line, status, versions}
   
   let showConflictModal = false
@@ -44,7 +45,25 @@
     return hunks
   }
 
-  function parseDiff(diffText) {
+  function parseDiff(diffText, agentEdits) {
+    if (agentEdits) {
+      return agentEdits.map((edit, idx) => {
+        let lines = []
+        if (edit.op === 'replace_range' && edit.text && edit.insert_text) {
+          edit.text.split('\n').forEach(l => lines.push({ raw: '-' + l, type: 'remove', text: l }))
+          edit.insert_text.split('\n').forEach(l => lines.push({ raw: '+' + l, type: 'add', text: l }))
+        } else if (edit.op === 'insert' && edit.insert_text) {
+          edit.insert_text.split('\n').forEach(l => lines.push({ raw: '+' + l, type: 'add', text: l }))
+        } else if (edit.op === 'rewrite_file' && edit.payload) {
+          lines.push({ raw: '+ [File Rewritten]', type: 'add', text: '[File Rewritten]' })
+        }
+        return {
+          header: `@@ ${edit.op} lines ${edit.start_line || '?'}-${edit.end_line || '?'} @@`,
+          lines,
+          id: edit.hunk_id
+        }
+      })
+    }
     // Use worker for large diffs
     if (workerAvailable && diffText && diffText.length > 20000) {
       return new Promise((resolve) => {
@@ -62,7 +81,7 @@
 
   // Initialize worker once
   $: initWorker()
-  $: hunksPromise = parseDiff(diff)
+  $: hunksPromise = parseDiff(diff, edits)
   let hunks = []
   $: if (hunksPromise && typeof hunksPromise.then === 'function') {
     hunksPromise.then((h) => { hunks = h })

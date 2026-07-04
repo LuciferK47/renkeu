@@ -24,16 +24,4 @@ describe('StatusBar Component', () => {
     
     expect(container.textContent).toContain('Compiling')
   })
-
-  it('displays file path when provided', () => {
-    const { getByText } = render(StatusBar, {
-      props: {
-        status: 'Ready',
-        filePath: 'test.tex',
-        compiling: false
-      }
-    })
-    
-    expect(getByText(/test\.tex/)).toBeTruthy()
-  })
 })

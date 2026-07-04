@@ -6,6 +6,9 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod queue;
+pub mod scratchpad;
+
 use std::sync::{Arc, OnceLock};
 
 use tokio::sync::Mutex;
@@ -24,6 +27,9 @@ pub enum CompileError {
     /// The caller cancelled before the compile finished.
     #[error("compilation cancelled by client")]
     Cancelled,
+    /// The concurrency semaphore was unexpectedly closed.
+    #[error("compile queue semaphore closed")]
+    SemaphoreClosed,
 }
 
 /// Outcome of a successful (or empty) compile.

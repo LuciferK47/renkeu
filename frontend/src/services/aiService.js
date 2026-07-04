@@ -19,6 +19,10 @@ export async function requestAIPlan(filePath, requestText, model = null) {
   })
 }
 
+export async function applySelectedHunks(filePath, edits, selectedHunkIds) {
+  return api.applySelectedHunks(filePath, edits, selectedHunkIds)
+}
+
 export async function streamAIPlan(
   filePath,
   requestText,
@@ -95,6 +99,44 @@ export async function streamCodeReview(
   } catch (error) {
     if (onError) onError(error)
   }
+}
+
+export async function agentLoopStream(
+  filePath,
+  instruction,
+  onEvent,
+  onError
+) {
+  try {
+    const response = await fetch(api.buildUrl('/agent/stream'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_path: filePath || 'main.tex',
+        instruction: instruction,
+      })
+    })
+    if (!response.ok) throw new Error('Agent stream failed')
+
+    for await (const evt of streamSSE(response)) {
+      onEvent(evt)
+    }
+  } catch (error) {
+    if (onError) onError(error)
+  }
+}
+
+export async function requestVisualFix(filePath, page, x, y, w, h) {
+  const response = await fetch(api.buildUrl('/visual-fix'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      file_path: filePath,
+      page, x, y, w, h
+    })
+  });
+  if (!response.ok) throw new Error('Visual fix request failed');
+  return response.json();
 }
 
 export async function getAvailableModels() {

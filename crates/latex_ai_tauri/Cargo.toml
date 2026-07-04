@@ -1,0 +1,23 @@
+[package]
+name = "latex-ai-tauri"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tauri = { version = "2.0.0-rc", features = ["tray-icon"] }
+tokio = { workspace = true }
+axum = { workspace = true }
+latex-ai-server = { path = "../latex_ai_server" }
+latex-ai-core = { path = "../latex_ai_core" }
+latex-ai-compiler = { path = "../compiler" }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+anyhow = { workspace = true }
+
+[build-dependencies]
+tauri-build = { version = "2.0.0-rc", features = [] }
+
+[lints]
+workspace = true

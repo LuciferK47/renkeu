@@ -1,197 +1,84 @@
-<!--
-  IdeShell - Top-level IDE container managing global state and layout
-  Responsible for: sidebar visibility, theme, keyboard shortcuts, dialogs
--->
 <script>
   import KeyboardShortcuts from '../components/KeyboardShortcuts.svelte'
   import ThemeToggle from '../components/ThemeToggle.svelte'
-  import SettingsPanel from '../components/SettingsPanel.svelte'
-  import Toasts from '../components/Toasts.svelte'
   import CommandPalette from '../components/CommandPalette.svelte'
-  import WorkspaceLayout from './WorkspaceLayout.svelte'
-
-  export let filePath = ''
+  import Toasts from '../components/Toasts.svelte'
+  import FileOpener from '../components/FileOpener.svelte'
+  import SearchResults from '../components/SearchResults.svelte'
+  import StatusBar from '../components/StatusBar.svelte'
+  
+  import { uiStore, toggleFileTree, toggleHistory, toggleSettings } from '../stores/uiStore.js'
+  import { fileStore } from '../stores/fileStore.js'
+  import { compileStore } from '../stores/compileStore.js'
+  
   export let shortcuts = {}
-  export let themeSettings = {}
-  export let showSettings = false
-  export let toasts = []
+  export let selectedFiles = []
   export let dryRun = false
   export let bulkMode = false
-  export let selectedFiles = []
+  export let conflictData = null
+  export let recentFiles = []
+  export let pinnedFiles = []
+  export let searchQuery = ''
+  export let searchResults = []
+  export let searchLoading = false
   export let commandPaletteRef = null
-  export let layoutMode = 'overleaf'
-
-  // Events
-  export let onFileChange = () => {}
-  export let onShortcut = () => {}
-  export let onThemeChange = () => {}
-  export let onFileTreeToggle = () => {}
-  export let onHistoryToggle = () => {}
-  export let onCompile = () => {}
-  export let onBulkCommand = () => {}
-  export let onDryRunToggle = () => {}
-  export let onAIPlan = () => {}
-  export let onToastRemove = () => {}
-  export let onConflictResolve = () => {}
-  export let onSettingsChange = () => {}
-
-  // Props from parent
-  export let showHistory = false
-  export let showFileTree = true
-  export let isDirty = false
-  export let compiling = false
-  export let conflictDialogState = { show: false, data: null }
-
-  let showSidebar = true
+  export let SettingsPanel = null
+  export let settingsLoaded = false
 </script>
 
-<div class="ide-shell" role="application" aria-label="LaTeX AI Editor">
-  <!-- Keyboard shortcuts handler (invisible) -->
-  <KeyboardShortcuts {shortcuts} on:shortcut={onShortcut} />
+<div class="app" role="application" aria-label="LaTeX AI Editor">
+  <KeyboardShortcuts {shortcuts} on:shortcut />
 
-  <!-- Sidebar Navigation -->
-  <div class="sidebar" role="navigation" aria-label="Document navigation" class:hidden={!showSidebar}>
-    <div class="sidebar-header">
-      <button
-        on:click={() => (showSidebar = false)}
-        class="sidebar-close"
-        aria-label="Close sidebar"
-      >
-        ✕
-      </button>
-    </div>
+  <div class="sidebar" role="navigation" aria-label="Document navigation">
     <slot name="sidebar" />
   </div>
 
-  <!-- Main Content Area -->
-  <div class="main">
-    <!-- Top Bar with Controls -->
+  <div class="main" role="main">
     <div class="top-bar" role="toolbar" aria-label="Document controls">
-      {#if !showSidebar}
-        <button
-          on:click={() => (showSidebar = true)}
-          class="sidebar-toggle"
-          aria-label="Open sidebar"
-        >
-          ☰
-        </button>
-      {/if}
-
-      <slot name="topbar" />
-
-      <div class="ml-auto">
-        <ThemeToggle onThemeChange={onThemeChange} />
-      </div>
+      <label for="file-path-input" class="sr-only">File path</label>
+      <input id="file-path-input" type="text" placeholder="File path..." value={$fileStore.filePath} on:change class="flex-1 px-3 py-2 border rounded" aria-label="Current file path" />
+      {#if $fileStore.dirty}<span aria-live="polite" class="text-red-600" title="Unsaved changes">•</span>{/if}
+      <button on:click={toggleFileTree} class="ml-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" aria-label={$uiStore.showFileTree ? 'Hide file tree' : 'Show file tree'} aria-pressed={$uiStore.showFileTree}>{$uiStore.showFileTree ? 'Hide Tree' : 'Files'}</button>
+      <button on:click={toggleHistory} class="ml-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" aria-label={$uiStore.showHistory ? 'Hide history' : 'Show file history'} aria-pressed={$uiStore.showHistory}>{$uiStore.showHistory ? 'Hide' : 'History'}</button>
+      <button on:click|preventDefault on:compile disabled={!$fileStore.filePath || $compileStore.status === 'compiling'} class="ml-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed" title="Compile to PDF (Ctrl+Enter)" aria-busy={$compileStore.status === 'compiling'}>{$compileStore.status === 'compiling' ? '⏳ Compiling...' : '📄 Compile'}</button>
+      <button on:click|preventDefault on:settings-toggle class="ml-2 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600" aria-label={$uiStore.showSettings ? 'Close settings' : 'Open settings'} aria-pressed={$uiStore.showSettings}>⚙️ Settings</button>
+      {#if selectedFiles.length > 0}<span class="ml-2 px-3 py-2 bg-green-100 text-green-800 rounded" role="status" aria-live="polite" aria-atomic="true">{selectedFiles.length} {selectedFiles.length === 1 ? 'file' : 'files'} selected</span>{/if}
+      <div class="ml-auto"><ThemeToggle on:theme-change /></div>
     </div>
 
-    <!-- Main Workspace -->
-    <WorkspaceLayout
-      {filePath}
-      {isDirty}
-      {compiling}
-      {layoutMode}
-      {selectedFiles}
-      {bulkMode}
-      on:file-change={onFileChange}
-      on:file-tree-toggle={onFileTreeToggle}
-      on:history-toggle={onHistoryToggle}
-      on:compile={onCompile}
-    >
-      <slot name="workspace" />
-    </WorkspaceLayout>
+    <slot name="workspace" />
 
-    <!-- Command Palette -->
-    <CommandPalette
-      bind:this={commandPaletteRef}
-      {dryRun}
-      bulkMode={selectedFiles.length > 0}
-      selectedCount={selectedFiles.length}
-      on:command={onBulkCommand}
-      on:ai-plan={onAIPlan}
-      on:toggle-dry-run={onDryRunToggle}
-    />
-
-    <!-- Modals & Overlays -->
-    <slot name="modals" />
-
-    <!-- Toast Notifications -->
-    <Toasts {toasts} on:remove={onToastRemove} />
+    <CommandPalette bind:this={commandPaletteRef} {dryRun} bulkMode={selectedFiles.length > 0} selectedCount={selectedFiles.length} on:command on:ai-plan on:toggle-dry-run />
+    <StatusBar status={$uiStore.status} />
+    <Toasts toasts={$uiStore.toasts} />
+    
+    {#if $uiStore.showConflictDialog && conflictData}
+      <div class="conflict-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
+        <div class="conflict-dialog">
+          <h2 id="conflict-title">File Conflict Detected</h2>
+          <p>The file has been modified by another process. How would you like to proceed?</p>
+          <div class="conflict-actions">
+            <button class="conflict-btn conflict-btn-primary" on:click|preventDefault on:conflict-resolve={{action: 'overwrite'}}>Overwrite Server Version</button>
+            <button class="conflict-btn conflict-btn-secondary" on:click|preventDefault on:conflict-resolve={{action: 'reload'}}>Reload from Server</button>
+            <button class="conflict-btn conflict-btn-cancel" on:click={() => uiStore.update(ui => ({ ...ui, showConflictDialog: false }))}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 
-  <!-- Settings Panel (overlay) -->
-  {#if showSettings}
-    <SettingsPanel
-      {themeSettings}
-      on:setting-changed={onSettingsChange}
-      on:close={() => (showSettings = false)}
-    />
+  {#if $uiStore.showSettings && settingsLoaded && SettingsPanel}
+    <svelte:component this={SettingsPanel} isOpen={$uiStore.showSettings} onClose={toggleSettings} onSave={(u) => {}} on:settings-save />
   {/if}
+
+  <FileOpener visible={$uiStore.showFileOpener} recent={recentFiles} pinned={pinnedFiles} on:close={() => uiStore.update(ui => ({ ...ui, showFileOpener: false }))} on:open on:pin on:unpin />
+  <SearchResults visible={$uiStore.showSearch} {searchQuery} results={searchResults} loading={searchLoading} on:open on:close={() => uiStore.update(ui => ({ ...ui, showSearch: false }))} />
 </div>
 
 <style>
-  .ide-shell {
-    display: flex;
-    height: 100vh;
-    width: 100%;
-    background: hsl(var(--background));
-    color: hsl(var(--foreground));
-  }
-
-  .sidebar {
-    width: 250px;
-    border-right: 1px solid hsl(var(--border));
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    transition: transform 0.3s ease;
-  }
-
-  .sidebar.hidden {
-    display: none;
-  }
-
-  .sidebar-header {
-    padding: 0.5rem;
-    border-bottom: 1px solid hsl(var(--border));
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-  }
-
-  .sidebar-close {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 1.2rem;
-    padding: 0.25rem 0.5rem;
-  }
-
-  .sidebar-toggle {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.5rem 1rem;
-    font-size: 1.2rem;
-  }
-
-  .main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .top-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid hsl(var(--border));
-    background: hsl(var(--secondary));
-    flex-wrap: wrap;
-  }
-
-  .ml-auto {
-    margin-left: auto;
-  }
+  :global(body) { margin: 0; padding: 0; }
+  .app { display: flex; height: 100vh; background: #f5f5f5; }
+  .sidebar { width: 280px; background: #fff; border-right: 1px solid #ddd; overflow-y: auto; }
+  .main { flex: 1; display: flex; flex-direction: column; }
+  .top-bar { padding: 1rem; background: #fff; border-bottom: 1px solid #ddd; display: flex; gap: 0.5rem; align-items: center; }
 </style>
