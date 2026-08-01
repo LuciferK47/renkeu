@@ -3,10 +3,11 @@
 A writing app for LaTeX documents that **fixes its own mistakes using AI**, and
 runs **entirely on your own computer**.
 
-> **Status:** M3 complete. The engine compiles in-process, the AI self-healing
-> loop works end to end, and drawing a box on the PDF maps back to the source
-> line that produced it. Per-hunk polish (M4) and the packaged desktop app (M5)
-> are next — see [`masterplan.md`](masterplan.md) §12.
+> **Status:** M4 complete. The engine compiles in-process, the AI self-healing
+> loop works end to end, drawing a box on the PDF maps back to the source line
+> that produced it, and every proposed change is reviewed and accepted hunk by
+> hunk. The packaged desktop app (M5) is next — see
+> [`masterplan.md`](masterplan.md) §12.
 
 ## What is this, in plain words?
 
@@ -51,7 +52,10 @@ fetched automatically the first time you need them.
 
 The AI never writes to your file directly. Edits are applied to a **scratchpad**
 copy, compiled there, and only saved once they actually build — and, unless you
-opt into `auto_apply`, only after you approve them hunk by hunk.
+opt into `auto_apply`, only after you approve them hunk by hunk. Each hunk is
+previewed by the server using the same code that performs the write, so what
+you review is exactly what you get; a hunk that no longer matches the file is
+shown as stale rather than silently applied.
 
 - **Backend — Rust.** Does the compiling, talks to the AI, and exposes a small
   web API on `127.0.0.1` only.

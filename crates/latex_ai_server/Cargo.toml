@@ -31,6 +31,7 @@ synctex = { version = "0.1.0", path = "../synctex" }
 visual = { version = "0.1.0", path = "../visual" }
 image = "0.25.9"
 thiserror = { workspace = true }
+similar = "2.6"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

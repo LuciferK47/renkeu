@@ -1166,11 +1166,11 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: user accepts/rejects per hunk atomically; hunk_id stable across requeries.
 
 **Deliverables**:
-- [ ] `router::agent::apply_selected`: atomic single-file lock + single etag check + single history entry tagged `apply-selected`.
-- [ ] `HunkId = blake3::hash(search_text).to_hex()[..16]` type (Newtype).
-- [ ] `DiffView.svelte` promoted to standalone component with hunk-level accept/reject affordances.
-- [ ] Per-PR Svelte 5 runes migration in touched files (no forced repo-wide migration).
-- [ ] Tests: same plan twice → identical hunk_id set; reject-all → file unchanged; accept 1/3 → only that range modified.
+- [x] `router::agent::apply_selected`: atomic single-file lock + single etag check + single history entry tagged `apply-selected`.
+- [x] `HunkId = blake3::hash(search_text).to_hex()[..16]` type (Newtype).
+- [x] `DiffView.svelte` promoted to standalone component with hunk-level accept/reject affordances.
+- [x] Per-PR Svelte 5 runes migration in touched files (no forced repo-wide migration) — `DiffView.svelte` and `VisualFixOverlay.svelte` use runes; the other 14 components remain Svelte 4 syntax by design, migrating as they are touched.
+- [x] Tests: same plan twice → identical hunk_id set; reject-all → file unchanged; accept 1/3 → only that range modified.
 
 **Audit Gate (M4)**:
 - Data Integrity: identical hunks across two prompts collapse; reject stale `hunk_id` with 409 when underlying `expected_etag` drifts.
@@ -1313,6 +1313,8 @@ drift.
 | `SyncTeX` input name (M3) | source path recorded in the map | Tectonic always records the primary input as `texput` | Not configurable via `tex_input_name`. Single-document hits therefore resolve to the file the caller compiled; a real name (multi-file, once `bundle` lands) is re-validated against the workspace before being read. |
 | VLM call (M3) | `gemini-2.5-flash-image` | separate `LATEX_AI_VISION_MODEL`, image sent as a real `ContentPart::Image` + `ChatResponseFormat::JsonMode`; honest text-only fallback when unset | Follows the provider switch (row 1). Verified live 2026-08-02: **Groq serves no vision model** (`llama-3.2-*-vision-preview`, which `genai` still lists, are retired), and a text-only model rejects image parts with a 400. So vision is its own configurable model — any provider `genai` routes — and with none configured the route degrades to a source-only fix and logs that it did, rather than pasting base64 into a prompt no model can read. |
 | VLM response shape (M3) | strict JSON array | array, `{"edits": [...]}`, **or a lone edit object** | OpenAI-style JSON mode forces a top-level *object*, so a bare array is impossible for those providers regardless of the prompt. Groq returns a single edit object for a single-change request; the decoder accepts all three and still 422s on anything else. |
+| Hunk preview (M4) | not specified | new `POST /api/agent/preview` | Per-hunk accept needs to show what each hunk *does*, and computing that in the browser would drift from the Rust apply semantics (first-occurrence replace, line splice, diff relocation). The endpoint runs each hunk through the same `core::apply` the write uses, so a test can assert preview and apply produce byte-identical diffs — and does. |
+| Hunk selection scope (M4) | "per hunk" | one hunk == one `AgentEdit` | `hunk_id` is already defined as blake3 of the anchor text (§13), so the edit *is* the unit of review. Sub-splitting an edit's diff would produce hunks with no stable id, which is what the milestone's stability requirement forbids. |
 
 ## 16. Open Questions
 
@@ -1335,5 +1337,5 @@ drift.
 *Document version: 2.0 (Rust Edition)*
 *Date: 2026-06-24*
 *Authors: synthesized from `idea.md`, `CONTEXT.md`, `rust.md`, existing repo audit, and peer-state-of-practice scan (TexGuardian, PaperFit, scholia, ferroleaf, XandSuite, r/tauri 2026-03 thread, genai-rs 0.7 docs, tectonic docs).*
-*Status: M1, M2 and M3 complete and verified (2026-08-02) — see §15.1 for recorded deviations. M4–M5 sequential with audit gates. See §12.*
+*Status: M1–M4 complete and verified (2026-08-02) — see §15.1 for recorded deviations. M5 remains. See §12.*
 *Re-read this doc + `CONTEXT.md` + `idea.md` + `rust.md` at the start of every implementation session.*

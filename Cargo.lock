@@ -3308,6 +3308,7 @@ dependencies = [
  "latex-ai-core",
  "serde",
  "serde_json",
+ "similar",
  "sqlx",
  "synctex",
  "tempfile",
