@@ -75,6 +75,47 @@ impl CompilationQueue {
         Ok(result)
     }
 
+    /// [`Self::submit`] that also produces the `SyncTeX` source map (M3).
+    ///
+    /// `tex_name` participates in the dedup key because the artefact names
+    /// derive from it.
+    ///
+    /// # Errors
+    /// As [`Self::submit`].
+    pub async fn submit_with_synctex(
+        &self,
+        latex: &str,
+        tex_name: &str,
+        cancel: &CancellationToken,
+    ) -> Result<CompileResult, CompileError> {
+        let hash = blake3::hash(latex.as_bytes()).to_hex().to_string();
+        let key = format!("{hash}:synctex:{tex_name}");
+
+        if let Some(cached) = self.cache.get(&key).await {
+            return Ok(cached);
+        }
+
+        let _permit = tokio::select! {
+            res = self.semaphore.acquire() => res.map_err(|_| CompileError::SemaphoreClosed)?,
+            () = cancel.cancelled() => return Err(CompileError::Cancelled),
+        };
+
+        if let Some(cached) = self.cache.get(&key).await {
+            return Ok(cached);
+        }
+
+        let result = self
+            .engine
+            .compile_with_synctex(latex, tex_name, cancel)
+            .await?;
+
+        if result.success {
+            self.cache.insert(key, result.clone()).await;
+        }
+
+        Ok(result)
+    }
+
     /// Debounced [`Self::submit`] for auto-compile-on-keystroke callers: waits
     /// `debounce`, and if a newer debounced submission arrived meanwhile,
     /// yields [`CompileError::Superseded`] instead of compiling stale source.
