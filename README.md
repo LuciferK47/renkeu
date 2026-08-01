@@ -3,10 +3,10 @@
 A writing app for LaTeX documents that **fixes its own mistakes using AI**, and
 runs **entirely on your own computer**.
 
-> **Status:** M2 complete. The engine compiles in-process, the API is up, and
-> the AI self-healing loop works end to end. Click-the-PDF editing (M3),
-> per-hunk polish (M4), and the packaged desktop app (M5) are next — see
-> [`masterplan.md`](masterplan.md) §12.
+> **Status:** M3 complete. The engine compiles in-process, the AI self-healing
+> loop works end to end, and drawing a box on the PDF maps back to the source
+> line that produced it. Per-hunk polish (M4) and the packaged desktop app (M5)
+> are next — see [`masterplan.md`](masterplan.md) §12.
 
 ## What is this, in plain words?
 
@@ -59,6 +59,16 @@ opt into `auto_apply`, only after you approve them hunk by hunk.
   Svelte. Kept in JavaScript on purpose — see [`masterplan.md`](masterplan.md) §10.1.
 - **Live updates.** Progress streams back over SSE (the server pushing little
   updates instead of you refreshing).
+- **Click-to-edit.** Drawing a box on the PDF resolves, through the SyncTeX
+  source map, to the exact line that produced that spot. The crop plus the
+  surrounding source go to the model, which proposes a bounded edit you review
+  before it is applied.
+
+> **Vision caveat.** Analysing the crop needs a vision-capable model. Groq's
+> current lineup is text-only, so with Groq alone visual fix still finds the
+> right source line and proposes a fix — but from the source text, not the
+> picture. Point `LATEX_AI_VISION_MODEL` at a vision model to get the full
+> behaviour.
 
 ## Build & run
 
@@ -114,6 +124,7 @@ source .env
 |---|---|---|
 | `GROQ_API_KEY` | *(required for AI routes)* | Groq API key |
 | `LATEX_AI_MODEL` | `llama-3.3-70b-versatile` | Planner model. Must be a name `genai` recognizes, or it silently falls back to Ollama. |
+| `LATEX_AI_VISION_MODEL` | *(unset)* | Model used for visual fix. **Groq currently serves no vision model**, so leave it unset for Groq and visual-fix degrades to a source-only fix (see below). Set it to any vision model `genai` can route — e.g. an OpenAI or Gemini one, with that provider's key exported — to have the PDF crop actually analysed. |
 | `ALLOWED_ORIGINS` | Vite dev origins | Comma-separated CORS allowlist |
 | `LATEX_AI_HOME` | `~/.latex-ai` | Scratchpad root |
 | `RUST_LOG` | `info` | Tracing filter |
@@ -134,8 +145,8 @@ package):
 | `crates/compiler` | Runs Tectonic to turn LaTeX into PDF bytes: global mutex, result cache, dedup/debounce queue, per-session scratchpads |
 | `crates/latex_ai_core` | Use-case-agnostic services: AI planner, edit application, storage + history, path sandbox, prompt safety, fuzzy search |
 | `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool |
-| `crates/synctex` | `.synctex(.gz)` parser + backward search (PDF position → source line) |
-| `crates/visual` | pdfium page rendering and bbox cropping |
+| `crates/synctex` | `.synctex(.gz)` parser, scaled-point→PDF-point conversion, backward *and* forward search |
+| `crates/visual` | pdfium page rendering and bbox cropping (one process-wide binding) |
 | `crates/latex_ai_tauri` | Desktop shell (M5) — builds, not yet packaged |
 
 ## Quality bar
@@ -150,6 +161,21 @@ cargo deny check          # advisories + licenses + sources
 cargo machete             # no unused dependencies
 cd frontend && npx vitest run
 ```
+
+### Resource limits
+
+Several tests start a real Tectonic engine, which loads the font/bundle cache
+and costs hundreds of MB each. Left unbounded, `nextest` runs one test process
+per core and `cargo` one rustc per core — enough to exhaust a 16 GB machine.
+Two checked-in files cap that:
+
+| File | Limit | Why |
+|---|---|---|
+| `.config/nextest.toml` | 4 test threads; LaTeX-compiling tests in a `max-threads = 1` group | Only one Tectonic in flight at a time — it mirrors the engine's own global mutex, so it costs almost no wall-clock |
+| `.cargo/config.toml` | `jobs = 6` | rustc peaks at 1-2 GB per crate on this dependency tree |
+
+Raise both if you have RAM to spare, or override per run with
+`cargo build -j <n>` / `cargo nextest run --test-threads <n>`.
 
 Workspace lints are deny-level (`clippy::pedantic`, no `unwrap`/`expect`/`todo`
 outside tests). CI additionally asserts that streaming endpoints only emit

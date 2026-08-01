@@ -53,8 +53,11 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
+      # The `ci` profile in .config/nextest.toml keeps LaTeX-compiling tests
+      # serial; GitHub runners have 4 cores / 16 GB and several tests each
+      # start a full Tectonic engine.
       - name: Run tests
-        run: cargo nextest run --workspace --exclude latex-ai-tauri
+        run: cargo nextest run --profile ci --workspace --exclude latex-ai-tauri
 
   supply-chain:
     name: Licenses, advisories, unused deps

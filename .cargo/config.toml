@@ -1,0 +1,9 @@
+# Build limits (added 2026-08-02 after an OOM on a 14 GiB / 16-core box).
+#
+# rustc peaks at ~1-2 GB per crate on this dependency tree (tectonic, tauri),
+# so the default of one job per core can request far more memory than the
+# machine has. Half the cores keeps builds fast without the cliff.
+#
+# Override per-invocation with `cargo build -j <n>` if you have more RAM.
+[build]
+jobs = 6
