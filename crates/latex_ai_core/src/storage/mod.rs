@@ -141,6 +141,8 @@ impl Store {
         };
         let current_etag = etag_of(&old_content);
 
+        // Every etag is checked BEFORE anything is applied, so a stale
+        // selection cannot half-write (masterplan §12 M4 audit: security).
         for edit in edits {
             if let Some(expected) = &edit.expected_etag {
                 if expected != &current_etag {
@@ -152,7 +154,9 @@ impl Store {
             }
         }
 
-        let new_content = apply::apply_edits(&old_content, edits)?;
+        // Identical hunks from two prompts collapse to one application.
+        let unique = crate::compile::dedupe_hunks(edits);
+        let new_content = apply::apply_edits(&old_content, &unique)?;
 
         self.write_and_record(
             path,
