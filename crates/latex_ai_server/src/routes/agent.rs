@@ -83,7 +83,9 @@ fn prepare(
     Ok((abs, safe_instruction))
 }
 
-fn stamp_hunk_ids(edits: &mut [AgentEdit]) {
+/// Stamp server-computed hunk ids so a proposal can be applied per hunk
+/// through `POST /api/agent/apply-selected`.
+pub(crate) fn stamp_hunk_ids(edits: &mut [AgentEdit]) {
     for edit in edits.iter_mut() {
         edit.hunk_id = Some(edit.hunk_id().0);
     }

@@ -71,9 +71,16 @@ async fn run_compile_job(
         error_summary: None,
     });
 
+    // SyncTeX is requested on every job: it is what makes click-to-source
+    // work, and asking for it after the fact would mean recompiling.
+    let tex_name = abs_path.file_name().map_or_else(
+        || "document.tex".to_owned(),
+        |n| n.to_string_lossy().into_owned(),
+    );
+
     let result = match state
         .queue
-        .submit(&content, &CancellationToken::new())
+        .submit_with_synctex(&content, &tex_name, &CancellationToken::new())
         .await
     {
         Ok(r) if r.success => r,
@@ -85,6 +92,19 @@ async fn run_compile_job(
     let pdf_path = abs_path.with_extension("pdf");
     if let Err(e) = tokio::fs::write(&pdf_path, result.pdf_bytes.as_ref()).await {
         return fail(&job_tx, format!("could not write PDF: {e}"));
+    }
+
+    // …and the source map beside it, for POST /api/visual-fix.
+    let synctex_path = abs_path.with_extension("synctex.gz");
+    if let Some(gz) = &result.synctex_gz {
+        if let Err(e) = tokio::fs::write(&synctex_path, gz.as_ref()).await {
+            // Not fatal: the PDF is still usable, only click-to-source is.
+            tracing::warn!(error = %e, "could not write the SyncTeX map");
+        }
+    } else {
+        // A stale map would silently point at the wrong lines.
+        let _ = tokio::fs::remove_file(&synctex_path).await;
+        tracing::warn!("compile produced no SyncTeX map");
     }
 
     let page_count = count_pages(pdf_path).await;

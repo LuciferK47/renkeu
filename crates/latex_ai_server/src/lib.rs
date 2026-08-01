@@ -147,10 +147,7 @@ mod tests {
         }
         fn visual_fix<'a>(
             &'a self,
-            _instruction: &'a str,
-            _b64_image: &'a str,
-            _file_path: Option<&'a str>,
-            _line: Option<u32>,
+            _req: latex_ai_core::ai::VisualFixRequest<'a>,
             _cancel: CancellationToken,
         ) -> PlanFuture<'a> {
             Box::pin(async { Err::<Vec<AgentEdit>, _>(AiError::EmptyResponse) })

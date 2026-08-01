@@ -78,10 +78,7 @@ impl EditPlanner for ScriptedPlanner {
 
     fn visual_fix<'a>(
         &'a self,
-        _instruction: &'a str,
-        _b64_image: &'a str,
-        _file_path: Option<&'a str>,
-        _line: Option<u32>,
+        _req: latex_ai_core::ai::VisualFixRequest<'a>,
         _cancel: CancellationToken,
     ) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::EmptyResponse) })
@@ -111,10 +108,7 @@ impl EditPlanner for HangingPlanner {
 
     fn visual_fix<'a>(
         &'a self,
-        _instruction: &'a str,
-        _b64_image: &'a str,
-        _file_path: Option<&'a str>,
-        _line: Option<u32>,
+        _req: latex_ai_core::ai::VisualFixRequest<'a>,
         _cancel: CancellationToken,
     ) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::EmptyResponse) })

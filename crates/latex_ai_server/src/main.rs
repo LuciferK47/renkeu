@@ -52,8 +52,10 @@ async fn serve(port: u16) -> anyhow::Result<()> {
     // Model must be one genai 0.1.23 recognizes (unknown names fall back to Ollama).
     let model =
         std::env::var("LATEX_AI_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
-    let planner: std::sync::Arc<dyn latex_ai_core::ai::EditPlanner> =
-        std::sync::Arc::new(latex_ai_core::ai::LlmPlanner::new(model.clone()));
+    let planner: std::sync::Arc<dyn latex_ai_core::ai::EditPlanner> = std::sync::Arc::new(
+        latex_ai_core::ai::LlmPlanner::new(model.clone())
+            .with_vision_model(std::env::var("LATEX_AI_VISION_MODEL").ok()),
+    );
 
     // The workspace root all API paths are sandboxed to (canonicalized so the
     // security checks compare like with like).
