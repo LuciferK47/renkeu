@@ -65,6 +65,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/plan/stream", post(routes::agent::plan_stream))
         .route("/api/agent/stream", post(routes::agent::agent_loop_stream))
+        .route("/api/agent/preview", post(routes::agent::preview))
         .route(
             "/api/agent/apply-selected",
             post(routes::agent::apply_selected),

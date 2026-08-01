@@ -397,6 +397,17 @@ async fn run_agent_loop(
     .await;
 }
 
+/// Structural validation for every edit in a request, before any filesystem
+/// work (masterplan §12 M4 audit: security).
+fn validate_edits(edits: &[AgentEdit]) -> Result<(), ApiError> {
+    for edit in edits {
+        edit.validate().map_err(|e| ApiError::Unprocessable {
+            message: e.to_string(),
+        })?;
+    }
+    Ok(())
+}
+
 /// `POST /api/agent/apply-selected` — write the reviewed subset atomically
 /// (masterplan §6.5). Hunk ids are recomputed server-side; the client's copy
 /// is never trusted.
@@ -406,6 +417,7 @@ pub async fn apply_selected(
     Json(req): Json<ApplySelectedRequest>,
 ) -> Result<Json<ApplySelectedResponse>, ApiError> {
     validate_path(&state.workspace_root, &req.file_path, AccessKind::Write)?;
+    validate_edits(&req.edits)?;
 
     let selected: Vec<&AgentEdit> = req
         .edits
@@ -434,6 +446,80 @@ pub async fn apply_selected(
         new_etag: outcome.new_etag,
         diff: outcome.diff,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreviewRequest {
+    pub file_path: String,
+    pub edits: Vec<AgentEdit>,
+}
+
+/// What one proposed hunk would do to the file as it stands.
+#[derive(Debug, Serialize)]
+pub struct HunkPreview {
+    pub hunk_id: String,
+    /// Unified diff of applying this hunk alone. Empty when it cannot apply.
+    pub diff: String,
+    /// `false` when the hunk no longer matches the file — the anchor text is
+    /// gone, a range is out of bounds, an earlier accepted hunk changed it.
+    pub applies: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PreviewResponse {
+    /// Current `ETag`; echo it back as `expected_etag` to make the apply
+    /// conditional on the file not having moved underneath the review.
+    pub etag: String,
+    pub hunks: Vec<HunkPreview>,
+}
+
+/// `POST /api/agent/preview` — per-hunk diffs, writing nothing.
+///
+/// Each hunk is applied to the *current* file independently, so one broken
+/// hunk does not hide the others and the diff shown is exactly what
+/// `apply-selected` would produce for that hunk. Sharing `core::apply` is the
+/// point: a preview computed by different code would eventually drift from
+/// what actually happens.
+#[instrument(skip(state, req))]
+pub async fn preview(
+    State(state): State<AppState>,
+    Json(req): Json<PreviewRequest>,
+) -> Result<Json<PreviewResponse>, ApiError> {
+    validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?;
+    validate_edits(&req.edits)?;
+
+    let (content, etag) = state
+        .store
+        .read_with_etag(std::path::Path::new(&req.file_path))
+        .await?;
+
+    let header = req.file_path.as_str();
+    let hunks = latex_ai_core::compile::dedupe_hunks(&req.edits.iter().collect::<Vec<_>>())
+        .into_iter()
+        .map(
+            |edit| match latex_ai_core::apply::apply_edit(&content, edit) {
+                Ok(updated) => HunkPreview {
+                    hunk_id: edit.hunk_id().0,
+                    diff: similar::TextDiff::from_lines(&content, &updated)
+                        .unified_diff()
+                        .header(header, header)
+                        .to_string(),
+                    applies: true,
+                    error: None,
+                },
+                Err(e) => HunkPreview {
+                    hunk_id: edit.hunk_id().0,
+                    diff: String::new(),
+                    applies: false,
+                    error: Some(e.to_string()),
+                },
+            },
+        )
+        .collect();
+
+    Ok(Json(PreviewResponse { etag, hunks }))
 }
 
 fn truncate(s: &str, max: usize) -> String {
