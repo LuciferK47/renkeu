@@ -227,11 +227,12 @@ Wrap up and future work.
   <div class="tab-content">
     {#if activeTab === 'diff'}
       <div id="diff-panel" role="tabpanel" aria-labelledby="tab-diff">
-        {#if diff}
-          <DiffView 
-            {diff}
-            on:apply-selected={(e) => dispatch('apply-selected', e.detail)}
-            on:reject-all={() => dispatch('reject-all')}
+        {#if aiPlan?.edits?.length}
+          <DiffView
+            edits={aiPlan.edits}
+            {filePath}
+            onapply={(payload) => dispatch('apply-selected', payload)}
+            onreject={() => dispatch('reject-all')}
           />
         {:else}
         <div class="empty-state">
@@ -342,16 +343,17 @@ Wrap up and future work.
               <div class="ai-actions">
                 <button 
                   class="apply-all-btn" 
-                  on:click={() => dispatch('apply-selected', { hunks: aiPlan.edits, selected: aiPlan.edits.map(() => true) })} 
+                  on:click={() => dispatch('apply-selected', { edits: aiPlan.edits, selectedHunkIds: aiPlan.edits.map((e) => e.hunk_id).filter(Boolean) })} 
                   aria-label="Apply all AI edits"
                 >
                   Apply All Edits
                 </button>
               </div>
-              <DiffView 
+              <DiffView
                 edits={aiPlan.edits}
-                on:apply-selected={(e) => dispatch('apply-selected', e.detail)}
-                on:reject-all={() => dispatch('reject-all')}
+                {filePath}
+                onapply={(payload) => dispatch('apply-selected', payload)}
+                onreject={() => dispatch('reject-all')}
               />
             {:else if aiPlan.steps}
               <div class="ai-actions">

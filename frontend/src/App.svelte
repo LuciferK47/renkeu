@@ -154,7 +154,7 @@
       chatMessages={$aiStore.messages}
       chatLoading={$aiStore.status === 'streaming' || $aiStore.status === 'thinking'}
       chatStreamingMessage={$aiStore.streamingMessage}
-      on:apply-selected={(e) => handleApplyHunks(e.detail.selected, $aiStore.currentProposal)}
+      on:apply-selected={(e) => handleApplyHunks(e.detail)}
       on:message-sent={(e) => handleChatMessage(e.detail.content)}
     />
   </svelte:fragment>

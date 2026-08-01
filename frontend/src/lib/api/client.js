@@ -104,9 +104,22 @@ export class APIClient {
 
   // --- agent -------------------------------------------------------------
 
-  applySelectedHunks(filePath, edits, selectedHunkIds) {
+  // Per-hunk diffs computed server-side, so what is shown matches what a
+  // subsequent apply will do. -> { etag, hunks: [{hunk_id, diff, applies, error}] }
+  previewHunks(filePath, edits) {
+    return this.request('POST', '/agent/preview', {
+      body: { file_path: filePath, edits }
+    });
+  }
+
+  // `expectedEtag` makes the write conditional on the file not having moved
+  // while the user reviewed; a 409 carries the winning etag.
+  applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag = null) {
+    const payload = expectedEtag
+      ? edits.map((e) => ({ ...e, expected_etag: expectedEtag }))
+      : edits;
     return this.request('POST', '/agent/apply-selected', {
-      body: { file_path: filePath, edits, selected_hunk_ids: selectedHunkIds }
+      body: { file_path: filePath, edits: payload, selected_hunk_ids: selectedHunkIds }
     });
   }
 

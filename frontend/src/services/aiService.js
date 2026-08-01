@@ -55,8 +55,12 @@ async function streamAgentEndpoint(path, body, onEvent, onError) {
   }
 }
 
-export async function applySelectedHunks(filePath, edits, selectedHunkIds) {
-  return api.applySelectedHunks(filePath, edits, selectedHunkIds);
+export async function previewHunks(filePath, edits) {
+  return api.previewHunks(filePath, edits);
+}
+
+export async function applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag = null) {
+  return api.applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag);
 }
 
 export async function requestVisualFix(region) {

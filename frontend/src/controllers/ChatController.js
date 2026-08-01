@@ -127,28 +127,29 @@ export async function requestAIPlan(instruction) {
 }
 
 /**
- * Apply the user-selected subset of a proposal.
- * `selected` is a boolean mask parallel to `proposal.edits`.
+ * Apply the user-selected hunks of a proposal.
+ * `selectedHunkIds` are server-computed ids; `expectedEtag` (from the preview)
+ * makes the write conditional on the file not having changed during review.
  */
-export async function handleApplyHunks(selected, proposal) {
+export async function handleApplyHunks({ edits, selectedHunkIds, expectedEtag } = {}) {
   const { filePath } = getFileStoreValue();
-  if (!proposal?.edits?.length) {
+  if (!edits?.length) {
     pushToast('No proposal to apply', 'error');
     return false;
   }
-
-  const selectedHunkIds = proposal.edits
-    .filter((edit, idx) => (selected ? selected[idx] : true) && edit.hunk_id)
-    .map((edit) => edit.hunk_id);
-
-  if (selectedHunkIds.length === 0) {
+  if (!selectedHunkIds?.length) {
     pushToast('No hunks selected', 'info');
     return false;
   }
 
   uiStore.update((ui) => ({ ...ui, status: 'Applying selected edits...' }));
   try {
-    const res = await aiService.applySelectedHunks(filePath, proposal.edits, selectedHunkIds);
+    const res = await aiService.applySelectedHunks(
+      filePath,
+      edits,
+      selectedHunkIds,
+      expectedEtag
+    );
     if (!res?.success) throw new Error(res?.error || 'Unknown error');
 
     const reloaded = await fileService.loadFile(filePath);
@@ -166,8 +167,15 @@ export async function handleApplyHunks(selected, proposal) {
     compileDocument(filePath);
     return true;
   } catch (err) {
-    uiStore.update((ui) => ({ ...ui, status: `Apply failed: ${err.message}` }));
-    pushToast(`Apply failed: ${err.message}`, 'error');
+    // 409: the file moved under the review. Say so specifically — a generic
+    // failure would invite the user to just retry into the same conflict.
+    if (err.status === 409) {
+      uiStore.update((ui) => ({ ...ui, status: 'File changed during review' }));
+      pushToast('File changed while you were reviewing — reload and re-plan', 'error');
+    } else {
+      uiStore.update((ui) => ({ ...ui, status: `Apply failed: ${err.message}` }));
+      pushToast(`Apply failed: ${err.message}`, 'error');
+    }
     return false;
   }
 }

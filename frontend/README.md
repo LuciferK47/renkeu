@@ -52,8 +52,14 @@ Everything the UI calls exists in `crates/latex_ai_server`:
 - **Compile** — `POST /api/compile` → `{ job_id }`, then
   `GET /api/compile/stream/{job_id}` (SSE). Pages come from
   `GET /api/pdf/page?file=&n=&dpi=`.
-- **AI** — `POST /api/plan/stream` and `POST /api/agent/stream` (SSE),
-  `POST /api/agent/apply-selected`.
+- **AI** — `POST /api/plan/stream` and `POST /api/agent/stream` (SSE).
+- **Per-hunk review** — `POST /api/agent/preview` returns
+  `{ etag, hunks: [{hunk_id, diff, applies, error}] }`, one entry per proposed
+  edit, computed with the same code that writes. `POST /api/agent/apply-selected`
+  then takes the chosen `hunk_id`s; echo the preview's `etag` back as each
+  edit's `expected_etag` so a file that changed during review gives a 409
+  instead of clobbering. Selection rules live in `src/utils/hunks.js`
+  (unit-tested); `DiffView.svelte` is the UI.
 - **Visual fix** — `POST /api/visual-fix` with a region in **page-image pixels**
   plus the `dpi` those pixels were rendered at. The backend maps the region's
   centre through SyncTeX to a source line and returns
