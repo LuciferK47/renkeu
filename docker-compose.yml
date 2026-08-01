@@ -4,7 +4,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # - GEMINI_API_KEY=${GEMINI_API_KEY}   # needed from M2 (AI loop)
+      # - GROQ_API_KEY=${GROQ_API_KEY}   # needed from M2 (AI loop)
       - RUST_LOG=info
     volumes:
       - latex-ai-cache:/home/latexai/.cache/Tectonic

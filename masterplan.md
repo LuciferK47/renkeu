@@ -1093,15 +1093,15 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: Cargo workspace green; old Python `src/latex_ai/` deleted; Tectonic compiles `examples/sample.tex` in-process; axum serves `/health` alive.
 
 **Deliverables**:
-- [ ] `Cargo.toml` workspace with members: `crates/{compiler,latex_ai_core,latex_ai_server}`. (synctex/visual/lsp at M3/M5, latex_ai_tauri at M5 — created when implemented, not scaffolded empty per rust.md I.15.)
-- [ ] `cargo deny init` + `.cargo-deny.toml` (advisories + license + bans config).
-- [ ] `crates/compiler/src/lib.rs`: `tectonic::latex_to_pdf` wrapper + global mutex + tiny in-memory compile cache (moka replaces at M2).
-- [ ] `crates/latex_ai_server/src/main.rs`: axum app with `health` route only + `TraceLayer` configured.
-- [ ] One integration test: `examples/sample.tex` → `latex-ai compile examples/sample.tex -o /tmp/sample.pdf` exits 0 and PDF bytes non-empty.
-- [ ] `clippy.toml` with `-D warnings -D clippy::pedantic -D clippy::unwrap_used -D clippy::expect_used` configured.
-- [ ] `.github/workflows/ci.yml`: cargo fmt/check/clippy/nextest/deny/audit/machete on push + PR.
-- [ ] Delete `src/latex_ai/` and `Makefile` (Python residue).
-- [ ] Update `README.md` from scratch with build/run instructions.
+- [x] `Cargo.toml` workspace with members: `crates/{compiler,latex_ai_core,latex_ai_server}`. (synctex/visual/lsp at M3/M5, latex_ai_tauri at M5 — created when implemented, not scaffolded empty per rust.md I.15.)
+- [x] `cargo deny init` + `.cargo-deny.toml` (advisories + license + bans config).
+- [x] `crates/compiler/src/lib.rs`: `tectonic::latex_to_pdf` wrapper + global mutex + tiny in-memory compile cache (moka replaces at M2).
+- [x] `crates/latex_ai_server/src/main.rs`: axum app with `health` route only + `TraceLayer` configured.
+- [x] One integration test: `examples/sample.tex` → `latex-ai compile examples/sample.tex -o /tmp/sample.pdf` exits 0 and PDF bytes non-empty.
+- [x] `clippy.toml` with `-D warnings -D clippy::pedantic -D clippy::unwrap_used -D clippy::expect_used` configured.
+- [x] `.github/workflows/ci.yml`: cargo fmt/check/clippy/nextest/deny/audit/machete on push + PR.
+- [x] Delete `src/latex_ai/` and `Makefile` (Python residue).
+- [x] Update `README.md` from scratch with build/run instructions.
 
 **Acceptance**:
 - `cargo nextest run` green; `cargo clippy` green; `cargo deny check` clean.
@@ -1119,16 +1119,16 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: agent-loop self-heals in ≤3 iterations; pillar 1 lands.
 
 **Deliverables**:
-- [ ] `crates/compiler/queue.rs`: full `CompilationQueue` with Moka dedup, debounce, `Semaphore(cap=1)` sized to Tectonic's global mutex.
-- [ ] `crates/compiler/scratchpad.rs`: per-session `~/.latex-ai/scratch/<session_id>/` tree; `apply_edits(edits) -> Result<()>`; `cleanup()` on session drop.
-- [ ] `crates/latex_ai_core/ai.rs`: `EditPlanner` trait + `GeminiPlanner` impl using `genai_rs::Client` + `client.interaction().with_store_enabled().create().await` to retrieve `interaction_id` for next turn.
-- [ ] `router::agent::plan_stream` + `router::agent::agent_loop_stream` SSE handlers emitting the locked taxonomy.
-- [ ] Cancellation-deconnect tower middleware (invention): the stream's `Drop` triggers a bound `CancellationToken`.
-- [ ] `core::prompt_safety::sanitize_user_instruction` wired on every `intent` field.
-- [ ] `crates/latex_ai_core/search.rs` + `GET /api/search` (nucleo matcher) — replaces frontend fuse.js (§10.1).
-- [ ] Frontend swaps: `lib/api/client.js` on native `fetch` (drop axios); Tailwind via standalone CLI (drop node build dep); command palette/file search call `/api/search`.
-- [ ] Tests: induce `\begin{tabular}` without `\end`; assert 3 iterations; final `done(success=False)` with compile errors; induce trivial `\frac{`-typo; assert 1–2 iterations ending in `done(success=True)`.
-- [ ] Tests: disconnect mid-iteration; assert compile-future cancelled within 200 ms.
+- [x] `crates/compiler/queue.rs`: full `CompilationQueue` with Moka dedup, debounce, `Semaphore(cap=1)` sized to Tectonic's global mutex.
+- [x] `crates/compiler/scratchpad.rs`: per-session `~/.latex-ai/scratch/<session_id>/` tree; `apply_edits(edits) -> Result<()>`; `cleanup()` on session drop.
+- [x] `crates/latex_ai_core/ai.rs`: `EditPlanner` trait + `GeminiPlanner` impl using `genai_rs::Client` + `client.interaction().with_store_enabled().create().await` to retrieve `interaction_id` for next turn.
+- [x] `router::agent::plan_stream` + `router::agent::agent_loop_stream` SSE handlers emitting the locked taxonomy.
+- [x] Cancellation-deconnect tower middleware (invention): the stream's `Drop` triggers a bound `CancellationToken`.
+- [x] `core::prompt_safety::sanitize_user_instruction` wired on every `intent` field.
+- [x] `crates/latex_ai_core/search.rs` + `GET /api/search` (nucleo matcher) — replaces frontend fuse.js (§10.1).
+- [x] Frontend swaps: `lib/api/client.js` on native `fetch` (drop axios ✅, drop fuse.js ✅); command palette/file search call `/api/search` ✅. **Tailwind standalone CLI: consciously skipped** — Vite already requires node for the SPA build, so the swap removes no dependency (§15.1).
+- [x] Tests: induce `\begin{tabular}` without `\end`; assert 3 iterations; final `done(success=False)` with compile errors; induce trivial `\frac{`-typo; assert 1–2 iterations ending in `done(success=True)`.
+- [x] Tests: disconnect mid-iteration; assert compile-future cancelled within 200 ms.
 
 **Acceptance**:
 - Send "make table 3-col" via curl; SSE stream shows `thinking → proposal → applying → compiled → done`.
@@ -1290,6 +1290,25 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 
 ---
 
+## 15.1 Implemented Deviations (recorded 2026-08-02, at M2 completion)
+
+Where shipped code intentionally differs from this document. The code is
+authoritative; these entries explain why, so the delta is a decision and not
+drift.
+
+| Area | Plan said | Shipped | Why |
+|---|---|---|---|
+| LLM SDK | `genai-rs` 0.7 with Gemini **Interactions API**, `previous_interaction_id` so the provider owns chat history | `genai` 0.1 one-shot chat against **Groq** (`llama-3.3-70b-versatile`), no stored history | Provider switched to Groq (2026-08-02, user decision). Groq has no Interactions equivalent, so there is no server-side history to inherit. The agent loop folds compile errors into the next instruction instead, which keeps the §12-M2 audit rule ("no `HashMap<session_id, Vec<Content>>` in our crate") satisfied — we store no history at all. Revisit if a provider with server-side threads returns. |
+| `EditPlanner` | `-> BoxStream<Result<Event, _>>` | `-> PlanFuture` (boxed future, whole batch) | Object safety was the actual requirement (it is what lets tests inject a scripted planner). Token-level streaming buys nothing while the response must be parsed as one JSON array. |
+| Edit application | `patch(1)` for `apply_unified_diff` | Pure-Rust hunk application in `core::apply` | Shelling out contradicted the no-subprocess principle (§1) and made results depend on the host's `patch`. Also relocates hunks when line numbers drift. |
+| Config | `figment` layered TOML + env | Plain env vars | Nothing yet needs layered files; `figment` would be speculative scaffolding (CONTEXT.md §5). Revisit when a config file is genuinely required. |
+| Validation | `garde::Validate` on payloads | `serde(deny_unknown_fields)` + explicit checks | Current payloads have a handful of fields; a derive framework is not yet earned. |
+| Rate limiting | `tower-governor` per `X-Session-ID` | Not implemented | Single-user loopback binding; no demonstrated need (CONTEXT.md §5 "defensive over-engineering"). |
+| Tailwind | standalone CLI to "drop node from the build" | Kept as an npm dev dependency | Incoherent as stated: Vite already requires Node for the SPA build, so the swap removes no dependency. Consciously skipped. |
+| Frontend fuzzy search | `nucleo` behind `GET /api/search` | Done, plus `POST /api/search` for caller-supplied candidates | The command palette ranks its own static command list; the server does not own that list. |
+| `AgentEdit.hunk_id` | server-computed, `skip_deserializing` | plain optional field | With `deny_unknown_fields`, a skipped field made the client's echo of a proposal un-deserializable on apply-selected. |
+| Scratchpad | `~/.latex-ai/scratch/<session>` | Same, `LATEX_AI_HOME`-overridable, LRU-10 + explicit cleanup | Matches Q3; the override exists so tests and containers do not write to `$HOME`. |
+
 ## 16. Open Questions
 
 | # | Question | Default | Owner |
@@ -1304,12 +1323,12 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 | Q8 | `tower-lsp` maturity | community fork stable; if upstream matures by M3, swap | tracked |
 | Q9 | Tectonic async API | sync in 0.16; use `spawn_blocking` + tokio select; refactor if future release offers async | tracked |
 | Q10 | Auth surface | None for V1 (local-first 127.0.0.1 binding) | locked |
-| Q11 | Optional local LLM (Ollama) for fully-offline mode | Cloud Gemini only for V1. A provider abstraction allowing a local model (Ollama) fits the local-first pillar, but conflicts with the genai-rs design where Gemini's `previous_interaction_id` makes the server own chat history — Ollama would force us to manage history ourselves (the `HashMap<session, Vec<Content>>` §12-M2 audit forbids). Defer; revisit only with a concrete offline requirement. (Inspiration: interviewstreet/hiring-agent dual Ollama/Gemini backend.) | M6+ |
+| Q11 | Optional local LLM (Ollama) for fully-offline mode | Cloud Groq only for V1 (see §15.1 — the Gemini/Interactions rationale below is superseded; because we now keep no chat history at all, an Ollama backend no longer conflicts with the M2 audit rule and is a smaller change than originally assessed). A provider abstraction allowing a local model (Ollama) fits the local-first pillar, but conflicts with the genai-rs design where Gemini's `previous_interaction_id` makes the server own chat history — Ollama would force us to manage history ourselves (the `HashMap<session, Vec<Content>>` §12-M2 audit forbids). Defer; revisit only with a concrete offline requirement. (Inspiration: interviewstreet/hiring-agent dual Ollama/Gemini backend.) | M6+ |
 
 ---
 
 *Document version: 2.0 (Rust Edition)*
 *Date: 2026-06-24*
 *Authors: synthesized from `idea.md`, `CONTEXT.md`, `rust.md`, existing repo audit, and peer-state-of-practice scan (TexGuardian, PaperFit, scholia, ferroleaf, XandSuite, r/tauri 2026-03 thread, genai-rs 0.7 docs, tectonic docs).*
-*Status: M1 prerequisite. M2–M5 sequential with audit gates. See §12.*
+*Status: M1 and M2 complete and verified (2026-08-02) — see §15.1 for recorded deviations. M3–M5 sequential with audit gates. See §12.*
 *Re-read this doc + `CONTEXT.md` + `idea.md` + `rust.md` at the start of every implementation session.*

@@ -96,3 +96,6 @@ history.db
 
 # Agent tooling runtime state
 .omo/
+
+# Local dev database (created on first `serve`)
+.latex-ai.db
