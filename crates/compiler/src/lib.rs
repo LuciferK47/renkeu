@@ -27,6 +27,10 @@ pub enum CompileError {
     /// The caller cancelled before the compile finished.
     #[error("compilation cancelled by client")]
     Cancelled,
+    /// A newer debounced submission replaced this one (see
+    /// [`queue::CompilationQueue::submit_debounced`]).
+    #[error("compilation superseded by a newer submission")]
+    Superseded,
     /// The concurrency semaphore was unexpectedly closed.
     #[error("compile queue semaphore closed")]
     SemaphoreClosed,

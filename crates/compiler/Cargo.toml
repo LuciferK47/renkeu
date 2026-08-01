@@ -17,6 +17,7 @@ latex-ai-core = { path = "../latex_ai_core" }
 
 [dev-dependencies]
 tokio = { workspace = true }
+tempfile = "3"
 
 [lints]
 workspace = true
