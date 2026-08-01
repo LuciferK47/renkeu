@@ -1,33 +1,47 @@
-//! axum app assembly. Routes: `/health`, `/api/search`.
+//! axum app assembly (masterplan.md §4.6).
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-use axum::{routing::{get, post}, Json, Router};
+use axum::extract::{Query, State};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use latex_ai_core::ai::EditPlanner;
 use latex_ai_core::search::{Hit, fuzzy_rank};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tower_http::trace::TraceLayer;
+use std::path::PathBuf;
 use std::sync::Arc;
+use tower_http::trace::TraceLayer;
 
-pub mod routes;
 pub mod error;
+pub mod jobs;
+pub mod routes;
+pub(crate) mod sse;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub planner: Arc<latex_ai_core::ai::GeminiPlanner>,
-    pub compiler: latex_ai_compiler::Engine,
+    /// Object-safe so tests can inject a scripted planner (masterplan §12 M2).
+    pub planner: Arc<dyn EditPlanner>,
     pub queue: Arc<latex_ai_compiler::queue::CompilationQueue>,
     pub store: Arc<latex_ai_core::storage::Store>,
+    pub jobs: Arc<jobs::JobRegistry>,
+    /// Canonicalized workspace root every user-supplied path is sandboxed to.
+    pub workspace_root: PathBuf,
+    /// Planner model id, surfaced by `GET /api/config`.
+    pub model: String,
 }
 
-use tower_http::cors::{CorsLayer, Any};
 use std::env;
+use tower_http::cors::{Any, CorsLayer};
 
-/// Build the router. Future milestones merge feature routers here
-/// (masterplan.md §4.6).
+/// Build the full router (masterplan.md §4.6, §8.3).
 pub fn build_router(state: AppState) -> Router {
-    let allowed_origins = env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| "http://localhost:5173,http://127.0.0.1:5173".to_string());
-    let origins: Vec<_> = allowed_origins.split(',').filter_map(|s| s.parse().ok()).collect();
+    let allowed_origins = env::var("ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:5173,http://127.0.0.1:5173".to_owned());
+    let origins: Vec<_> = allowed_origins
+        .split(',')
+        .filter_map(|s| s.parse().ok())
+        .collect();
 
     let cors = CorsLayer::new()
         .allow_origin(origins)
@@ -36,14 +50,25 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/health", get(health))
-        .route("/api/search", post(search))
+        .route("/api/search", post(search_candidates).get(search_workspace))
         .route("/api/config", get(routes::config::get_config))
+        .route("/api/history", get(routes::history::list_history))
         .route("/api/files", get(routes::files::list_files))
+        .route(
+            "/api/file",
+            get(routes::files::read_file).post(routes::files::write_file),
+        )
         .route("/api/compile", post(routes::compile::compile))
-        .route("/api/compile/stream/{id}", get(routes::compile::compile_stream))
+        .route(
+            "/api/compile/stream/{id}",
+            get(routes::compile::compile_stream),
+        )
         .route("/api/plan/stream", post(routes::agent::plan_stream))
         .route("/api/agent/stream", post(routes::agent::agent_loop_stream))
-        .route("/api/agent/apply-selected", post(routes::agent::apply_selected))
+        .route(
+            "/api/agent/apply-selected",
+            post(routes::agent::apply_selected),
+        )
         .route("/api/visual-fix", post(routes::visual::visual_fix))
         .route("/api/pdf/page", get(routes::visual::get_pdf_page))
         .layer(TraceLayer::new_for_http())
@@ -55,9 +80,8 @@ async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
-/// Fuzzy-search request. ponytail: candidates are passed in the body for now
-/// (interim POST). Switches to `GET /api/search?q=` once the server owns the
-/// workspace file list — masterplan.md §8.3.
+/// `POST /api/search` body: caller supplies the candidate list (command
+/// palette entries). Interim contract from masterplan §8.3.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SearchRequest {
@@ -70,9 +94,33 @@ struct SearchResponse {
     hits: Vec<Hit>,
 }
 
-async fn search(Json(req): Json<SearchRequest>) -> Json<SearchResponse> {
+async fn search_candidates(Json(req): Json<SearchRequest>) -> Json<SearchResponse> {
     Json(SearchResponse {
         hits: fuzzy_rank(&req.query, &req.candidates),
+    })
+}
+
+/// `GET /api/search?q=` — fuzzy search over the server-owned workspace file
+/// list (masterplan §8.3 final form; the server owns the list via
+/// `/api/files`' walker).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceSearchQuery {
+    q: String,
+}
+
+async fn search_workspace(
+    State(state): State<AppState>,
+    Query(query): Query<WorkspaceSearchQuery>,
+) -> Json<SearchResponse> {
+    let root = state.workspace_root.clone();
+    let candidates =
+        tokio::task::spawn_blocking(move || routes::files::list_workspace_files(&root))
+            .await
+            .unwrap_or_default();
+
+    Json(SearchResponse {
+        hits: fuzzy_rank(&query.q, &candidates),
     })
 }
 
@@ -81,13 +129,39 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use latex_ai_core::ai::{AiError, PlanFuture};
+    use latex_ai_core::compile::AgentEdit;
+    use tokio_util::sync::CancellationToken;
     use tower::ServiceExt;
-    use latex_ai_core::ai::GeminiPlanner;
 
-    async fn test_state() -> AppState {
-        let db_url = "sqlite::memory:";
-        let pool = sqlx::sqlite::SqlitePoolOptions::new().connect(db_url).await.unwrap();
-        
+    /// Planner that always errors — router tests never reach the LLM.
+    struct NoPlanner;
+    impl EditPlanner for NoPlanner {
+        fn plan_edits<'a>(
+            &'a self,
+            _instruction: &'a str,
+            _file_content: &'a str,
+            _cancel: CancellationToken,
+        ) -> PlanFuture<'a> {
+            Box::pin(async { Err::<Vec<AgentEdit>, _>(AiError::EmptyResponse) })
+        }
+        fn visual_fix<'a>(
+            &'a self,
+            _instruction: &'a str,
+            _b64_image: &'a str,
+            _file_path: Option<&'a str>,
+            _line: Option<u32>,
+            _cancel: CancellationToken,
+        ) -> PlanFuture<'a> {
+            Box::pin(async { Err::<Vec<AgentEdit>, _>(AiError::EmptyResponse) })
+        }
+    }
+
+    async fn test_state() -> (AppState, tempfile::TempDir) {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,23 +171,34 @@ mod tests {
                 diff TEXT NOT NULL,
                 edit_type TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )"
-        ).execute(&pool).await.unwrap();
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
         let engine = latex_ai_compiler::Engine::new(2);
-        let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(Arc::new(engine.clone())));
-        
-        AppState {
-            planner: Arc::new(GeminiPlanner::new("gemini-2.5-flash")),
-            compiler: engine,
+        let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(Arc::new(
+            engine,
+        )));
+
+        let state = AppState {
+            planner: Arc::new(NoPlanner),
             queue,
-            store: Arc::new(latex_ai_core::storage::Store::new(pool, std::env::current_dir().unwrap())),
-        }
+            store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
+            jobs: Arc::new(jobs::JobRegistry::default()),
+            workspace_root: root,
+            model: "test-model".to_owned(),
+        };
+        (state, dir)
     }
 
     #[tokio::test]
     async fn health_returns_ok() {
-        let app = build_router(test_state().await);
+        let (state, _dir) = test_state().await;
+        let app = build_router(state);
         let res = app
             .oneshot(
                 Request::builder()
@@ -127,8 +212,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_ranks_best_match_first() {
-        let app = build_router(test_state().await);
+    async fn search_post_ranks_best_match_first() {
+        let (state, _dir) = test_state().await;
+        let app = build_router(state);
         let body = json!({
             "query": "librs",
             "candidates": ["src/main.rs", "src/lib.rs", "README.md"]
@@ -151,5 +237,29 @@ mod tests {
             .unwrap();
         let parsed: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(parsed["hits"][0]["value"], "src/lib.rs");
+    }
+
+    #[tokio::test]
+    async fn search_get_ranks_workspace_files() {
+        let (state, dir) = test_state().await;
+        std::fs::write(dir.path().join("main.tex"), "x").unwrap();
+        std::fs::write(dir.path().join("refs.bib"), "x").unwrap();
+        let app = build_router(state);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/search?q=maintex")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed["hits"][0]["value"], "main.tex");
     }
 }

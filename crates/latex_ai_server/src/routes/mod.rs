@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod compile;
-pub mod files;
 pub mod config;
+pub mod files;
+pub mod history;
 pub mod visual;

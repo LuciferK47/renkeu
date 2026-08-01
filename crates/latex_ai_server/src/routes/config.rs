@@ -1,17 +1,24 @@
-use axum::{extract::State, Json};
+//! Read-only runtime config for the UI. Writing settings server-side is M5
+//! scope; the SPA persists its own preferences in `localStorage`.
+
+use crate::AppState;
+use axum::{Json, extract::State};
 use serde::Serialize;
 use tracing::instrument;
-use crate::AppState;
 
 #[derive(Serialize)]
 pub struct ConfigResponse {
+    /// Whether an LLM API key is present, i.e. AI routes will work.
     pub ai_enabled: bool,
+    /// The single configured planner model (masterplan Q1; no model registry
+    /// until a second provider exists).
+    pub model: String,
 }
 
-#[instrument(skip(_state))]
-pub async fn get_config(State(_state): State<AppState>) -> Json<ConfigResponse> {
-    let ai_enabled = std::env::var("GEMINI_API_KEY").is_ok();
+#[instrument(skip(state))]
+pub async fn get_config(State(state): State<AppState>) -> Json<ConfigResponse> {
     Json(ConfigResponse {
-        ai_enabled,
+        ai_enabled: std::env::var("GROQ_API_KEY").is_ok(),
+        model: state.model.clone(),
     })
 }

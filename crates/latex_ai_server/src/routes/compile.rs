@@ -1,70 +1,177 @@
-use axum::{
-    extract::{Path, State},
-    response::sse::{Event, Sse},
-    Json,
-};
-use serde_json::json;
-use tokio_stream::Stream;
-use std::convert::Infallible;
-use tracing::instrument;
-use crate::AppState;
+//! Compile-job routes: `POST /api/compile` starts a background job for a
+//! workspace file, `GET /api/compile/stream/{id}` follows it over SSE using
+//! the locked §8.2 taxonomy. Replaces the M2-era stub that ignored the job id
+//! and hardcoded `examples/sample.tex`.
 
+use crate::AppState;
+use crate::error::ApiError;
+use crate::jobs::{JobPhase, JobState};
+use crate::sse;
+use axum::Json;
+use axum::extract::{Path, State};
+use axum::response::sse::{Event, KeepAlive, Sse};
+use latex_ai_core::security::{AccessKind, validate_path};
 use serde::Deserialize;
-use uuid::Uuid;
+use serde_json::json;
+use std::convert::Infallible;
+use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
+use tracing::instrument;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
-pub struct FrontendCompileRequest {
+#[serde(deny_unknown_fields)]
+pub struct CompileRequest {
     pub file_path: String,
 }
 
-#[instrument(skip(_state))]
+/// `POST /api/compile` — validate, register a job, compile in the background.
+/// The job is intentionally NOT bound to the caller's connection: closing the
+/// tab must not kill a compile another view may be waiting on.
+#[instrument(skip(state))]
 pub async fn compile(
-    State(_state): State<AppState>,
-    Json(req): Json<FrontendCompileRequest>,
-) -> Json<serde_json::Value> {
-    let session_id = Uuid::new_v4().to_string();
-    
-    // In a real implementation we might save this job to a DB.
-    // For now, we return the job ID (session_id) so the client can connect to the stream.
-    Json(json!({ "status": "compiling", "session_id": session_id }))
+    State(state): State<AppState>,
+    Json(req): Json<CompileRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let abs_path = validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?;
+
+    let job_id = Uuid::new_v4().to_string();
+    let job_tx = state.jobs.create(&job_id);
+
+    tokio::spawn(run_compile_job(state, abs_path, job_tx));
+
+    Ok(Json(json!({ "job_id": job_id, "status": "queued" })))
 }
 
+async fn run_compile_job(
+    state: AppState,
+    abs_path: PathBuf,
+    job_tx: tokio::sync::watch::Sender<JobState>,
+) {
+    let fail = |job_tx: &tokio::sync::watch::Sender<JobState>, summary: String| {
+        job_tx.send_replace(JobState {
+            phase: JobPhase::Failed,
+            message: "compile failed".to_owned(),
+            progress: 1.0,
+            page_count: None,
+            error_summary: Some(summary),
+        });
+    };
+
+    let content = match tokio::fs::read_to_string(&abs_path).await {
+        Ok(c) => c,
+        Err(e) => return fail(&job_tx, format!("read failed: {e}")),
+    };
+
+    job_tx.send_replace(JobState {
+        phase: JobPhase::Compiling,
+        message: "Compiling with Tectonic...".to_owned(),
+        progress: 0.3,
+        page_count: None,
+        error_summary: None,
+    });
+
+    let result = match state
+        .queue
+        .submit(&content, &CancellationToken::new())
+        .await
+    {
+        Ok(r) if r.success => r,
+        Ok(_) => return fail(&job_tx, "empty PDF produced".to_owned()),
+        Err(e) => return fail(&job_tx, e.to_string()),
+    };
+
+    // Persist next to the source so GET /api/pdf/page can rasterize it.
+    let pdf_path = abs_path.with_extension("pdf");
+    if let Err(e) = tokio::fs::write(&pdf_path, result.pdf_bytes.as_ref()).await {
+        return fail(&job_tx, format!("could not write PDF: {e}"));
+    }
+
+    let page_count = count_pages(pdf_path).await;
+
+    job_tx.send_replace(JobState {
+        phase: JobPhase::Done,
+        message: "Compiled".to_owned(),
+        progress: 1.0,
+        page_count,
+        error_summary: None,
+    });
+}
+
+/// Page count via pdfium (blocking bind + parse on the blocking pool).
+/// `None` when pdfium is unavailable — the viewer then falls back to 1 page.
+async fn count_pages(pdf_path: PathBuf) -> Option<u16> {
+    let counted = tokio::task::spawn_blocking(move || {
+        visual::render::renderer().ok()?.page_count(&pdf_path).ok()
+    })
+    .await;
+    match counted {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::warn!(error = %e, "page-count task failed");
+            None
+        }
+    }
+}
+
+/// `GET /api/compile/stream/{id}` — follow a job as taxonomy SSE:
+/// `progress`* -> `compiled` -> `done`.
 #[instrument(skip(state))]
 pub async fn compile_stream(
     Path(id): Path<String>,
     State(state): State<AppState>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let (tx, rx) = tokio::sync::mpsc::channel(10);
-    
-    // Note: Since we didn't receive the file_path in this stream endpoint,
-    // and we don't have a DB to look up the session_id yet, we just compile main.tex
-    // which is a hack. The actual fix requires implementing the DB queue.
+) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let mut rx = state
+        .jobs
+        .subscribe(&id)
+        .ok_or_else(|| ApiError::NotFound {
+            message: format!("unknown compile job {id}"),
+        })?;
+
+    let (tx, out) = tokio::sync::mpsc::channel(16);
     tokio::spawn(async move {
-        if let Err(e) = tx.send(Ok(Event::default().event("status").data("compiling"))).await {
-            tracing::warn!(error = ?e, "SSE send failed");
-            return;
-        }
-        
-        let file_path = std::env::current_dir().unwrap_or_default().join("examples/sample.tex");
-        let content = match tokio::fs::read_to_string(&file_path).await {
-            Ok(c) => c,
-            Err(_) => String::new(),
-        };
-        
-        let cancel = CancellationToken::new();
-        match state.queue.submit(&content, &cancel).await {
-            Ok(result) => {
-                let status = if result.success { "success" } else { "failed" };
-                if let Err(e) = tx.send(Ok(Event::default().event("done").data(status))).await {
-                    tracing::warn!(error = ?e, "SSE send failed");
+        loop {
+            let snapshot = rx.borrow_and_update().clone();
+            match snapshot.phase {
+                JobPhase::Queued | JobPhase::Compiling => {
+                    if !sse::send(
+                        &tx,
+                        "progress",
+                        &json!({ "message": snapshot.message, "progress": snapshot.progress }),
+                    )
+                    .await
+                    {
+                        return;
+                    }
+                }
+                JobPhase::Done => {
+                    sse::send(
+                        &tx,
+                        "compiled",
+                        &json!({ "success": true, "page_count": snapshot.page_count }),
+                    )
+                    .await;
+                    sse::send(&tx, "done", &json!({ "success": true })).await;
+                    return;
+                }
+                JobPhase::Failed => {
+                    sse::send(
+                        &tx,
+                        "compiled",
+                        &json!({ "success": false, "error_summary": snapshot.error_summary }),
+                    )
+                    .await;
+                    sse::send(&tx, "done", &json!({ "success": false })).await;
+                    return;
                 }
             }
-            Err(_) => {
-                let _ = tx.send(Ok(Event::default().event("error").data("Compile failed"))).await;
+            if rx.changed().await.is_err() {
+                // Job task dropped its sender without a terminal state.
+                sse::send(&tx, "error", &json!({ "message": "compile job vanished" })).await;
+                return;
             }
         }
     });
 
-    Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx))
+    Ok(Sse::new(tokio_stream::wrappers::ReceiverStream::new(out)).keep_alive(KeepAlive::default()))
 }

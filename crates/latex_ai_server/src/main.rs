@@ -49,28 +49,44 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve(port: u16) -> anyhow::Result<()> {
-    let planner = std::sync::Arc::new(latex_ai_core::ai::GeminiPlanner::new("gemini-2.5-flash"));
-    let compiler = latex_ai_compiler::Engine::new(10);
-    
+    // Model must be one genai 0.1.23 recognizes (unknown names fall back to Ollama).
+    let model =
+        std::env::var("LATEX_AI_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
+    let planner: std::sync::Arc<dyn latex_ai_core::ai::EditPlanner> =
+        std::sync::Arc::new(latex_ai_core::ai::LlmPlanner::new(model.clone()));
+
+    // The workspace root all API paths are sandboxed to (canonicalized so the
+    // security checks compare like with like).
+    let workspace_root =
+        std::fs::canonicalize(std::env::current_dir()?).context("canonicalizing workspace root")?;
+
     // SQLite setup
-    let db_path = std::env::current_dir()?.join(".latex-ai.db");
+    let db_path = workspace_root.join(".latex-ai.db");
     let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
         .await
         .with_context(|| "Failed to connect to database")?;
-        
+
     sqlx::migrate!("./migrations").run(&pool).await?;
-    
+
     let store = std::sync::Arc::new(latex_ai_core::storage::Store::new(
         pool,
-        std::env::current_dir()?,
+        workspace_root.clone(),
     ));
 
-    let queue = std::sync::Arc::new(latex_ai_compiler::queue::CompilationQueue::new(std::sync::Arc::new(compiler.clone())));
+    let engine = std::sync::Arc::new(latex_ai_compiler::Engine::new(10));
+    let queue = std::sync::Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine));
 
-    let state = latex_ai_server::AppState { planner, compiler, queue, store };
+    let state = latex_ai_server::AppState {
+        planner,
+        queue,
+        store,
+        jobs: std::sync::Arc::new(latex_ai_server::jobs::JobRegistry::default()),
+        workspace_root,
+        model,
+    };
     let app = latex_ai_server::build_router(state);
     let addr = format!("127.0.0.1:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)
