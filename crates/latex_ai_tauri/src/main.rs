@@ -1,61 +1,83 @@
+//! Tauri desktop shell (masterplan.md §4.7).
+//!
+//! M5 scope. Today it runs the same axum router on a loopback TCP port and
+//! opens the SPA in a webview. Moving non-streaming routes onto
+//! `tauri-plugin-axum`'s custom protocol (keeping SSE on TCP per Tauri issue
+//! #1404) is tracked as M5 work.
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
 )]
 
-use axum::Router;
+use anyhow::Context;
 use std::sync::Arc;
+
+/// Loopback port the embedded API listens on; the SPA talks to it directly
+/// because the custom protocol cannot stream SSE.
+const API_PORT: u16 = 3000;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // SQLite setup
-    let db_path = std::env::current_dir()?.join(".latex-ai.db");
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    let workspace_root =
+        std::fs::canonicalize(std::env::current_dir()?).context("canonicalizing workspace root")?;
+
+    let db_path = workspace_root.join(".latex-ai.db");
     let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to database: {}", e))?;
-        
-    // Create history table if not exists
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            file_path TEXT NOT NULL,
-            command TEXT NOT NULL,
-            new_text TEXT NOT NULL,
-            diff TEXT NOT NULL,
-            edit_type TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )"
-    ).execute(&pool).await.map_err(|e| anyhow::anyhow!("Failed to run migrations: {}", e))?;
-    
+        .context("connecting to the history database")?;
+
+    // Same migration set the daemon runs — no hand-rolled CREATE TABLE.
+    sqlx::migrate!("../latex_ai_server/migrations")
+        .run(&pool)
+        .await
+        .context("running migrations")?;
+
     let store = Arc::new(latex_ai_core::storage::Store::new(
         pool,
-        std::env::current_dir()?,
+        workspace_root.clone(),
     ));
 
-    let planner = Arc::new(latex_ai_core::ai::GeminiPlanner::new("gemini-2.5-flash"));
-    let compiler = latex_ai_compiler::Engine::new(10);
-    let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(Arc::new(compiler.clone())));
-    let state = latex_ai_server::AppState { planner, compiler, queue, store };
-    
+    let model =
+        std::env::var("LATEX_AI_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
+    let planner: Arc<dyn latex_ai_core::ai::EditPlanner> =
+        Arc::new(latex_ai_core::ai::LlmPlanner::new(model.clone()));
+    let engine = Arc::new(latex_ai_compiler::Engine::new(10));
+    let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine));
+
+    let state = latex_ai_server::AppState {
+        planner,
+        queue,
+        store,
+        jobs: Arc::new(latex_ai_server::jobs::JobRegistry::default()),
+        workspace_root,
+        model,
+    };
+
     let app = latex_ai_server::build_router(state);
-    
-    // Fallback: Just spawn axum on a local port if tauri-plugin-axum isn't actually installed/setup
-    // In a real scenario we'd use tauri-plugin-axum here.
-    let addr = "127.0.0.1:3000";
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", API_PORT))
+        .await
+        .with_context(|| format!("binding 127.0.0.1:{API_PORT}"))?;
+    tracing::info!(port = API_PORT, "embedded API listening");
+
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
-            tracing::error!("Server error: {}", e);
+            tracing::error!(error = %e, "embedded API stopped");
         }
     });
 
     tauri::Builder::default()
         .run(tauri::generate_context!())
-        .map_err(|e| anyhow::anyhow!("error while running tauri application: {}", e))?;
-        
+        .context("running the Tauri application")?;
+
     Ok(())
 }

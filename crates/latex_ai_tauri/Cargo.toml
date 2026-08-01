@@ -7,17 +7,19 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tauri = { version = "2.0.0-rc", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon"] }
 tokio = { workspace = true }
 axum = { workspace = true }
 latex-ai-server = { path = "../latex_ai_server" }
 latex-ai-core = { path = "../latex_ai_core" }
 latex-ai-compiler = { path = "../compiler" }
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate"] }
 anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [build-dependencies]
-tauri-build = { version = "2.0.0-rc", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [lints]
 workspace = true
