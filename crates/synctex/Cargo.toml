@@ -8,9 +8,7 @@ repository.workspace = true
 
 [dependencies]
 flate2 = "1.1.9"
-nom = "8.0.0"
 thiserror.workspace = true
-tracing.workspace = true
 
 [lints]
 workspace = true

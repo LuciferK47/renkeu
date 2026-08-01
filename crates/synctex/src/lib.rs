@@ -1,3 +1,9 @@
+//! `SyncTeX` source-map reader: parses `.synctex(.gz)` and maps PDF
+//! coordinates back to source positions. Format parsing only — this crate has
+//! zero knowledge of LaTeX semantics (masterplan.md §5 rule 7).
+#![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 use std::collections::HashMap;
 use std::path::Path;
 

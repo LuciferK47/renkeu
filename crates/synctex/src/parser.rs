@@ -1,3 +1,16 @@
+//! `.synctex` / `.synctex.gz` reader.
+//!
+//! The file is a line-oriented state machine: a preamble of `Input:<id>:<path>`
+//! records, a `Content:` marker, then `{<page>` … `}` blocks holding one record
+//! per line. We flatten each page's records into a list because
+//! [`crate::search::backward_search`] only needs nearest-box lookup, not the
+//! nesting.
+//!
+//! Note (M3): record fields are read positionally as
+//! `<prefix>link,line:col:x,y:W,H,D`. Widening this to the full `SyncTeX` grammar
+//! — and the scaled-point/pixel unit conversion `backward_search` still lacks —
+//! is tracked as M3 work (masterplan.md §12 M3), not done here.
+
 use crate::{BoxData, NodeData, Page, SyncTexData, SyncTexError, SyncTexNode};
 use flate2::read::GzDecoder;
 use std::collections::HashMap;
@@ -5,27 +18,29 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-
-
-
-// Just a basic fallback parser for demonstration.
-// In reality, SyncTeX parsing via nom would require carefully matching the nested structure.
-// To keep things simple and robust for this milestone, we will do a line-by-line recursive descent parse.
+/// Read and parse a `SyncTeX` file, transparently gunzipping a `.gz` path.
+///
+/// # Errors
+/// Returns [`SyncTexError::Io`] if the file cannot be read or decompressed.
 pub fn parse_file(path: &Path) -> Result<SyncTexData, SyncTexError> {
     let mut file = File::open(path)?;
     let mut content = String::new();
-    
+
     if path.extension().and_then(|e| e.to_str()) == Some("gz") {
         let mut gz = GzDecoder::new(file);
-        gz.read_to_string(&mut content).map_err(|e| SyncTexError::Io(e))?;
+        gz.read_to_string(&mut content)?;
     } else {
         file.read_to_string(&mut content)?;
     }
 
-    parse_content(&content)
+    Ok(parse_content(&content))
 }
 
-fn parse_content(content: &str) -> Result<SyncTexData, SyncTexError> {
+/// Parse an already-decompressed `SyncTeX` document.
+///
+/// Malformed records are skipped rather than failing the whole parse — a
+/// partially readable map is more useful than none.
+fn parse_content(content: &str) -> SyncTexData {
     let mut data = SyncTexData {
         version: 1,
         magnification: 1000,
@@ -37,14 +52,12 @@ fn parse_content(content: &str) -> Result<SyncTexData, SyncTexError> {
     };
 
     let mut lines = content.lines().peekable();
-    
-    // Parse preamble
+
     while let Some(&line) = lines.peek() {
-        if line.starts_with("Input:") {
-            let parts: Vec<&str> = line.splitn(3, ':').collect();
-            if parts.len() == 3 {
-                if let Ok(id) = parts[1].parse::<u32>() {
-                    data.inputs.insert(id, parts[2].to_string());
+        if let Some(rest) = line.strip_prefix("Input:") {
+            if let Some((id, path)) = rest.split_once(':') {
+                if let Ok(id) = id.parse::<u32>() {
+                    data.inputs.insert(id, path.to_owned());
                 }
             }
         } else if line == "Content:" {
@@ -54,24 +67,19 @@ fn parse_content(content: &str) -> Result<SyncTexData, SyncTexError> {
         lines.next();
     }
 
-    // Parse pages
     while let Some(line) = lines.next() {
-        if line.starts_with('{') {
-            let page_num = line[1..].parse::<u32>().unwrap_or(1);
+        if let Some(page_digits) = line.strip_prefix('{') {
+            let page_num = page_digits.parse::<u32>().unwrap_or(1);
             let mut page = Page {
                 num: page_num,
                 elements: Vec::new(),
             };
-            
-            // Collect page elements
-            while let Some(pline) = lines.next() {
-                if pline.starts_with('}') {
+
+            for record in lines.by_ref() {
+                if record.starts_with('}') {
                     break;
                 }
-                
-                // Very simplified parser for backward search purposes
-                // Real SyncTeX contains nested trees, we just flatten it for backward search
-                if let Some(node) = parse_line(pline) {
+                if let Some(node) = parse_line(record) {
                     page.elements.push(node);
                 }
             }
@@ -81,53 +89,135 @@ fn parse_content(content: &str) -> Result<SyncTexData, SyncTexError> {
         }
     }
 
-    Ok(data)
+    data
 }
 
-fn parse_line(line: &str) -> Option<SyncTexNode> {
-    if line.is_empty() { return None; }
-    let prefix = line.chars().next()?;
-    
-    // Format is typically: [link,line:col:x,y:W,H,D
-    // Or (link,line:col:x,y:W,H,D
-    let content = &line[1..];
-    let parts: Vec<&str> = content.split(':').collect();
-    if parts.len() < 3 { return None; }
-    
-    let link_line: Vec<&str> = parts[0].split(',').collect();
-    if link_line.len() < 2 { return None; }
-    let link = link_line[0].parse().unwrap_or(0);
-    let line_num = link_line[1].parse().unwrap_or(0);
-    
-    let col = parts[1].parse().unwrap_or(0);
-    
-    let xy: Vec<&str> = parts[2].split(',').collect();
-    if xy.len() < 2 { return None; }
-    let x = xy[0].parse().unwrap_or(0);
-    let y = xy[1].parse().unwrap_or(0);
-    
-    let mut w = 0;
-    let mut h = 0;
-    let mut d = 0;
-    
-    if parts.len() >= 4 {
-        let whd: Vec<&str> = parts[3].split(',').collect();
-        if whd.len() >= 1 { w = whd[0].parse().unwrap_or(0); }
-        if whd.len() >= 2 { h = whd[1].parse().unwrap_or(0); }
-        if whd.len() >= 3 { d = whd[2].parse().unwrap_or(0); }
+/// Field triple `W,H,D` (width, height, depth) in `SyncTeX` units.
+#[derive(Default, Clone, Copy)]
+struct Extent {
+    width: i32,
+    height: i32,
+    depth: i32,
+}
+
+impl Extent {
+    /// Parse the trailing `W,H,D` group; absent components default to 0.
+    fn parse(field: &str) -> Self {
+        let mut parts = field.split(',');
+        Self {
+            width: parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+            height: parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+            depth: parts.next().and_then(|v| v.parse().ok()).unwrap_or(0),
+        }
     }
-    
-    let bdata = BoxData { link, line: line_num, col, x, y, width: w, height: h, depth: d, children: vec![] };
-    let ndata = NodeData { link, line: line_num, col, x, y, width: Some(w) };
-    
+}
+
+/// Parse one content record. Returns `None` for blank, malformed, or
+/// unrecognised-prefix lines.
+fn parse_line(line: &str) -> Option<SyncTexNode> {
+    let prefix = line.chars().next()?;
+    let fields: Vec<&str> = line.get(1..)?.split(':').collect();
+    if fields.len() < 3 {
+        return None;
+    }
+
+    let (tag_str, row_str) = fields[0].split_once(',')?;
+    let input_tag = tag_str.parse().unwrap_or(0);
+    let source_line = row_str.parse().unwrap_or(0);
+    let column = fields[1].parse().unwrap_or(0);
+
+    let (x_field, y_field) = fields[2].split_once(',')?;
+    let pos_x = x_field.parse().unwrap_or(0);
+    let pos_y = y_field.parse().unwrap_or(0);
+
+    let extent = fields
+        .get(3)
+        .map_or_else(Extent::default, |f| Extent::parse(f));
+
+    let box_data = BoxData {
+        link: input_tag,
+        line: source_line,
+        col: column,
+        x: pos_x,
+        y: pos_y,
+        width: extent.width,
+        height: extent.height,
+        depth: extent.depth,
+        children: Vec::new(),
+    };
+    let node_data = NodeData {
+        link: input_tag,
+        line: source_line,
+        col: column,
+        x: pos_x,
+        y: pos_y,
+        width: Some(extent.width),
+    };
+
     match prefix {
-        '[' => Some(SyncTexNode::HBox(bdata)),
-        '(' => Some(SyncTexNode::VBox(bdata)),
-        'v' => Some(SyncTexNode::VoidVBox(bdata)),
-        'h' => Some(SyncTexNode::VoidHBox(bdata)),
-        'g' => Some(SyncTexNode::Glue(ndata)),
-        'k' => Some(SyncTexNode::Kern(ndata)),
-        '$' => Some(SyncTexNode::Math(ndata)),
+        '[' => Some(SyncTexNode::HBox(box_data)),
+        '(' => Some(SyncTexNode::VBox(box_data)),
+        'v' => Some(SyncTexNode::VoidVBox(box_data)),
+        'h' => Some(SyncTexNode::VoidHBox(box_data)),
+        'g' => Some(SyncTexNode::Glue(node_data)),
+        'k' => Some(SyncTexNode::Kern(node_data)),
+        '$' => Some(SyncTexNode::Math(node_data)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE: &str = "SyncTeX Version:1\n\
+        Input:1:/tmp/main.tex\n\
+        Input:2:/tmp/chapter.tex\n\
+        Content:\n\
+        {1\n\
+        [1,10:100:200,300:400,50,10\n\
+        (2,20:5:210,310:100,20,0\n\
+        garbage line\n\
+        }\n\
+        Postamble:\n";
+
+    #[test]
+    fn parses_inputs_pages_and_records() {
+        let data = parse_content(SAMPLE);
+        assert_eq!(
+            data.inputs.get(&1).map(String::as_str),
+            Some("/tmp/main.tex")
+        );
+        assert_eq!(data.inputs.len(), 2);
+
+        let page = data.pages.get(&1).expect("page 1 parsed");
+        assert_eq!(page.elements.len(), 2, "unparseable line must be skipped");
+    }
+
+    #[test]
+    fn reads_record_fields_positionally() {
+        let node = parse_line("[1,10:100:200,300:400,50,10").expect("valid hbox");
+        let SyncTexNode::HBox(b) = node else {
+            panic!("expected an HBox")
+        };
+        assert_eq!((b.link, b.line, b.col), (1, 10, 100));
+        assert_eq!((b.x, b.y), (200, 300));
+        assert_eq!((b.width, b.height, b.depth), (400, 50, 10));
+    }
+
+    #[test]
+    fn rejects_malformed_and_unknown_records() {
+        assert!(parse_line("").is_none(), "empty line");
+        assert!(parse_line("[1,10").is_none(), "too few fields");
+        assert!(parse_line("?1,10:1:2,3:4,5,6").is_none(), "unknown prefix");
+    }
+
+    #[test]
+    fn missing_extent_defaults_to_zero() {
+        let node = parse_line("h1,10:5:20,30").expect("valid void hbox");
+        let SyncTexNode::VoidHBox(b) = node else {
+            panic!("expected a VoidHBox")
+        };
+        assert_eq!((b.width, b.height, b.depth), (0, 0, 0));
     }
 }
