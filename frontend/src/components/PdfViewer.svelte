@@ -32,8 +32,8 @@
     startSse()
   }
 
-  $: pageImgUrl = (isVisible && pdfPath && filePath) 
-    ? api.buildUrl(`/pdf/page?file=${encodeURIComponent(filePath)}&n=${currentPage}`) 
+  $: pageImgUrl = (isVisible && filePath && numPages > 0)
+    ? api.pdfPageUrl(filePath, currentPage)
     : '';
 
   onMount(() => {
@@ -87,23 +87,26 @@
     if (!jobId) return
 
     try {
-      eventSource = new EventSource(api.buildUrl(`/compile/stream/${jobId}`))
+      eventSource = new EventSource(api.compileStreamUrl(jobId))
       sseActive = true
 
+      // Locked §8.2 taxonomy: progress* -> compiled -> done
       eventSource.addEventListener('progress', (evt) => {
         const payload = JSON.parse(evt.data)
         if (!payload) return
         sseReconnectAttempts = 0
-        compilationStatus = payload.status || compilationStatus
-        compilationProgress = payload.progress ?? compilationProgress
+        compilationStatus = 'compiling'
+        compilationProgress = (payload.progress ?? 0) * 100
+      })
 
-        if (payload.status === 'completed') {
+      eventSource.addEventListener('compiled', (evt) => {
+        const payload = JSON.parse(evt.data)
+        if (payload.success) {
           handleCompletion(payload)
-          stopSse()
-        } else if (payload.status === 'failed') {
+        } else {
           handleFailure(payload)
-          stopSse()
         }
+        stopSse()
       })
 
       eventSource.addEventListener('open', () => { sseReconnectAttempts = 0 })
@@ -135,25 +138,19 @@
   }
 
   function handleCompletion(payload) {
-    pdfPath = payload.pdf_url
-    numPages = payload.diagnostics?.page_count || 0
+    numPages = payload.page_count || 1
+    currentPage = Math.min(currentPage || 1, numPages)
+    compilationStatus = 'completed'
     loading = false
     error = ""
-    // We increment page here simply to trigger reload if it was already on page 1, but svelte handles reactivity
-    dispatch('compiled', {
-      pdf_url: payload.pdf_url,
-      diagnostics: payload.diagnostics,
-      page_count: payload.diagnostics?.page_count || 0
-    })
+    dispatch('compiled', { page_count: numPages })
   }
 
   function handleFailure(payload) {
-    error = payload.error || 'Compilation failed'
+    error = payload.error_summary || 'Compilation failed'
+    compilationStatus = 'failed'
     loading = false
-    dispatch('compileFailed', {
-      error: payload.error,
-      diagnostics: payload.diagnostics
-    })
+    dispatch('compileFailed', { error })
   }
 
   function handleMouseDown(e) {

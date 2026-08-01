@@ -30,16 +30,11 @@
       if (!res.ok) throw new Error('Failed to load config')
       config = await res.json()
 
-      // Load available AI models and current selection
+      // One configured planner model (masterplan Q1) — reported by /api/config.
       modelsLoading = true
-      const modelsRes = await fetch('/api/models')
-      if (modelsRes.ok) {
-        const modelsData = await modelsRes.json()
-        availableModels = modelsData.available || []
-        // If server provides current model and config lacks it, set from server
-        if (!config.ai_model_default && modelsData.current) {
-          config.ai_model_default = modelsData.current
-        }
+      if (config.model) {
+        availableModels = [{ id: config.model, name: config.model }]
+        if (!config.ai_model_default) config.ai_model_default = config.model
       }
     } catch (e) {
       console.error('Error loading config:', e)

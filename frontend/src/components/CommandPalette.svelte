@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte'
-  import Fuse from 'fuse.js'
+  import { api } from '../lib/api/client.js'
 
   const dispatch = createEventDispatcher()
 
@@ -71,32 +71,25 @@
     { name: 'add-packages', description: 'Add LaTeX packages', tags: ['packages', 'dependencies'] }
   ]
 
-  let fuse
+  // Fuzzy matching runs server-side via nucleo (masterplan §10.1); the
+  // palette posts its own candidate list to POST /api/search.
+  const commandIndex = allCommands.map(c => `${c.name} ${c.description} ${c.tags.join(' ')}`)
 
   onMount(async () => {
-    // Initialize fuzzy search
-    fuse = new Fuse(allCommands, {
-      keys: ['name', 'description', 'tags'],
-      threshold: 0.4,
-      includeScore: true
-    })
-
+    // The server exposes the single configured model; there is no /api/models.
     try {
       modelsLoading = true
-      const res = await fetch('/api/models')
-      if (res.ok) {
-        const data = await res.json()
-        availableModels = data.available || []
-        selectedModelId = data.current || (availableModels[0] ? availableModels[0].id : '')
-      }
+      const cfg = await api.getConfig()
+      availableModels = cfg.model ? [{ id: cfg.model, name: cfg.model }] : []
+      selectedModelId = cfg.model || ''
     } catch (e) {
-      console.error('Failed to load models', e)
+      console.error('Failed to load config', e)
     } finally {
       modelsLoading = false
     }
   })
 
-  function searchCommands(query) {
+  async function searchCommands(query) {
     if (!query) {
       // Show recent first, then frequent, then remaining
       const recent = allCommands.filter(c => recentCommands.includes(c.name))
@@ -114,12 +107,20 @@
       return [...recent, ...frequent, ...others].slice(0, 10)
     }
     
-    return fuse.search(query).map(result => result.item)
+    try {
+      const { hits } = await api.searchCandidates(query, commandIndex)
+      return hits
+        .map(hit => allCommands[commandIndex.indexOf(hit.value)])
+        .filter(Boolean)
+    } catch (e) {
+      console.error('search failed', e)
+      return []
+    }
   }
 
-  function onInput(e) {
+  async function onInput(e) {
     commandInput = e.target.value
-    suggestions = searchCommands(commandInput)
+    suggestions = await searchCommands(commandInput)
     selectedIndex = -1
   }
 

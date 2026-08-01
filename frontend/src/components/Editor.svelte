@@ -208,21 +208,12 @@
     }
     
     try {
-      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`, {
-        method: 'GET',
-        headers: {
-          'If-None-Match': lastSyncedETag || currentETag || ''
-        }
-      })
-      
-      if (res.status === 304) {
-        // No changes detected
-        return
-      }
-      
+      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`)
+
       if (res.ok) {
         const data = await res.json()
-        const newETag = res.headers.get('ETag')
+        // The server has no conditional-GET support; compare the body etag.
+        const newETag = data.etag
         
         // File was modified externally
         if (newETag && newETag !== lastSyncedETag && newETag !== currentETag) {
@@ -270,8 +261,8 @@
       })
       if (response.ok) {
         const duration = performance.now() - saveStartTime
-        const newETag = response.headers.get('etag')
-        if (newETag) currentETag = newETag
+        const saved = await response.json().catch(() => null)
+        if (saved?.etag) currentETag = saved.etag
         if (content === contentToSave) {
           originalContent = content
           isDirty = false
@@ -355,11 +346,10 @@
       const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`)
       if (response.ok) {
         const data = await response.json()
-        
-        // Store ETag from response headers
-        const etag = response.headers.get('etag')
-        if (etag) {
-          currentETag = etag
+
+        // Backend returns the blake3 etag in the body (routes/files.rs)
+        if (data.etag) {
+          currentETag = data.etag
         }
         
         // Update content
@@ -420,6 +410,9 @@
   }
 
   async function connectLsp() {
+    // The in-binary LaTeX LSP is M5 scope (masterplan §4.2); until the
+    // `crates/lsp` server exists there is no /ws/lsp endpoint to dial.
+    if (!import.meta.env.VITE_ENABLE_LSP) return
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
       const wsUrl = `${protocol}://${window.location.host}/ws/lsp`

@@ -20,9 +20,10 @@
 
   async function loadHistory() {
     try {
-      const base = filterAgentOnly ? '/api/history/agent' : '/api/history'
-      // Increased limit to support virtual scrolling with many entries
-      const res = await fetch(`${base}?path=${encodeURIComponent(filePath)}&limit=1000`)
+      const params = new URLSearchParams({ limit: '1000' })
+      if (filePath) params.set('path', filePath)
+      if (filterAgentOnly) params.set('agent_only', 'true')
+      const res = await fetch(`/api/history?${params.toString()}`)
       if (!res.ok) return
       history = await res.json()
     } catch (e) {

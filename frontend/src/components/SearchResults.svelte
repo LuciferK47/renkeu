@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte'
+  import { searchWorkspace } from '../services/fileService.js'
   
   const dispatch = createEventDispatcher()
   
@@ -22,21 +23,9 @@
     loading = true
     
     try {
-      const params = new URLSearchParams({
-        query: searchQuery,
-        file_pattern: filePattern,
-        case_sensitive: caseSensitive.toString(),
-        limit: '50'
-      })
-      
-      const response = await fetch(`/api/search?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        results = data.results || []
-      } else {
-        console.error('Search failed:', await response.text())
-        results = []
-      }
+      // Backend nucleo fuzzy search over workspace files -> { hits: [{value, score}] }
+      const hits = await searchWorkspace(searchQuery)
+      results = hits.map(hit => ({ file: hit.value, score: hit.score }))
     } catch (err) {
       console.error('Search error:', err)
       results = []

@@ -5,7 +5,7 @@
   import { compileStore } from './stores/compileStore.js'
   import { aiStore, resetAI } from './stores/aiStore.js'
   import * as configService from './services/configService.js'
-  import { loadFile, applyCommand } from './controllers/FileController.js'
+  import { loadFile } from './controllers/FileController.js'
   import { compileDocument } from './controllers/CompileController.js'
   import { requestAIPlan, handleChatMessage, handleApplyHunks } from './controllers/ChatController.js'
 
@@ -110,8 +110,8 @@
   on:change={() => loadFile($fileStore.filePath)}
   on:compile={() => compileDocument($fileStore.filePath)}
   on:settings-toggle={async () => { if (!$uiStore.showSettings) await loadSettingsPanel(); toggleSettings(); }}
-  on:command={(e) => applyCommand($fileStore.filePath, e.detail, false)}
-  on:ai-plan={(e) => requestAIPlan(e.detail, 'gemini')}
+  on:command={(e) => requestAIPlan(e.detail.command ?? e.detail)}
+  on:ai-plan={(e) => requestAIPlan(e.detail.request ?? e.detail)}
 >
   <svelte:fragment slot="sidebar">
     <PanelManager
@@ -154,10 +154,8 @@
       chatMessages={$aiStore.messages}
       chatLoading={$aiStore.status === 'streaming' || $aiStore.status === 'thinking'}
       chatStreamingMessage={$aiStore.streamingMessage}
-      on:apply-selected={(e) => handleApplyHunks(e.detail.hunks, e.detail.selected, $aiStore.currentProposal)}
-      on:message-sent={(e) => handleChatMessage(e.detail.content, e.detail.timestamp)}
-      on:compiled={(e) => compileStore.update(c => ({...c, status: 'success', pdfUrl: e.detail.pdf_url, pageCount: e.detail.page_count, errors: e.detail.diagnostics?.errors, warnings: e.detail.diagnostics?.warnings}))}
-      on:compileFailed={(e) => compileStore.update(c => ({...c, status: 'error', errors: e.detail.diagnostics?.errors}))}
+      on:apply-selected={(e) => handleApplyHunks(e.detail.selected, $aiStore.currentProposal)}
+      on:message-sent={(e) => handleChatMessage(e.detail.content)}
     />
   </svelte:fragment>
 </IdeShell>
