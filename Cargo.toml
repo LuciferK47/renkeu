@@ -22,6 +22,12 @@ axum = { version = "0.8", features = ["macros", "tokio"] }
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 
 # tectonic: NO default-features=false — that kills the bundle downloader (geturl backend).
+#
+# Do NOT run a blanket `cargo update`. Doing so bumps the whole `tectonic_*`
+# family (incl. the semver-major `tectonic_io_base` 0.5 -> 0.6 and the
+# app_dirs2 -> directories cache-path swap), which breaks compilation with a
+# bare "the LaTeX engine failed" — verified 2026-08-02. Update specific crates
+# instead (`cargo update -p <crate>`) and re-run `cargo nextest run` after.
 tectonic = "0.16"
 
 blake3 = "1.5"
