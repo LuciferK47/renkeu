@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount, createEventDispatcher } from 'svelte'
   import { api } from '../lib/api/client.js'
+  import VisualFixOverlay from './VisualFixOverlay.svelte'
   
   const dispatch = createEventDispatcher()
   
@@ -22,11 +23,8 @@
   let isVisible = false
   let imgContainer = null
 
+  // Region selection lives in VisualFixOverlay (masterplan §12 M3).
   let visualFixMode = false;
-  let visualFixing = false;
-  let isDrawing = false;
-  let startX = 0, startY = 0;
-  let box = null;
 
   $: if (jobId) {
     startSse()
@@ -153,62 +151,6 @@
     dispatch('compileFailed', { error })
   }
 
-  function handleMouseDown(e) {
-    if (!visualFixMode || visualFixing) return;
-    const rect = imgContainer.getBoundingClientRect();
-    startX = e.clientX - rect.left;
-    startY = e.clientY - rect.top;
-    isDrawing = true;
-    box = { x: startX, y: startY, w: 0, h: 0 };
-  }
-
-  function handleMouseMove(e) {
-    if (!isDrawing) return;
-    const rect = imgContainer.getBoundingClientRect();
-    const currX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const currY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
-    box = {
-      x: Math.min(startX, currX),
-      y: Math.min(startY, currY),
-      w: Math.abs(currX - startX),
-      h: Math.abs(currY - startY)
-    };
-  }
-
-  async function handleMouseUp(e) {
-    if (!isDrawing) return;
-    isDrawing = false;
-    if (box && box.w > 10 && box.h > 10) {
-      visualFixing = true;
-      const rect = imgContainer.getBoundingClientRect();
-      const imgElement = imgContainer.querySelector('img');
-      const scaleX = imgElement.naturalWidth / rect.width;
-      const scaleY = imgElement.naturalHeight / rect.height;
-      
-      const apiBox = {
-        x: Math.round(box.x * scaleX),
-        y: Math.round(box.y * scaleY),
-        w: Math.round(box.w * scaleX),
-        h: Math.round(box.h * scaleY),
-      };
-      
-      try {
-         const res = await api.repairVisualCrop(filePath, currentPage, apiBox.x, apiBox.y, apiBox.w, apiBox.h);
-         if (res && res.edits && res.edits.length > 0) {
-            dispatch('apply-selected', res.edits);
-         }
-      } catch (err) {
-         error = err.message;
-      } finally {
-         visualFixing = false;
-         box = null;
-         visualFixMode = false;
-      }
-    } else {
-      box = null;
-    }
-  }
-
   function onImageLoad() {
     // Force a re-layout if needed
   }
@@ -227,38 +169,30 @@
       <button on:click={() => currentPage = Math.min(numPages || 100, currentPage + 1)} disabled={numPages ? currentPage >= numPages : false}>Next</button>
       
       <div class="spacer"></div>
-      <button 
-        class="visual-fix-btn" 
+      <button
+        class="visual-fix-btn"
         class:active={visualFixMode}
-        on:click={() => { visualFixMode = !visualFixMode; box = null; }}
-        title="Draw a bounding box to fix an issue"
+        on:click={() => (visualFixMode = !visualFixMode)}
+        title="Draw a box over the page to ask for a fix"
       >
-        {visualFixMode ? 'Cancel Visual Fix' : 'Visual Fix'}
+        {visualFixMode ? 'Close Visual Fix' : 'Visual Fix'}
       </button>
     </div>
     
     <div class="pdf-frame">
-      <!-- svelte-ignore a11y-no-static-element-interactions -->
-      <div 
-        class="img-container" 
-        bind:this={imgContainer}
-        on:mousedown={handleMouseDown}
-        on:mousemove={handleMouseMove}
-        on:mouseup={handleMouseUp}
-        on:mouseleave={handleMouseUp}
-        style="cursor: {visualFixMode ? 'crosshair' : 'default'}"
-      >
-        <!-- svelte-ignore a11y-missing-attribute -->
-        <img src={pageImgUrl} class="pdf-img" on:load={onImageLoad} draggable="false" />
-        {#if box}
-          <div class="bbox" style="left: {box.x}px; top: {box.y}px; width: {box.w}px; height: {box.h}px;"></div>
-        {/if}
-        {#if visualFixing}
-          <div class="visual-overlay fixing">
-            <div class="overlay-msg">Analyzing visual selection...</div>
-          </div>
-        {/if}
-      </div>
+      {#if visualFixMode}
+        <!-- Region selection + proposal review (masterplan §12 M3). -->
+        <VisualFixOverlay
+          {filePath}
+          page={currentPage}
+          active={true}
+          on:proposal={(e) => dispatch('visual-proposal', e.detail)}
+        />
+      {:else}
+        <div class="img-container" bind:this={imgContainer}>
+          <img src={pageImgUrl} class="pdf-img" alt={`Page ${currentPage}`} on:load={onImageLoad} draggable="false" />
+        </div>
+      {/if}
     </div>
   {:else if loading}
     <div class="loading">

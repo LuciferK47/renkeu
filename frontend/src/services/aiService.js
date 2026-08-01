@@ -59,6 +59,6 @@ export async function applySelectedHunks(filePath, edits, selectedHunkIds) {
   return api.applySelectedHunks(filePath, edits, selectedHunkIds);
 }
 
-export async function requestVisualFix(filePath, page, x, y, w, h) {
-  return api.repairVisualCrop(filePath, page, x, y, w, h);
+export async function requestVisualFix(region) {
+  return api.repairVisualCrop(region);
 }

@@ -38,7 +38,8 @@ npm run build   # -> dist/ (also what the Tauri shell bundles)
 | `src/controllers/` | Orchestration: services in, store updates out. Components stay dumb. |
 | `src/stores/` | Svelte stores: `fileStore`, `compileStore`, `aiStore`, `uiStore`. |
 | `src/layouts/` | `IdeShell` → `WorkspaceLayout` / `PanelManager`. |
-| `src/components/` | Editor, PdfViewer, DiffView, ChatPanel, CommandPalette, … |
+| `src/components/` | Editor, PdfViewer, VisualFixOverlay, DiffView, ChatPanel, CommandPalette, … |
+| `src/utils/bbox.js` | Screen→image pixel conversion for region selection (unit-tested). |
 
 ## Backend contract
 
@@ -52,7 +53,13 @@ Everything the UI calls exists in `crates/latex_ai_server`:
   `GET /api/compile/stream/{job_id}` (SSE). Pages come from
   `GET /api/pdf/page?file=&n=&dpi=`.
 - **AI** — `POST /api/plan/stream` and `POST /api/agent/stream` (SSE),
-  `POST /api/agent/apply-selected`, `POST /api/visual-fix`.
+  `POST /api/agent/apply-selected`.
+- **Visual fix** — `POST /api/visual-fix` with a region in **page-image pixels**
+  plus the `dpi` those pixels were rendered at. The backend maps the region's
+  centre through SyncTeX to a source line and returns
+  `{ file, line, exact, snippet, base64_crop, edits }`. Edits arrive with
+  `hunk_id`s stamped, so the proposal goes through the normal
+  apply-selected review path — `VisualFixOverlay` never applies anything.
 - **Other** — `GET /api/config`, `GET /api/history`.
 
 ### SSE rules

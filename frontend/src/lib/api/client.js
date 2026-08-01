@@ -110,9 +110,19 @@ export class APIClient {
     });
   }
 
-  repairVisualCrop(filePath, page, x, y, w, h) {
+  // Region coordinates are pixels of the page image rendered at `dpi`.
+  repairVisualCrop({ filePath, page, x, y, w, h, dpi, instruction }) {
     return this.request('POST', '/visual-fix', {
-      body: { file_path: filePath, page, x, y, w, h }
+      body: {
+        file_path: filePath,
+        page,
+        x,
+        y,
+        w,
+        h,
+        ...(dpi ? { dpi } : {}),
+        ...(instruction ? { instruction } : {})
+      }
     });
   }
 
