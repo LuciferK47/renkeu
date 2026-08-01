@@ -6,14 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-futures = "0.3.32"
 genai = "0.1"
 nucleo-matcher = { workspace = true }
 serde = { workspace = true }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros"] }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-anyhow = { workspace = true }
 serde_json = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
@@ -21,6 +19,9 @@ hex = "0.4"
 similar = "2.6"
 regex = "1.12.4"
 tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true
