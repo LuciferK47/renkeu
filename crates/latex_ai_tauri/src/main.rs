@@ -49,8 +49,10 @@ async fn main() -> anyhow::Result<()> {
 
     let model =
         std::env::var("LATEX_AI_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
-    let planner: Arc<dyn latex_ai_core::ai::EditPlanner> =
-        Arc::new(latex_ai_core::ai::LlmPlanner::new(model.clone()));
+    let planner: Arc<dyn latex_ai_core::ai::EditPlanner> = Arc::new(
+        latex_ai_core::ai::LlmPlanner::new(model.clone())
+            .with_vision_model(std::env::var("LATEX_AI_VISION_MODEL").ok()),
+    );
     let engine = Arc::new(latex_ai_compiler::Engine::new(10));
     let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine));
 

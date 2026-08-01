@@ -1146,14 +1146,14 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: visual bbox → bounded edit proposal grounded in PDF coordinates.
 
 **Deliverables**:
-- [ ] `crates/synctex/`: full nom parser (~600 LOC); `parse()`, `backward_search()`, `forward_search()` APIs.
-- [ ] `crates/visual/`: `pdfium_render` clipped rasterize (crop) **and** full-page render; one integration test on a real `.synctex.gz` fixture.
-- [ ] `GET /api/pdf/page?n=&dpi=` → `image/png` full-page render — replaces PDF.js viewer (§10.1). Frontend PDF view becomes an image viewer (zoom/pan) over these PNGs.
-- [ ] `router::visual::fix` endpoint: validate bounds → SyncTeX backward_search → ±30-line snippet → PNG crop → GeminiPlanner `visual_fix()` → return `VisualFixResponse { edits }` (no auto-apply).
-- [ ] `crates/latex_ai_core/ai.rs::visual_fix`: uses `genai_rs::Interaction::with_response_format(ResponseFormat::Json)` for VLM call.
-- [ ] `frontend/src/lib/api/client.js#repairVisualCrop`: SSE-style POST with bbox JSON; `VisualFixOverlay.svelte`: pdfium page PNG (`GET /api/pdf/page`) + canvas overlay for drag select.
-- [ ] Tests: bbox over overflowing image in `examples/` fixture; intent `"shrink this image to fit column"`; assert `edits` contains exactly one `replace_range` touching the `\includegraphics` line range only.
-- [ ] Tests: missing synctex file → 404 with proper envelope; out-of-bounds bbox → 422.
+- [x] `crates/synctex/`: full parser, `parse()`, `backward_search()`, `forward_search()` APIs — **hand-written recursive reader, not nom** (§15.1): the grammar is line-oriented with single-char prefixes, so a parser-combinator dependency bought nothing. Adds the scaled-point -> PDF-point conversion the format actually requires.
+- [x] `crates/visual/`: `pdfium_render` clipped rasterize (crop) **and** full-page render; one integration test on a real `.synctex.gz` fixture.
+- [x] `GET /api/pdf/page?n=&dpi=` → `image/png` full-page render — replaces PDF.js viewer (§10.1). Frontend PDF view becomes an image viewer (zoom/pan) over these PNGs.
+- [x] `router::visual::fix` endpoint: validate bounds → SyncTeX backward_search → ±30-line snippet → PNG crop → GeminiPlanner `visual_fix()` → return `VisualFixResponse { edits }` (no auto-apply).
+- [x] `crates/latex_ai_core/ai.rs::visual_fix`: uses `genai_rs::Interaction::with_response_format(ResponseFormat::Json)` for VLM call.
+- [x] `frontend/src/lib/api/client.js#repairVisualCrop`: SSE-style POST with bbox JSON; `VisualFixOverlay.svelte`: pdfium page PNG (`GET /api/pdf/page`) + canvas overlay for drag select.
+- [x] Tests: bbox over overflowing image in `examples/` fixture; intent `"shrink this image to fit column"`; assert `edits` contains exactly one `replace_range` touching the `\includegraphics` line range only.
+- [x] Tests: missing synctex file → 404 with proper envelope; out-of-bounds bbox → 422.
 
 **Audit Gate (M3)**:
 - Data Integrity: `backward_search` return shape always present; null only when SyncTeX miss (404).
@@ -1308,6 +1308,11 @@ drift.
 | Frontend fuzzy search | `nucleo` behind `GET /api/search` | Done, plus `POST /api/search` for caller-supplied candidates | The command palette ranks its own static command list; the server does not own that list. |
 | `AgentEdit.hunk_id` | server-computed, `skip_deserializing` | plain optional field | With `deny_unknown_fields`, a skipped field made the client's echo of a proposal un-deserializable on apply-selected. |
 | Scratchpad | `~/.latex-ai/scratch/<session>` | Same, `LATEX_AI_HOME`-overridable, LRU-10 + explicit cleanup | Matches Q3; the override exists so tests and containers do not write to `$HOME`. |
+| `SyncTeX` emission (M3) | `synctex: true` in `Tectonic.toml` | `ProcessingSessionBuilder::synctex(true)` + `into_file_data()` | `tectonic::latex_to_pdf` cannot emit `SyncTeX` at all. Driving the session builder returns the PDF **and** the `.synctex.gz` in memory — no config file, no output directory, no temp files. |
+| `SyncTeX` parser (M3) | `nom` combinators, ~600 LOC | hand-written line reader + unit conversion, ~210 LOC | The format is line-oriented with single-char record prefixes; `nom` would add a dependency and obscure it. The real work was the missing sp->bp conversion, verified against a known value (a 1in margin is 4736287sp = 72bp). |
+| `SyncTeX` input name (M3) | source path recorded in the map | Tectonic always records the primary input as `texput` | Not configurable via `tex_input_name`. Single-document hits therefore resolve to the file the caller compiled; a real name (multi-file, once `bundle` lands) is re-validated against the workspace before being read. |
+| VLM call (M3) | `gemini-2.5-flash-image` | separate `LATEX_AI_VISION_MODEL`, image sent as a real `ContentPart::Image` + `ChatResponseFormat::JsonMode`; honest text-only fallback when unset | Follows the provider switch (row 1). Verified live 2026-08-02: **Groq serves no vision model** (`llama-3.2-*-vision-preview`, which `genai` still lists, are retired), and a text-only model rejects image parts with a 400. So vision is its own configurable model — any provider `genai` routes — and with none configured the route degrades to a source-only fix and logs that it did, rather than pasting base64 into a prompt no model can read. |
+| VLM response shape (M3) | strict JSON array | array, `{"edits": [...]}`, **or a lone edit object** | OpenAI-style JSON mode forces a top-level *object*, so a bare array is impossible for those providers regardless of the prompt. Groq returns a single edit object for a single-change request; the decoder accepts all three and still 422s on anything else. |
 
 ## 16. Open Questions
 
@@ -1330,5 +1335,5 @@ drift.
 *Document version: 2.0 (Rust Edition)*
 *Date: 2026-06-24*
 *Authors: synthesized from `idea.md`, `CONTEXT.md`, `rust.md`, existing repo audit, and peer-state-of-practice scan (TexGuardian, PaperFit, scholia, ferroleaf, XandSuite, r/tauri 2026-03 thread, genai-rs 0.7 docs, tectonic docs).*
-*Status: M1 and M2 complete and verified (2026-08-02) — see §15.1 for recorded deviations. M3–M5 sequential with audit gates. See §12.*
+*Status: M1, M2 and M3 complete and verified (2026-08-02) — see §15.1 for recorded deviations. M4–M5 sequential with audit gates. See §12.*
 *Re-read this doc + `CONTEXT.md` + `idea.md` + `rust.md` at the start of every implementation session.*

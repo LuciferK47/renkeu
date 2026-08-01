@@ -3263,8 +3263,10 @@ name = "latex-ai-compiler"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "flate2",
  "latex-ai-core",
  "moka",
+ "synctex",
  "tectonic",
  "tempfile",
  "thiserror 2.0.18",
