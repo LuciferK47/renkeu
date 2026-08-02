@@ -3,11 +3,12 @@
 A writing app for LaTeX documents that **fixes its own mistakes using AI**, and
 runs **entirely on your own computer**.
 
-> **Status:** M4 complete. The engine compiles in-process, the AI self-healing
-> loop works end to end, drawing a box on the PDF maps back to the source line
-> that produced it, and every proposed change is reviewed and accepted hunk by
-> hunk. The packaged desktop app (M5) is next — see
-> [`masterplan.md`](masterplan.md) §12.
+> **Status:** all five milestones (M1–M5) implemented. The engine compiles
+> in-process, the AI self-healing loop works end to end, drawing a box on the
+> PDF maps back to the source line that produced it, changes are accepted hunk
+> by hunk, and the desktop shell bundles the lot. See
+> [`masterplan.md`](masterplan.md) §12 for the per-milestone record and §15.1
+> for where the implementation knowingly differs from the plan.
 
 ## What is this, in plain words?
 
@@ -131,6 +132,8 @@ source .env
 | `LATEX_AI_VISION_MODEL` | *(unset)* | Model used for visual fix. **Groq currently serves no vision model**, so leave it unset for Groq and visual-fix degrades to a source-only fix (see below). Set it to any vision model `genai` can route — e.g. an OpenAI or Gemini one, with that provider's key exported — to have the PDF crop actually analysed. |
 | `ALLOWED_ORIGINS` | Vite dev origins | Comma-separated CORS allowlist |
 | `LATEX_AI_HOME` | `~/.latex-ai` | Scratchpad root |
+| `ENV` | *(unset)* | Set to `production` to require an explicit `ALLOWED_ORIGINS` |
+| `LATEX_AI_HOST` | `127.0.0.1` | Bind address (`--host`). The daemon has no authentication, so leave it on loopback unless something in front restricts access; the container sets `0.0.0.0` (see below) |
 | `RUST_LOG` | `info` | Tracing filter |
 
 ### Frontend
@@ -138,6 +141,69 @@ source .env
 ```sh
 cd frontend && npm ci && npm run dev   # :5173, proxies /api to :3000
 ```
+
+### Desktop app
+
+The desktop shell bundles the same server and the built SPA into one binary.
+
+```sh
+cd frontend && npm ci && npm run build && cd ..
+cargo tauri build --config crates/latex_ai_tauri/tauri.conf.json --bundles deb
+# -> target/release/bundle/deb/*.deb   (also: appimage; dmg/msi need macOS/Windows)
+sudo dpkg -i target/release/bundle/deb/*.deb && latex-ai-tauri
+```
+
+The bundle is **6.5 MB** (15.4 MB binary) — the whole LaTeX engine is in there;
+no TeX Live install.
+
+> **Note on `external-harfbuzz`.** The workspace enables Tectonic's
+> `external-harfbuzz` feature so it links the *system* harfbuzz. Without it the
+> desktop shell segfaults: webkit2gtk links the system copy dynamically, and
+> two copies of harfbuzz in one process let the linker resolve symbols across
+> implementations. This is why `libharfbuzz-dev` is a required build
+> dependency.
+
+It binds the API to an **ephemeral loopback port** and injects that address
+into the page before any script runs — the SPA is served from
+`tauri://localhost`, so a relative `/api` would never reach the server.
+
+Both debug and release builds load the bundled SPA, so
+`cargo run -p latex-ai-tauri` works without a Vite server running. Build the
+frontend first (`npm run build`) — the shell embeds `frontend/dist`.
+
+Building `.dmg` and `.msi` requires macOS and Windows respectively; Tauri does
+not cross-compile bundles.
+
+### Production deployment
+
+Set `ENV=production` and the server **refuses to start** without an explicit
+`ALLOWED_ORIGINS` — silently falling back to the development origins would
+leave a deployment trusting localhost.
+
+```sh
+ENV=production ALLOWED_ORIGINS=https://latex.example.com \
+  latex-ai serve --port 3000
+```
+
+`GET /api/metrics` returns counters as JSON, or Prometheus text when the
+request carries `Accept: text/plain`.
+
+### Docker
+
+```sh
+ALLOWED_ORIGINS=http://localhost:3000 docker compose up -d
+curl http://127.0.0.1:3000/health     # -> {"status":"ok"}
+```
+
+The image is the daemon only — the SPA is served by Vite in development and
+bundled into the desktop app. Compose publishes to **host loopback**
+(`127.0.0.1:3000:3000`) and mounts `./examples` as the sandboxed workspace,
+with named volumes for the Tectonic bundle and the history database.
+
+Inside the container the server binds `0.0.0.0`, because Docker forwards a
+published port to the container's interface address — a loopback-only bind
+would be unreachable from the host while the in-container healthcheck still
+reported healthy. The host-side mapping is what limits access.
 
 ## What's in the box
 
@@ -147,11 +213,11 @@ package):
 | Crate | What it does |
 |---|---|
 | `crates/compiler` | Runs Tectonic to turn LaTeX into PDF bytes: global mutex, result cache, dedup/debounce queue, per-session scratchpads |
-| `crates/latex_ai_core` | Use-case-agnostic services: AI planner, edit application, storage + history, path sandbox, prompt safety, fuzzy search |
+| `crates/latex_ai_core` | Use-case-agnostic services: AI planner, edit application, storage + history + durable jobs, path sandbox, prompt safety, fuzzy search, metrics |
 | `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool |
 | `crates/synctex` | `.synctex(.gz)` parser, scaled-point→PDF-point conversion, backward *and* forward search |
 | `crates/visual` | pdfium page rendering and bbox cropping (one process-wide binding) |
-| `crates/latex_ai_tauri` | Desktop shell (M5) — builds, not yet packaged |
+| `crates/latex_ai_tauri` | Desktop shell: embeds the server on an ephemeral loopback port and bundles the SPA (`.deb` / `.appimage`) |
 
 ## Quality bar
 
@@ -181,9 +247,24 @@ Two checked-in files cap that:
 Raise both if you have RAM to spare, or override per run with
 `cargo build -j <n>` / `cargo nextest run --test-threads <n>`.
 
+Those two files cannot bound a tool that spawns its own build — `cargo
+tarpaulin` rebuilds the workspace instrumented *and* re-runs every test under
+ptrace, and has taken this machine down. For anything heavy, use the wrapper:
+
+```sh
+scripts/capped cargo tarpaulin --workspace --exclude latex-ai-tauri
+CAP=8G scripts/capped cargo build --release
+```
+
+It runs the command in its own systemd scope with `MemoryMax`, so an overrun
+kills that cgroup rather than your shell, editor, or desktop session.
+
 Workspace lints are deny-level (`clippy::pedantic`, no `unwrap`/`expect`/`todo`
-outside tests). CI additionally asserts that streaming endpoints only emit
-events from the locked SSE taxonomy (masterplan §8.2).
+outside tests). CI additionally asserts two things that are invisible to the
+compiler: that streaming endpoints only emit events from the locked SSE
+taxonomy (masterplan §8.2), and that Tectonic keeps its `external-harfbuzz`
+feature — dropping it reintroduces a desktop segfault that only appears when
+the bundle is actually run.
 
 ## License
 
