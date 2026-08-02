@@ -159,7 +159,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pulls the buildkit image from Docker Hub, which times out often enough
+      # to red a run that has nothing wrong with it. Retry rather than let
+      # someone learn to ignore this job.
       - uses: docker/setup-buildx-action@v3
+        id: buildx
+        continue-on-error: true
+      - uses: docker/setup-buildx-action@v3
+        if: steps.buildx.outcome == 'failure'
 
       # The image had shipped for four milestones without ever building: the
       # slim rust base has no C++ compiler and tectonic_engine_xetex needs one.
