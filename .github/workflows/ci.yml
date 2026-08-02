@@ -125,6 +125,49 @@ jobs:
             || { echo "tectonic must keep external-harfbuzz — see masterplan §15.1"; exit 1; }
           echo "external-harfbuzz OK"
 
+  container:
+    name: Image builds and boots healthy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # The image had shipped for four milestones without ever building: the
+      # slim rust base has no C++ compiler and tectonic_engine_xetex needs one.
+      # Nothing in CI compiled it, so nothing noticed. Cache the cargo registry
+      # and target dir through the GitHub Actions cache so this costs minutes,
+      # not the full cold build.
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: latex-ai:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Building is not enough: the daemon bound loopback only, which Docker
+      # cannot route a published port to, while the in-container healthcheck
+      # still passed. Assert reachability from *outside* the container.
+      - name: Boot it and check health from the host
+        run: |
+          set -euo pipefail
+          docker run -d --name latexai -p 127.0.0.1:3000:3000 \
+            -e ENV=production -e ALLOWED_ORIGINS=http://localhost:3000 \
+            latex-ai:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then
+              echo "healthy after ${i}s"
+              curl -fsS http://127.0.0.1:3000/health
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server never became reachable from the host:"
+          docker logs latexai
+          exit 1
+
   contracts:
     name: SSE taxonomy lock
     runs-on: ubuntu-latest
