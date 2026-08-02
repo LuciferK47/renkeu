@@ -102,9 +102,18 @@ export class APIClient {
     return this.buildUrl(`/compile/stream/${jobId}`);
   }
 
-  pdfPageUrl(filePath, page, dpi) {
+  // `paper` and `warmth` tone the page for a dark UI. The server compresses
+  // lightness in OKLab and leaves hue alone, so a red warning box stays red --
+  // unlike the `filter: invert()` every other LaTeX viewer resorts to.
+  // paper === 1 means "send it exactly as it prints", which is what
+  // hold-to-reveal asks for.
+  pdfPageUrl(filePath, page, dpi, tone) {
     const params = new URLSearchParams({ file: filePath, n: String(page) });
     if (dpi) params.set('dpi', String(dpi));
+    if (tone) {
+      if (tone.paper != null) params.set('paper', String(tone.paper));
+      if (tone.warmth != null) params.set('warmth', String(tone.warmth));
+    }
     return `${this.buildUrl('/pdf/page')}?${params.toString()}`;
   }
 

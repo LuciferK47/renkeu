@@ -1,4 +1,5 @@
 <script>
+  import { paperStore } from '../stores/paperStore.js'
   import { onMount } from 'svelte'
 
   export let isOpen = false
@@ -271,6 +272,50 @@
                 <label for="error-color">Error Color</label>
                 <input id="error-color" type="color" bind:value={config.theme.error_color} />
                 <code>{config.theme.error_color}</code>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <h3>Page appearance in dark mode</h3>
+              <p class="setting-note">
+                The compiled page is dimmed rather than inverted, so its colours
+                stay true &mdash; a red warning box is still red. Hold
+                <strong>Hold for true colours</strong> above the preview to see the
+                page exactly as it will print.
+              </p>
+
+              <div class="setting-group">
+                <label for="paper-lightness">Paper brightness</label>
+                <input
+                  id="paper-lightness"
+                  type="range"
+                  min="0.6"
+                  max="1"
+                  step="0.01"
+                  value={$paperStore.paper}
+                  on:input={(e) => paperStore.setPaper(e.currentTarget.value)}
+                />
+                <code>{Math.round($paperStore.paper * 100)}%</code>
+              </div>
+
+              <div class="setting-group">
+                <label for="paper-warmth">Warmth</label>
+                <input
+                  id="paper-warmth"
+                  type="range"
+                  min="0"
+                  max="40"
+                  step="1"
+                  value={$paperStore.warmth}
+                  on:input={(e) => paperStore.setWarmth(e.currentTarget.value)}
+                />
+                <code>{$paperStore.warmth}</code>
+              </div>
+
+              <div class="setting-group">
+                <button type="button" class="reset-tone" on:click={paperStore.reset}>
+                  Reset to defaults
+                </button>
               </div>
             </div>
           {/if}
@@ -600,6 +645,28 @@
    *
    * The scale-on-hover went with them: these are spans with a title, not
    * controls, and movement promised an interaction that does not exist. */
+  .setting-note {
+    margin: 0 0 1rem 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: hsl(var(--text-dim));
+    max-width: 60ch;
+  }
+
+  .reset-tone {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    border: 1px solid hsl(var(--border));
+    border-radius: 999px;
+    background: transparent;
+    color: hsl(var(--foreground));
+    cursor: pointer;
+  }
+
+  .reset-tone:hover {
+    background: hsl(var(--accent));
+  }
+
   .cap-badge {
     display: inline-flex;
     align-items: center;

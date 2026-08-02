@@ -215,6 +215,9 @@ async fn render_crop(
         move || -> Result<std::sync::Arc<[u8]>, ::visual::VisualError> {
             let renderer = ::visual::render::renderer()?;
             let img = renderer.render_page(&pdf_path, page - 1, dpi)?;
+            // Deliberately not tone-mapped. The model is being asked what is
+            // wrong with the document as it will print, so it gets the true
+            // colours; toning is a reading comfort for the human viewer only.
             ::visual::crop::crop_image(&img, x, y, w, h)
         },
     )
@@ -299,10 +302,19 @@ pub struct PageQuery {
     pub file: String,
     pub n: u32,
     pub dpi: Option<u16>,
+    /// Paper lightness, 0.6..=1.0. Omitted means the server default; `1.0`
+    /// means send the page exactly as it will print, which is what the
+    /// hold-to-reveal control asks for.
+    pub paper: Option<f32>,
+    /// Warm shift for the paper surface, 0..=40.
+    pub warmth: Option<f32>,
 }
 
-/// `GET /api/pdf/page?file=&n=&dpi=` — rasterize one page of the compiled PDF
-/// (masterplan §8.3; replaces PDF.js).
+/// `GET /api/pdf/page?file=&n=&dpi=&paper=&warmth=` — rasterize one page of the
+/// compiled PDF (masterplan §8.3; replaces PDF.js).
+///
+/// `paper` and `warmth` tone the page for a dark UI without touching hue; see
+/// [`visual::paper`] for why that is done here rather than with a CSS filter.
 #[instrument(skip(state))]
 pub async fn get_pdf_page(
     State(state): State<AppState>,
@@ -319,9 +331,16 @@ pub async fn get_pdf_page(
     let dpi = query.dpi.unwrap_or(DEFAULT_DPI).clamp(36, 300);
     let page_index = query.n.saturating_sub(1);
 
+    let default_tone = ::visual::paper::PaperTone::default();
+    let tone = ::visual::paper::PaperTone::new(
+        query.paper.unwrap_or(default_tone.lightness),
+        query.warmth.unwrap_or(default_tone.warmth),
+    );
+
     let png = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, ::visual::VisualError> {
         let renderer = ::visual::render::renderer()?;
         let img = renderer.render_page(&pdf_path, page_index, dpi)?;
+        let img = ::visual::paper::tone_map(img, tone);
         let mut buf = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut buf);
         img.write_to(&mut cursor, image::ImageFormat::Png)

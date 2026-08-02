@@ -1,6 +1,7 @@
 <script>
   import { onDestroy, onMount, createEventDispatcher } from 'svelte'
   import { api } from '../lib/api/client.js'
+  import { paperStore, activeTone } from '../stores/paperStore.js'
   import VisualFixOverlay from './VisualFixOverlay.svelte'
   
   const dispatch = createEventDispatcher()
@@ -30,11 +31,30 @@
     startSse()
   }
 
+  // Tone only applies on a dark ground: on a light theme the page already sits
+  // on paper-coloured chrome, and dimming it there would be a loss for nothing.
+  $: tone = isDark ? $activeTone : { paper: 1, warmth: 0 };
+
   $: pageImgUrl = (isVisible && filePath && numPages > 0)
-    ? api.pdfPageUrl(filePath, currentPage)
+    ? api.pdfPageUrl(filePath, currentPage, undefined, tone)
     : '';
 
+  // Watch the theme attribute rather than a media query: the in-app toggle is
+  // what decides, and it can disagree with the OS.
+  let isDark = false
+  let themeObserver = null
+
   onMount(() => {
+    const readTheme = () => {
+      isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+    }
+    readTheme()
+    themeObserver = new MutationObserver(readTheme)
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    })
+
     if ('IntersectionObserver' in window) {
       const observer = new IntersectionObserver((entries) => {
         for (const entry of entries) {
@@ -54,6 +74,7 @@
   onDestroy(() => {
     stopSse()
     clearReconnectTimer()
+    themeObserver?.disconnect()
   })
 
   function clearReconnectTimer() {
@@ -169,6 +190,25 @@
       <button on:click={() => currentPage = Math.min(numPages || 100, currentPage + 1)} disabled={numPages ? currentPage >= numPages : false}>Next</button>
       
       <div class="spacer"></div>
+      {#if isDark}
+        <!-- Press and hold to see the page exactly as it will print. Pointer
+             and keyboard both, because checking a figure before submitting is
+             not a mouse-only task. -->
+        <button
+          class="reveal-btn"
+          class:revealing={$paperStore.revealing}
+          on:pointerdown={paperStore.startReveal}
+          on:pointerup={paperStore.endReveal}
+          on:pointerleave={paperStore.endReveal}
+          on:keydown={(e) => { if (e.key === ' ' || e.key === 'Enter') paperStore.startReveal() }}
+          on:keyup={paperStore.endReveal}
+          on:blur={paperStore.endReveal}
+          title="Hold to see the page in its true colours"
+          aria-pressed={$paperStore.revealing}
+        >
+          {$paperStore.revealing ? 'True colours' : 'Hold for true colours'}
+        </button>
+      {/if}
       <button
         class="visual-fix-btn"
         class:active={visualFixMode}
@@ -238,6 +278,22 @@
     justify-content: center;
     background: hsl(var(--muted));
     padding: 20px;
+  }
+
+  .reveal-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    border: 1px solid hsl(var(--border));
+    border-radius: 999px;
+    background: transparent;
+    color: hsl(var(--text-dim));
+    cursor: pointer;
+  }
+
+  .reveal-btn:hover,
+  .reveal-btn.revealing {
+    background: hsl(var(--accent));
+    color: hsl(var(--foreground));
   }
 
   .img-container {

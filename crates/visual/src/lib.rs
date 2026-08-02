@@ -4,6 +4,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod crop;
+pub mod paper;
 pub mod render;
 
 #[derive(Debug, thiserror::Error)]
