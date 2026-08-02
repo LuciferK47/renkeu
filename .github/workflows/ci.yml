@@ -45,13 +45,16 @@ jobs:
       # No distro ships libpdfium, so the README tells humans to fetch a
       # prebuilt binary. CI never did, which made the three visual-fix tests
       # return 500 and fail here while passing on any machine that had followed
-      # the README. Pinned rather than `latest`: a moving binary dependency
-      # would make this suite fail on days nobody changed anything.
+      # the README. Pinned rather than `latest` so the suite cannot break on a
+      # day nobody changed anything — but the version is not arbitrary: older
+      # builds are ABI-incompatible with pdfium-render 0.9.2 and fail the same
+      # way. chromium/7961 is verified against the test suite; bump it only
+      # after re-running the m3 visual tests.
       - name: Install libpdfium
         run: |
           set -euo pipefail
           curl -fsSL -o /tmp/pdfium.tgz \
-            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/6721/pdfium-linux-x64.tgz
+            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7961/pdfium-linux-x64.tgz
           mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
           sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/
           sudo ldconfig
@@ -116,13 +119,16 @@ jobs:
       # No distro ships libpdfium, so the README tells humans to fetch a
       # prebuilt binary. CI never did, which made the three visual-fix tests
       # return 500 and fail here while passing on any machine that had followed
-      # the README. Pinned rather than `latest`: a moving binary dependency
-      # would make this suite fail on days nobody changed anything.
+      # the README. Pinned rather than `latest` so the suite cannot break on a
+      # day nobody changed anything — but the version is not arbitrary: older
+      # builds are ABI-incompatible with pdfium-render 0.9.2 and fail the same
+      # way. chromium/7961 is verified against the test suite; bump it only
+      # after re-running the m3 visual tests.
       - name: Install libpdfium
         run: |
           set -euo pipefail
           curl -fsSL -o /tmp/pdfium.tgz \
-            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/6721/pdfium-linux-x64.tgz
+            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7961/pdfium-linux-x64.tgz
           mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
           sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/
           sudo ldconfig

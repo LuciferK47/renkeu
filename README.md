@@ -92,7 +92,7 @@ package exists; grab a prebuilt binary):
 ```sh
 # Pinned to the same build CI uses; `latest` moves and has broken this before.
 curl -L -o /tmp/pdfium.tgz \
-  https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/6721/pdfium-linux-x64.tgz
+  https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7961/pdfium-linux-x64.tgz
 mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
 sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/ && sudo ldconfig
 ```
