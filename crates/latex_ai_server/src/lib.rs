@@ -6,6 +6,7 @@ use axum::extract::{Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use latex_ai_core::ai::EditPlanner;
+use latex_ai_core::metrics::Metrics;
 use latex_ai_core::search::{Hit, fuzzy_rank};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -29,26 +30,70 @@ pub struct AppState {
     pub workspace_root: PathBuf,
     /// Planner model id, surfaced by `GET /api/config`.
     pub model: String,
+    /// Process-lifetime counters, surfaced by `GET /api/metrics`.
+    pub metrics: Arc<Metrics>,
 }
 
 use std::env;
 use tower_http::cors::{Any, CorsLayer};
 
-/// Build the full router (masterplan.md §4.6, §8.3).
-pub fn build_router(state: AppState) -> Router {
-    let allowed_origins = env::var("ALLOWED_ORIGINS")
-        .unwrap_or_else(|_| "http://localhost:5173,http://127.0.0.1:5173".to_owned());
-    let origins: Vec<_> = allowed_origins
+/// Why the server refused to start.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum StartupError {
+    #[error(
+        "ENV=production requires ALLOWED_ORIGINS to be set to a comma-separated \
+         list of origins (e.g. ALLOWED_ORIGINS=https://latex.example.com). \
+         Refusing to start with the permissive development default."
+    )]
+    MissingAllowedOrigins,
+    #[error("ALLOWED_ORIGINS contains no parseable origin: {0:?}")]
+    UnparseableAllowedOrigins(String),
+}
+
+/// Resolve the CORS allow-list.
+///
+/// In production a missing or unusable `ALLOWED_ORIGINS` is fatal: silently
+/// falling back to the dev origins would leave a deployment trusting
+/// localhost (masterplan §11.6, §12 M5 audit: security).
+fn cors_layer() -> Result<CorsLayer, StartupError> {
+    let is_production = env::var("ENV").is_ok_and(|e| e.eq_ignore_ascii_case("production"));
+    let configured = env::var("ALLOWED_ORIGINS")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+
+    let raw = match (configured, is_production) {
+        (Some(v), _) => v,
+        (None, true) => return Err(StartupError::MissingAllowedOrigins),
+        (None, false) => "http://localhost:5173,http://127.0.0.1:5173".to_owned(),
+    };
+
+    let origins: Vec<_> = raw
         .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
         .filter_map(|s| s.parse().ok())
         .collect();
 
-    let cors = CorsLayer::new()
+    if origins.is_empty() {
+        return Err(StartupError::UnparseableAllowedOrigins(raw));
+    }
+
+    Ok(CorsLayer::new()
         .allow_origin(origins)
         .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_headers(Any))
+}
 
-    Router::new()
+/// Build the full router (masterplan.md §4.6, §8.3).
+///
+/// # Errors
+/// [`StartupError`] when the CORS configuration is unusable — see
+/// [`cors_layer`].
+pub fn build_router(state: AppState) -> Result<Router, StartupError> {
+    let cors = cors_layer()?;
+
+    Ok(Router::new()
         .route("/health", get(health))
         .route("/api/search", post(search_candidates).get(search_workspace))
         .route("/api/config", get(routes::config::get_config))
@@ -72,9 +117,16 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/visual-fix", post(routes::visual::visual_fix))
         .route("/api/pdf/page", get(routes::visual::get_pdf_page))
+        .route("/api/metrics", get(routes::metrics::get_metrics))
+        // Counting sits inside CORS/trace so it sees exactly the requests
+        // that reach a route, once each (§12 M5 audit: logic correctness).
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            routes::metrics::count_request,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .with_state(state)
+        .with_state(state))
 }
 
 async fn health() -> Json<Value> {
@@ -189,6 +241,7 @@ mod tests {
             jobs: Arc::new(jobs::JobRegistry::default()),
             workspace_root: root,
             model: "test-model".to_owned(),
+            metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         };
         (state, dir)
     }
@@ -196,7 +249,7 @@ mod tests {
     #[tokio::test]
     async fn health_returns_ok() {
         let (state, _dir) = test_state().await;
-        let app = build_router(state);
+        let app = build_router(state).unwrap();
         let res = app
             .oneshot(
                 Request::builder()
@@ -212,7 +265,7 @@ mod tests {
     #[tokio::test]
     async fn search_post_ranks_best_match_first() {
         let (state, _dir) = test_state().await;
-        let app = build_router(state);
+        let app = build_router(state).unwrap();
         let body = json!({
             "query": "librs",
             "candidates": ["src/main.rs", "src/lib.rs", "README.md"]
@@ -242,7 +295,7 @@ mod tests {
         let (state, dir) = test_state().await;
         std::fs::write(dir.path().join("main.tex"), "x").unwrap();
         std::fs::write(dir.path().join("refs.bib"), "x").unwrap();
-        let app = build_router(state);
+        let app = build_router(state).unwrap();
 
         let res = app
             .oneshot(
