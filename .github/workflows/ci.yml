@@ -42,6 +42,20 @@ jobs:
           path: ~/.cache/Tectonic
           key: tectonic-bundle-${{ runner.os }}-v1
 
+      # No distro ships libpdfium, so the README tells humans to fetch a
+      # prebuilt binary. CI never did, which made the three visual-fix tests
+      # return 500 and fail here while passing on any machine that had followed
+      # the README. Pinned rather than `latest`: a moving binary dependency
+      # would make this suite fail on days nobody changed anything.
+      - name: Install libpdfium
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/pdfium.tgz \
+            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/6721/pdfium-linux-x64.tgz
+          mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
+          sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/
+          sudo ldconfig
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -98,6 +112,20 @@ jobs:
         with:
           path: ~/.cache/Tectonic
           key: tectonic-bundle-${{ runner.os }}-v1
+
+      # No distro ships libpdfium, so the README tells humans to fetch a
+      # prebuilt binary. CI never did, which made the three visual-fix tests
+      # return 500 and fail here while passing on any machine that had followed
+      # the README. Pinned rather than `latest`: a moving binary dependency
+      # would make this suite fail on days nobody changed anything.
+      - name: Install libpdfium
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/pdfium.tgz \
+            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/6721/pdfium-linux-x64.tgz
+          mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
+          sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/
+          sudo ldconfig
 
       - uses: taiki-e/install-action@v2
         with:
