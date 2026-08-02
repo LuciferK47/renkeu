@@ -60,11 +60,11 @@
         {autoSaveDelay}
         {editorSettings}
         theme={themeSettings?.mode || 'light'}
-        on:saved
-        on:save-error
-        on:dirty-change
-        on:content-changed
-        on:save-conflict
+        on:saved={(e) => dispatch('saved', e.detail)}
+        on:save-error={(e) => dispatch('save-error', e.detail)}
+        on:dirty-change={(e) => dispatch('dirty-change', e.detail)}
+        on:content-changed={(e) => dispatch('content-changed', e.detail)}
+        on:save-conflict={(e) => dispatch('save-conflict', e.detail)}
       />
     </div>
   </div>

@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte'
+  if (import.meta.env.DEV) window.__probe = { }
   import { uiStore, initLayoutPreferences, toggleFileTree, toggleHistory, toggleSettings, setStatus, pushToast } from './stores/uiStore.js'
   import { fileStore } from './stores/fileStore.js'
   import { compileStore } from './stores/compileStore.js'
