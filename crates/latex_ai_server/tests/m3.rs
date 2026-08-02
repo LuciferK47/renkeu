@@ -139,6 +139,7 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
             jobs: Arc::new(JobRegistry::default()),
             workspace_root: root.clone(),
             model: "test-model".to_owned(),
+            metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,
         root,
@@ -222,6 +223,7 @@ async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line(
     // PDF points -> page-image pixels at 150dpi.
     let to_px = |bp: f64| (bp * 150.0 / 72.0).round() as u32;
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/visual-fix",
             &json!({
@@ -315,6 +317,7 @@ async fn missing_synctex_map_is_a_404_envelope() {
     std::fs::remove_file(app.root.join("main.synctex.gz")).unwrap();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/visual-fix",
             &json!({"file_path": "main.tex", "page": 1, "x": 100, "y": 100, "w": 50, "h": 50}),
@@ -338,6 +341,7 @@ async fn missing_pdf_is_a_404_envelope() {
     std::fs::write(app.root.join("main.tex"), FIGURE_DOC).unwrap();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/visual-fix",
             &json!({"file_path": "main.tex", "page": 1, "x": 10, "y": 10, "w": 10, "h": 10}),
@@ -354,7 +358,7 @@ async fn degenerate_and_oversized_bboxes_are_422() {
     let (planner, _) = RecordingPlanner::new(Ok(vec![]));
     let app = test_app(Arc::new(planner)).await;
     compile_fixture(&app, FIGURE_DOC).await;
-    let router = build_router(app.state.clone());
+    let router = build_router(app.state.clone()).unwrap();
 
     let cases = [
         ("zero width", json!({"w": 0, "h": 50})),
@@ -401,6 +405,7 @@ async fn a_bbox_outside_the_page_is_422_not_500() {
 
     // Well beyond a Letter page at 150dpi (1275x1650).
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/visual-fix",
             &json!({"file_path": "main.tex", "page": 1, "x": 9000, "y": 9000, "w": 50, "h": 50}),
@@ -418,6 +423,7 @@ async fn a_page_beyond_the_document_is_404() {
     compile_fixture(&app, FIGURE_DOC).await;
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/visual-fix",
             &json!({"file_path": "main.tex", "page": 99, "x": 10, "y": 10, "w": 10, "h": 10}),
@@ -439,6 +445,7 @@ async fn a_vlm_shape_error_is_422_with_a_warning_not_a_500() {
     compile_fixture(&app, FIGURE_DOC).await;
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/visual-fix",
             &json!({"file_path": "main.tex", "page": 1, "x": 200, "y": 200, "w": 100, "h": 100}),
@@ -456,6 +463,7 @@ async fn traversal_paths_are_rejected_before_any_work() {
     let app = test_app(Arc::new(planner)).await;
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/visual-fix",
             &json!({"file_path": "../../etc/passwd", "page": 1, "x": 1, "y": 1, "w": 5, "h": 5}),
@@ -477,7 +485,7 @@ async fn compiling_through_the_api_writes_a_synctex_map_beside_the_pdf() {
     let app = test_app(Arc::new(planner)).await;
     std::fs::write(app.root.join("main.tex"), FIGURE_DOC).unwrap();
 
-    let router = build_router(app.state.clone());
+    let router = build_router(app.state.clone()).unwrap();
     let res = router
         .clone()
         .oneshot(post("/api/compile", &json!({"file_path": "main.tex"})))

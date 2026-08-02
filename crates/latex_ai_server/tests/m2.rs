@@ -158,6 +158,7 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
             jobs: Arc::new(JobRegistry::default()),
             workspace_root: root.clone(),
             model: "test-model".to_owned(),
+            metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,
         root,
@@ -254,6 +255,7 @@ async fn broken_document_exhausts_three_iterations_then_reports_failure() {
     std::fs::write(app.root.join("main.tex"), BROKEN_TABULAR).unwrap();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post_json(
             "/api/agent/stream",
             &json!({
@@ -327,6 +329,7 @@ async fn trivial_typo_heals_and_saves_with_acceptance_sequence() {
     std::fs::write(app.root.join("main.tex"), BROKEN_TEXTBF).unwrap();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post_json(
             "/api/agent/stream",
             &json!({
@@ -371,6 +374,7 @@ async fn without_auto_apply_loop_pauses_at_awaiting_approval() {
     std::fs::write(app.root.join("main.tex"), "\\documentclass{article}\n").unwrap();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post_json(
             "/api/agent/stream",
             &json!({ "file_path": "main.tex", "instruction": "suggest something" }),
@@ -408,6 +412,7 @@ async fn disconnect_mid_iteration_cancels_within_200ms() {
     std::fs::write(app.root.join("main.tex"), "\\documentclass{article}\n").unwrap();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post_json(
             "/api/agent/stream",
             &json!({
@@ -460,6 +465,7 @@ async fn plan_stream_emits_proposal_then_done() {
     std::fs::write(app.root.join("main.tex"), "x\n").unwrap();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post_json(
             "/api/plan/stream",
             &json!({ "file_path": "main.tex", "instruction": "brainstorm" }),
@@ -480,6 +486,7 @@ async fn injection_instruction_is_rejected_with_422() {
     std::fs::write(app.root.join("main.tex"), "x\n").unwrap();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post_json(
             "/api/agent/stream",
             &json!({
@@ -504,6 +511,7 @@ async fn traversal_path_is_rejected() {
     let app = test_app(Arc::new(planner)).await;
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post_json(
             "/api/plan/stream",
             &json!({ "file_path": "../../etc/passwd", "instruction": "hi" }),
@@ -520,7 +528,7 @@ async fn file_read_save_conflict_roundtrip() {
     let (planner, _) = ScriptedPlanner::new(vec![]);
     let app = test_app(Arc::new(planner)).await;
     std::fs::write(app.root.join("main.tex"), "v1\n").unwrap();
-    let router = build_router(app.state.clone());
+    let router = build_router(app.state.clone()).unwrap();
 
     // read → etag
     let res = router
@@ -619,7 +627,7 @@ async fn apply_selected_applies_only_selected_hunks() {
     let (planner, _) = ScriptedPlanner::new(vec![]);
     let app = test_app(Arc::new(planner)).await;
     std::fs::write(app.root.join("main.tex"), "alpha\nbeta\n").unwrap();
-    let router = build_router(app.state.clone());
+    let router = build_router(app.state.clone()).unwrap();
 
     let mut keep = agent_edit(AgentOp::ReplaceRange);
     keep.text = Some("alpha".into());

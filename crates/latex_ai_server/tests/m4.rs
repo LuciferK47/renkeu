@@ -86,6 +86,7 @@ async fn test_app() -> TestApp {
             jobs: Arc::new(JobRegistry::default()),
             workspace_root: root.clone(),
             model: "test-model".to_owned(),
+            metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,
         root,
@@ -153,6 +154,7 @@ async fn apply(
     selected: &[String],
 ) -> axum::response::Response {
     build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/agent/apply-selected",
             &json!({
@@ -302,7 +304,7 @@ async fn a_stale_expected_etag_is_a_409_that_writes_nothing() {
 #[tokio::test]
 async fn a_matching_expected_etag_applies() {
     let app = test_app().await;
-    let router = build_router(app.state.clone());
+    let router = build_router(app.state.clone()).unwrap();
 
     let res = router
         .clone()
@@ -370,6 +372,7 @@ async fn preview_returns_a_diff_per_hunk_without_writing() {
     let edits = three_hunks();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/agent/preview",
             &json!({ "file_path": "main.tex", "edits": edits }),
@@ -410,6 +413,7 @@ async fn preview_flags_a_hunk_that_no_longer_applies() {
     ];
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/agent/preview",
             &json!({ "file_path": "main.tex", "edits": edits }),
@@ -434,6 +438,7 @@ async fn the_previewed_diff_is_what_applying_actually_produces() {
     let id = edit.hunk_id().0.clone();
 
     let res = build_router(app.state.clone())
+        .unwrap()
         .oneshot(post(
             "/api/agent/preview",
             &json!({ "file_path": "main.tex", "edits": [edit.clone()] }),
@@ -458,7 +463,7 @@ async fn the_previewed_diff_is_what_applying_actually_produces() {
 #[tokio::test]
 async fn preview_rejects_traversal_and_invalid_edits() {
     let app = test_app().await;
-    let router = build_router(app.state.clone());
+    let router = build_router(app.state.clone()).unwrap();
 
     let res = router
         .clone()
