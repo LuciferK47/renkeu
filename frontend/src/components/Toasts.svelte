@@ -24,7 +24,7 @@
   .toast {
     min-width: 220px;
     padding: 10px 14px;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     box-shadow: 0 4px 14px rgba(0,0,0,0.12);
     background: hsl(var(--surface-1));
     color: hsl(var(--foreground));

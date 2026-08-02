@@ -10,6 +10,10 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Outfit', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
       colors: {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
@@ -45,10 +49,16 @@ export default {
           foreground: 'hsl(var(--card-foreground))',
         },
       },
+      // One radius scale, shared with the CSS ladder in globals.css. There
+      // were two `borderRadius` keys in this object; JavaScript keeps the last,
+      // so the earlier one was silently discarded and `rounded` kept resolving
+      // to Tailwind's stock 0.25rem.
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        DEFAULT: 'var(--radius-xs)',
+        sm: 'var(--radius-xs)',
+        md: 'var(--radius-s)',
+        lg: 'var(--radius-m)',
+        full: 'var(--radius-pill)',
       },
     },
   },

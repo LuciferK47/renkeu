@@ -385,7 +385,7 @@
     padding: 0.3rem 0.8rem;
     background: hsl(var(--warn) / 0.14);
     color: hsl(var(--warn));
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     font-size: 12px;
     font-weight: bold;
   }
@@ -403,7 +403,7 @@
     gap: 0.25rem;
     padding: 0.2rem 0.4rem;
     background: hsl(var(--surface-2));
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     border: 1px solid hsl(var(--border));
     cursor: help;
     white-space: nowrap;
@@ -424,14 +424,14 @@
     flex: 1;
     padding: 0.5rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 14px;
   }
 
   .command-input:focus {
     outline: none;
     border-color: hsl(var(--primary));
-    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.35);
   }
 
   .execute-btn {
@@ -439,7 +439,7 @@
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-weight: bold;
   }
@@ -459,7 +459,7 @@
   .suggestions {
     margin-top: 0.5rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     max-height: 200px;
     overflow-y: auto;
     background: hsl(var(--surface-2));
@@ -516,14 +516,14 @@
     padding: 0.1rem 0.4rem;
     background: hsl(var(--surface-2));
     color: hsl(var(--text-dim));
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     font-size: 11px;
   }
 
   .model-select select {
     padding: 0.4rem 0.5rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 13px;
   }
 
@@ -543,7 +543,7 @@
     padding: 0.2rem 0.5rem;
     background: hsl(var(--primary) / 0.1);
     color: hsl(var(--primary));
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     font-size: 12px;
   }
 
@@ -563,7 +563,7 @@
     gap: 0.4rem;
     padding: 0.3rem 0.6rem;
     background: hsl(var(--surface-2));
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     font-size: 12px;
     color: hsl(var(--text-dim));
   }
@@ -588,7 +588,7 @@
     padding: 0.1rem 0.3rem;
     background: hsl(var(--warn) / 0.14);
     color: hsl(var(--warn));
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     font-size: 10px;
     font-weight: bold;
   }

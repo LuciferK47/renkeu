@@ -219,12 +219,12 @@
   .selection {
     position: absolute;
     border: 2px solid hsl(var(--primary));
-    background: rgba(79, 70, 229, 0.15);
+    background: hsl(var(--primary) / 0.15);
     pointer-events: none;
   }
   .proposal {
     border: 1px solid currentColor;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     padding: 0.5rem 0.75rem;
   }
   .proposal header {
@@ -233,7 +233,7 @@
     gap: 0.5rem;
   }
   .hit {
-    font-family: ui-monospace, monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 0.85rem;
     opacity: 0.8;
   }
@@ -247,7 +247,7 @@
   .crop {
     max-width: 100%;
     margin-top: 0.5rem;
-    border: 1px solid rgba(128, 128, 128, 0.4);
+    border: 1px solid hsl(var(--text-faint) / 0.4);
   }
   .hint {
     margin: 0.5rem 0 0;

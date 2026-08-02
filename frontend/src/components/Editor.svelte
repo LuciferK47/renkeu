@@ -86,9 +86,9 @@
         ariaLabel: `LaTeX editor${filePath ? ` for ${filePath}` : ''}`,
         accessibilitySupport: 'on',
       })
-      console.log('[SUCCESS] Editor created successfully:', editor)
+      console.log('editor created', editor)
     } catch (err) {
-      console.error('[ERROR] Error creating editor:', err)
+      console.error('editor failed to create', err)
       throw err
     }
 

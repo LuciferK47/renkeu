@@ -226,8 +226,8 @@
     gap: 0.6rem;
   }
   .hunk {
-    border: 1px solid rgba(128, 128, 128, 0.35);
-    border-radius: 6px;
+    border: 1px solid hsl(var(--text-faint) / 0.35);
+    border-radius: var(--radius-s);
     overflow: hidden;
   }
   .hunk.stale {
@@ -238,7 +238,7 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.4rem 0.6rem;
-    background: rgba(128, 128, 128, 0.1);
+    background: hsl(var(--text-faint) / 0.1);
     cursor: pointer;
   }
   .hunk-id {
@@ -248,8 +248,8 @@
   .op {
     font-size: 0.8rem;
     padding: 0.05rem 0.4rem;
-    border-radius: 999px;
-    background: rgba(128, 128, 128, 0.2);
+    border-radius: var(--radius-pill);
+    background: hsl(var(--text-faint) / 0.2);
   }
   .stale-reason {
     font-size: 0.8rem;
@@ -259,15 +259,15 @@
     margin: 0;
     padding: 0.4rem 0.6rem;
     overflow-x: auto;
-    font-family: ui-monospace, monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 0.85rem;
     line-height: 1.4;
   }
   .diff .add {
-    background: rgba(46, 160, 67, 0.15);
+    background: hsl(var(--ok) / 0.15);
   }
   .diff .del {
-    background: rgba(248, 81, 73, 0.15);
+    background: hsl(var(--err) / 0.15);
   }
   .diff .meta {
     opacity: 0.6;

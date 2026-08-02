@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import { createEventDispatcher, onMount } from 'svelte'
   import VirtualList from 'svelte-virtual-list'
 
@@ -214,7 +215,7 @@
               aria-selected="false"
               aria-label={`${expanded[item.dir] ? 'Collapse' : 'Expand'} directory: ${item.dir === 'root' ? 'root' : item.dir} (${item.fileCount} files)`}
             >
-              {expanded[item.dir] ? '📂' : '📁'} {item.dir === 'root' ? 'root' : item.dir}
+              <Icon name={expanded[item.dir] ? 'folder-open' : 'folder'} /> {item.dir === 'root' ? 'root' : item.dir}
             </button>
           {:else if item.type === 'file'}
             <div class="tree-item" role="none">
@@ -234,7 +235,7 @@
                 aria-selected={selected.has(item.file.path)}
                 aria-label={`Open file ${item.file.name} (${formatSize(item.file.size)})`}
               >
-                📄 {item.file.name}
+                <Icon name="document" /> {item.file.name}
               </button>
               <span class="file-size" aria-label={`File size: ${formatSize(item.file.size)}`}>{formatSize(item.file.size)}</span>
             </div>
@@ -281,7 +282,7 @@
     width: 100%;
     padding: 0.4rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     font-size: 12px;
   }
 
@@ -325,7 +326,7 @@
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 11px;
   }
@@ -368,7 +369,7 @@
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }

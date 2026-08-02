@@ -159,7 +159,7 @@
     max-height: 600px;
     background: hsl(var(--surface-1));
     border: 1px solid hsl(var(--border));
-    border-radius: 8px;
+    border-radius: var(--radius-s);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     display: flex;
     flex-direction: column;
@@ -205,7 +205,7 @@
     width: 100%;
     padding: 0.5rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 0.95rem;
     margin-bottom: 0.75rem;
   }
@@ -228,7 +228,7 @@
     flex: 1;
     padding: 0.4rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 0.85rem;
   }
   
@@ -254,7 +254,7 @@
   .file-name {
     padding: 0.5rem 1rem;
     background: hsl(var(--surface-2));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     margin-bottom: 0.5rem;
   }
   
@@ -282,7 +282,7 @@
     background: none;
     cursor: pointer;
     text-align: left;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     transition: background 0.2s;
   }
   
@@ -293,14 +293,14 @@
   .line-number {
     min-width: 40px;
     color: hsl(var(--primary));
-    font-family: monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 0.85rem;
     flex-shrink: 0;
   }
   
   .line-content {
     color: hsl(var(--text-dim));
-    font-family: monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 0.85rem;
     line-height: 1.4;
     word-break: break-all;
@@ -309,7 +309,7 @@
   .line-content :global(mark) {
     background: hsl(var(--warn) / 0.28);
     padding: 0 2px;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
   }
   
   .loading,

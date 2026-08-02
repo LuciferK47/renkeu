@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import { createEventDispatcher } from 'svelte'
   import { aiStore, setApplying } from '../stores/aiStore'
   
@@ -93,14 +94,15 @@
     <div class="header">
       <h3>{proposal.summary}</h3>
       <span class="source-badge" class:error-fix={proposal.source === 'error-fix'}>
-        {proposal.source === 'error-fix' ? '[TOOLS] Fix' : '[SPARKLE] Proposal'}
+        <Icon name={proposal.source === 'error-fix' ? 'wrench' : 'sparkle'} />
+        {proposal.source === 'error-fix' ? 'Fix' : 'Proposal'}
       </span>
     </div>
     
     {#each proposal.edits as edit, editIdx}
       <div class="edit-section">
         <div class="edit-file">
-          <span class="icon">📄</span>
+          <span class="icon"><Icon name="document" /></span>
           <span class="path">{edit.file_path}</span>
         </div>
         
@@ -144,13 +146,13 @@
     {#if proposal.compileResult}
       <div class="compile-result" class:error={!proposal.compileResult.success}>
         {#if proposal.compileResult.success}
-          <div class="success">[SUCCESS] Compilation successful ({proposal.compileResult.page_count} pages)</div>
+          <div class="success"><Icon name="check-circle" /> Compiled cleanly ({proposal.compileResult.page_count} pages)</div>
         {:else}
           <div class="error-message">
-            <span>[ERROR] Compilation failed ({proposal.compileResult.error_count} errors)</span>
+            <span><Icon name="alert" /> Compile failed ({proposal.compileResult.error_count} errors)</span>
             {#if proposal.source !== 'error-fix'}
               <button on:click={fixErrors} disabled={applying}>
-                [TOOLS] Fix It
+                <Icon name="wrench" /> Fix it
               </button>
             {/if}
           </div>
@@ -204,7 +206,7 @@
 <style>
   .proposal {
     border: 1px solid hsl(var(--border));
-    border-radius: 8px;
+    border-radius: var(--radius-s);
     padding: 16px;
     background: hsl(var(--surface-1));
     color: hsl(var(--foreground));
@@ -234,7 +236,7 @@
   .source-badge {
     font-size: 12px;
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     background: hsl(var(--surface-2));
     color: hsl(var(--text-dim));
   }
@@ -262,7 +264,7 @@
   }
   
   .path {
-    font-family: monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 12px;
     color: hsl(var(--foreground));
   }
@@ -270,7 +272,7 @@
   .diff-viewer {
     background: hsl(var(--surface-1));
     border: 1px solid hsl(var(--border));
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     overflow: auto;
   }
   
@@ -307,7 +309,7 @@
   
   .hunk-content {
     padding: 8px 0;
-    font-family: monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 12px;
   }
   
@@ -318,12 +320,12 @@
   }
   
   .line.added {
-    background: rgba(34, 197, 94, 0.1);
+    background: hsl(var(--ok) / 0.1);
     color: hsl(var(--ok));
   }
   
   .line.removed {
-    background: rgba(239, 68, 68, 0.1);
+    background: hsl(var(--err) / 0.1);
     color: hsl(var(--err));
   }
   
@@ -353,8 +355,8 @@
   }
   
   .compile-result.error {
-    background: rgba(127, 29, 29, 0.1);
-    border-left: 3px solid hsl(var(--err));
+    background: hsl(var(--err) / 0.1);
+    border: 1px solid hsl(var(--err) / 0.4);
   }
   
   .success {
@@ -375,7 +377,7 @@
     font-size: 12px;
     background: hsl(var(--warn) / 0.16);
     border: 1px solid hsl(var(--warn) / 0.4);
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     color: hsl(var(--warn));
     cursor: pointer;
   }
@@ -399,8 +401,8 @@
   .error-item {
     padding: 6px 12px;
     background: hsl(var(--surface-2));
-    border-radius: 4px;
-    font-family: monospace;
+    border-radius: var(--radius-xs);
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 11px;
     color: hsl(var(--err));
   }
@@ -410,7 +412,7 @@
     border: 1px solid hsl(var(--err) / 0.4);
     color: hsl(var(--err));
     padding: 8px 12px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 12px;
   }
   
@@ -424,7 +426,7 @@
     flex: 1;
     padding: 8px 12px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     font-weight: 500;
     cursor: pointer;
     font-size: 13px;

@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import DiffView from './DiffView.svelte'
   import PdfViewer from './PdfViewer.svelte'
   import { createEventDispatcher } from 'svelte'
@@ -159,7 +160,7 @@ Wrap up and future work.
       aria-controls="diff-panel"
       id="tab-diff"
     >
-      [NOTE] Diff
+      <Icon name="document" /> Diff
       {#if diff}
         <span class="badge" aria-label="Unseen diff changes">•</span>
       {/if}
@@ -173,7 +174,7 @@ Wrap up and future work.
       aria-controls="pdf-panel"
       id="tab-pdf"
     >
-      📄 PDF
+      <Icon name="document" /> PDF
       {#if pdfPages > 0}
         <span class="badge-text" aria-label={`PDF has ${pdfPages} pages`}>({pdfPages})</span>
       {/if}
@@ -188,11 +189,11 @@ Wrap up and future work.
       id="tab-errors"
     >
       {#if compileErrors.length > 0}
-        [ERROR] Errors ({compileErrors.length})
+        <Icon name="alert" /> Errors ({compileErrors.length})
       {:else if compileWarnings.length > 0}
         [WARNING] Warnings ({compileWarnings.length})
       {:else}
-        [OK] Issues
+        <Icon name="check-circle" /> Issues
       {/if}
     </button>
     <button
@@ -204,7 +205,7 @@ Wrap up and future work.
       aria-controls="ai-panel"
       id="tab-ai"
     >
-      🤖 AI Plan
+      <Icon name="sparkle" /> AI Plan
       {#if aiPlan}
         <span class="badge" aria-label="AI plan pending review">•</span>
       {/if}
@@ -219,7 +220,7 @@ Wrap up and future work.
       id="tab-suggestions"
       title="Get AI suggestions for improving your document"
     >
-      [SPARKLE] Suggestions
+      <Icon name="sparkle" /> Suggestions
     </button>
   </div>
 
@@ -256,7 +257,7 @@ Wrap up and future work.
       <div id="errors-panel" role="tabpanel" aria-labelledby="tab-errors" class="errors-panel">
         {#if compileErrors.length > 0}
           <div class="error-section" role="region" aria-label="Compilation errors">
-            <h3>[ERROR] Errors ({compileErrors.length})</h3>
+            <h3><Icon name="alert" /> Errors ({compileErrors.length})</h3>
             {#each compileErrors as error}
               <button
                 class="error-item error"
@@ -290,7 +291,7 @@ Wrap up and future work.
 
         {#if compileErrors.length === 0 && compileWarnings.length === 0}
           <div class="empty-state" role="status">
-            <p>[OK] No compilation issues</p>
+            <p><Icon name="check-circle" /> No compilation issues</p>
             <p class="hint">Your document compiled successfully</p>
           </div>
         {/if}
@@ -302,13 +303,13 @@ Wrap up and future work.
               on:click={() => dispatch('explain-errors', { errors: compileErrors, warnings: compileWarnings })}
               aria-label="Explain issues and suggest fixes with AI"
             >
-              🤖 Explain & Suggest Fixes
+              <Icon name="sparkle" /> Explain &amp; suggest fixes
             </button>
           </div>
 
           {#if suggestedFixes.length > 0}
             <div class="suggested-fixes" role="region" aria-label="AI-suggested fixes">
-              <h3>[TOOLS] Suggested Fixes</h3>
+              <h3><Icon name="wrench" /> Suggested fixes</h3>
               <div class="fixes-list">
                 {#each suggestedFixes as fix, i}
                   <div class="fix-item">
@@ -325,7 +326,7 @@ Wrap up and future work.
                       on:click={() => applyFix(fix)}
                       aria-label={`Apply fix: ${fix.description || fix.command}`}
                     >
-                      [OK] Apply
+                      <Icon name="check" /> Apply
                     </button>
                   </div>
                 {/each}
@@ -418,7 +419,7 @@ Wrap up and future work.
               on:click={() => dispatch('code-review')}
               aria-label="Get comprehensive code review"
             >
-              [SEARCH] Code Review
+              <Icon name="search" /> Code review
             </button>
           </div>
         </div>
@@ -557,7 +558,7 @@ Wrap up and future work.
   .error-item {
     padding: 0.75rem;
     margin-bottom: 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     width: 100%;
     text-align: left;
     cursor: pointer;
@@ -609,7 +610,7 @@ Wrap up and future work.
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 13px;
   }
@@ -619,7 +620,7 @@ Wrap up and future work.
     gap: 0.75rem;
     padding: 0.75rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     background: hsl(var(--surface-1));
     margin-bottom: 0.5rem;
   }
@@ -633,7 +634,7 @@ Wrap up and future work.
     background: hsl(var(--ok));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 13px;
   }
@@ -647,7 +648,7 @@ Wrap up and future work.
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }
@@ -680,14 +681,14 @@ Wrap up and future work.
     color: hsl(var(--foreground));
     background: hsl(var(--surface-2));
     padding: 0.2rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
 
   .ai-json {
     background: hsl(var(--surface-1));
     color: hsl(var(--foreground));
     padding: 0.75rem;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     font-size: 12px;
   }
 
@@ -716,7 +717,7 @@ Wrap up and future work.
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
@@ -731,7 +732,7 @@ Wrap up and future work.
     background: hsl(var(--ok));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
@@ -746,7 +747,7 @@ Wrap up and future work.
     padding: 0.75rem;
     background: hsl(var(--ok) / 0.08);
     border: 1px solid hsl(var(--ok) / 0.35);
-    border-radius: 6px;
+    border-radius: var(--radius-s);
   }
 
   .suggested-fixes h3 {
@@ -766,7 +767,7 @@ Wrap up and future work.
     padding: 0.5rem;
     background: hsl(var(--surface-1));
     border: 1px solid hsl(var(--ok));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
 
   .fix-header {
@@ -807,13 +808,13 @@ Wrap up and future work.
     margin-bottom: 0.4rem;
     padding: 0.3rem 0.4rem;
     background: hsl(var(--surface-2));
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     overflow-x: auto;
     margin-left: 24px;
   }
 
   .fix-command code {
-    font-family: 'Courier New', monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 11px;
     color: hsl(var(--err));
     white-space: nowrap;
@@ -824,7 +825,7 @@ Wrap up and future work.
     background-color: hsl(var(--ok));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -845,7 +846,7 @@ Wrap up and future work.
     padding: 1rem;
     background: hsl(var(--surface-2));
     border: 1px solid hsl(var(--border));
-    border-radius: 8px;
+    border-radius: var(--radius-s);
   }
 
   .templates-panel h4 {
@@ -863,7 +864,7 @@ Wrap up and future work.
   .template-card {
     padding: 0.75rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     background: hsl(var(--surface-1));
     display: flex;
     flex-direction: column;
@@ -887,7 +888,7 @@ Wrap up and future work.
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
     font-weight: 600;

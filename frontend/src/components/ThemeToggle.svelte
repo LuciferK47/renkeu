@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte'
+  import Icon from './Icon.svelte'
 
   export let currentTheme = 'light' // 'light', 'dark', 'auto'
   export let onThemeChange = async (theme) => {}
@@ -9,9 +10,9 @@
   let mediaQuery = null
 
   const MODES = [
-    { id: 'light', label: 'Light' },
-    { id: 'dark', label: 'Dark' },
-    { id: 'auto', label: 'Match system' },
+    { id: 'light', label: 'Light', icon: 'sun' },
+    { id: 'dark', label: 'Dark', icon: 'moon' },
+    { id: 'auto', label: 'Match system', icon: 'monitor' },
   ]
 
   /**
@@ -77,21 +78,7 @@
       title={mode.label}
     >
       <span class="sr-only">{mode.label}</span>
-      <!-- Drawn icons on one 16px grid at a single stroke weight, rather than
-           the [SUN] / [MOON] placeholders and a stray emoji this replaced. -->
-      <svg viewBox="0 0 16 16" width="15" height="15" fill="none"
-           stroke="currentColor" stroke-width="1.4"
-           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        {#if mode.id === 'light'}
-          <circle cx="8" cy="8" r="3.1" />
-          <path d="M8 1v1.6M8 13.4V15M15 8h-1.6M2.6 8H1M12.95 3.05l-1.13 1.13M4.18 11.82l-1.13 1.13M12.95 12.95l-1.13-1.13M4.18 4.18L3.05 3.05" />
-        {:else if mode.id === 'dark'}
-          <path d="M13.5 9.6A5.9 5.9 0 0 1 6.4 2.5a5.9 5.9 0 1 0 7.1 7.1z" />
-        {:else}
-          <rect x="1.8" y="2.8" width="12.4" height="8.4" rx="1.3" />
-          <path d="M5.8 14h4.4M8 11.2V14" />
-        {/if}
-      </svg>
+      <Icon name={mode.icon} size={15} />
     </button>
   {/each}
 </div>
@@ -103,7 +90,7 @@
     align-items: center;
     background: hsl(var(--surface-2));
     padding: 3px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     border: 1px solid hsl(var(--border));
   }
 
@@ -114,7 +101,7 @@
     height: 28px;
     background: transparent;
     border: 0;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     cursor: pointer;
     color: hsl(var(--text-dim));
     transition:

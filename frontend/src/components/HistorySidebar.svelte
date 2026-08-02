@@ -105,7 +105,7 @@
     padding: 0.4rem;
     border: 1px solid hsl(var(--border));
     background: hsl(var(--surface-2));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }
@@ -132,7 +132,7 @@
     padding: 0.75rem;
     background: hsl(var(--surface-2));
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
 
   .command {
@@ -153,7 +153,7 @@
     background: hsl(var(--ok));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }

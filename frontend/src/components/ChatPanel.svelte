@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import { createEventDispatcher, onMount } from 'svelte'
   
   export let messages = []  // [{role: 'user'|'assistant', content: '...', timestamp: ...}]
@@ -78,9 +79,9 @@
       <div class="message" class:user={msg.role === 'user'} class:assistant={msg.role === 'assistant'}>
         <div class="message-avatar">
           {#if msg.role === 'user'}
-            👤
+            <Icon name="user" />
           {:else}
-            🤖
+            <Icon name="sparkle" />
           {/if}
         </div>
         <div class="message-content">
@@ -104,7 +105,7 @@
     <!-- Streaming Response -->
     {#if streamingMessage}
       <div class="message assistant streaming">
-        <div class="message-avatar">🤖</div>
+        <div class="message-avatar"><Icon name="sparkle" /></div>
         <div class="message-content">
           <div class="message-text">
             {@html formatAssistantMessage(streamingMessage)}
@@ -117,7 +118,7 @@
     <!-- Loading Indicator -->
     {#if loading && !streamingMessage}
       <div class="message assistant thinking">
-        <div class="message-avatar">🤖</div>
+        <div class="message-avatar"><Icon name="sparkle" /></div>
         <div class="message-content">
           <div class="typing-indicator">
             <span></span>
@@ -150,7 +151,7 @@
         {#if loading}
           <span class="loading-spinner"></span>
         {:else}
-          ✈️
+          <Icon name="send" label="Send message" />
         {/if}
       </button>
     </div>
@@ -165,7 +166,7 @@
     height: 100%;
     background: hsl(var(--background));
     border: 1px solid hsl(var(--border));
-    border-radius: 8px;
+    border-radius: var(--radius-s);
     overflow: hidden;
   }
   
@@ -205,7 +206,7 @@
   .examples li {
     padding: 8px 12px;
     background: hsl(var(--muted));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     transition: all 200ms;
   }
@@ -254,7 +255,7 @@
   .message-text {
     background: hsl(var(--card));
     padding: 12px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-s);
     line-height: 1.5;
     word-wrap: break-word;
     font-size: 14px;
@@ -334,7 +335,7 @@
     flex: 1;
     padding: 10px 12px;
     border: 1px solid hsl(var(--border));
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     background: hsl(var(--background));
     color: hsl(var(--foreground));
     font-family: inherit;
@@ -359,7 +360,7 @@
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     cursor: pointer;
     font-size: 16px;
     transition: all 200ms;

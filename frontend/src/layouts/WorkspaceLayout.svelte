@@ -1,4 +1,5 @@
 <script>
+  import Icon from '../components/Icon.svelte'
   import { Splitpanes, Pane } from 'svelte-splitpanes'
   import RightPanel from '../components/RightPanel.svelte'
   import Editor from '../components/Editor.svelte'
@@ -44,10 +45,10 @@
 <div class="content-wrapper" class:overleaf-layout={layoutMode === 'overleaf'} class:fullscreen-editor={layoutMode === 'fullscreen-editor'} class:fullscreen-pdf={layoutMode === 'fullscreen-pdf'} bind:this={contentWrapperRef}>
   <div class="editor-section" style={layoutMode === 'overleaf' ? `height: ${editorHeightPercent}%` : ''}>
     <div class="editor-header">
-      <span class="section-label">[NOTE] Editor</span>
+      <span class="section-label"><Icon name="document" /> Editor</span>
       <div class="editor-controls">
         <button on:click={() => layoutMode = layoutMode === 'fullscreen-editor' ? 'overleaf' : 'fullscreen-editor'} title="Toggle fullscreen" class="control-btn">
-          {layoutMode === 'fullscreen-editor' ? '↙️' : '↗️'}
+          <Icon name={layoutMode === 'fullscreen-editor' ? 'collapse' : 'expand'} />
         </button>
       </div>
     </div>
@@ -74,9 +75,9 @@
     
     <div class="pdf-section" style={`height: ${100 - editorHeightPercent}%`}>
       <div class="pdf-header">
-        <span class="section-label">📄 Preview</span>
+        <span class="section-label"><Icon name="eye" /> Preview</span>
         <div class="pdf-controls">
-          <button on:click={() => layoutMode = 'fullscreen-pdf'} title="Toggle fullscreen" class="control-btn">↗️</button>
+          <button on:click={() => layoutMode = 'fullscreen-pdf'} title="Toggle fullscreen" class="control-btn"><Icon name="expand" /></button>
         </div>
       </div>
       <div class="pdf-pane">
@@ -101,9 +102,9 @@
   <button type="button" class="chat-divider" class:dragging={isDraggingDivider} aria-label="Resize chat panel" on:mousedown={handleChatDividerMouseDown} on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && handleChatDividerMouseDown(e)}></button>
   <div class="chat-section" style="height: {chatHeightPercent}px">
     <div class="chat-header">
-      <span class="section-label">💬 AI Assistant</span>
+      <span class="section-label"><Icon name="message" /> AI assistant</span>
       <div class="chat-controls">
-        <button on:click={() => showChatPanel = false} title="Toggle chat panel" class="control-btn">▼</button>
+        <button on:click={() => showChatPanel = false} title="Hide chat panel" class="control-btn"><Icon name="chevron-down" /></button>
       </div>
     </div>
     <ChatPanel messages={chatMessages} loading={chatLoading} streamingMessage={chatStreamingMessage} on:message-sent />

@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import { paperStore } from '../stores/paperStore.js'
   import { onMount } from 'svelte'
 
@@ -143,7 +144,7 @@
           on:click={closeAndRestoreFocus}
           aria-label="Close settings"
         >
-          ✕
+          <Icon name="close" label="Close settings" />
         </button>
       </div>
 
@@ -372,12 +373,12 @@
                         {#if selected.supports}
                           {#if selected.supports.streaming}
                             <span class="cap-badge streaming" title="Supports real-time streaming">
-                              ⚡ Streaming
+                              <Icon name="bolt" /> Streaming
                             </span>
                           {/if}
                           {#if selected.supports.vision}
                             <span class="cap-badge vision" title="Can analyze images">
-                              👁️ Vision
+                              <Icon name="eye" /> Vision
                             </span>
                           {/if}
                           {#if selected.supports.code}
@@ -397,7 +398,7 @@
                           {/if}
                           {#if selected.supports.function_calling}
                             <span class="cap-badge tools" title="Tool/function calling">
-                              [TOOLS] Tools
+                              <Icon name="wrench" /> Tools
                             </span>
                           {/if}
                         {/if}
@@ -479,7 +480,7 @@
     padding: 0.2rem 0.5rem;
     background: hsl(var(--primary) / 0.1);
     color: hsl(var(--primary));
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     font-size: 12px;
   }
 
@@ -490,7 +491,7 @@
 
   .settings-panel {
     background: hsl(var(--surface-1));
-    border-radius: 8px;
+    border-radius: var(--radius-s);
     width: 90%;
     max-width: 600px;
     max-height: 80vh;
@@ -525,7 +526,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
 
   .close-btn:hover {
@@ -604,7 +605,7 @@
   .setting-group select {
     padding: 0.5rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 0.9rem;
     font-family: inherit;
   }
@@ -616,7 +617,7 @@
   }
 
   .setting-group code {
-    font-family: monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     color: hsl(var(--text-dim));
     font-size: 0.85rem;
   }
@@ -657,7 +658,7 @@
     padding: 0.4rem 0.9rem;
     font-size: 0.85rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: hsl(var(--foreground));
     cursor: pointer;
@@ -672,7 +673,7 @@
     align-items: center;
     gap: 0.35rem;
     padding: 0.35rem 0.75rem;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     font-size: 0.8rem;
     font-weight: 500;
     white-space: nowrap;
@@ -686,7 +687,7 @@
     padding: 0.35rem 0.75rem;
     background: hsl(var(--surface-2));
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 0.8rem;
     color: hsl(var(--text-dim));
   }
@@ -696,7 +697,7 @@
     padding: 0.35rem 0.75rem;
     background: hsl(var(--surface-2));
     border: 1px solid hsl(var(--border));
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 0.8rem;
     color: hsl(var(--text-faint));
   }
@@ -713,7 +714,7 @@
   .btn-save {
     padding: 0.5rem 1.5rem;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-weight: 500;
     font-size: 0.9rem;

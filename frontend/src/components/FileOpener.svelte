@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { createEventDispatcher } from 'svelte'
 
@@ -127,7 +128,7 @@
               on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(path)}
             >
               <span>{path}</span>
-              <button class="pin" type="button" aria-label={`Unpin ${path}`} on:click|stopPropagation={() => onUnpin(path)}>★</button>
+              <button class="pin" type="button" aria-label={`Unpin ${path}`} on:click|stopPropagation={() => onUnpin(path)}><Icon name="star" /></button>
             </div>
           {/each}
         </div>
@@ -145,7 +146,7 @@
               on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(path)}
             >
               <span>{path}</span>
-              <button class="pin" type="button" aria-label={`Pin ${path}`} on:click|stopPropagation={() => onPin(path)}>☆</button>
+              <button class="pin" type="button" aria-label={`Pin ${path}`} on:click|stopPropagation={() => onPin(path)}><Icon name="star" /></button>
             </div>
           {/each}
         </div>
@@ -169,7 +170,7 @@
               on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(file.path)}
             >
               <span>{file.path}</span>
-              <button class="pin" type="button" aria-label={`Pin ${file.path}`} on:click|stopPropagation={() => onPin(file.path)}>☆</button>
+              <button class="pin" type="button" aria-label={`Pin ${file.path}`} on:click|stopPropagation={() => onPin(file.path)}><Icon name="star" /></button>
             </div>
           {/each}
         {/if}
@@ -208,7 +209,7 @@
     max-height: 70vh;
     background: hsl(var(--surface-1));
     color: hsl(var(--foreground));
-    border-radius: 12px;
+    border-radius: var(--radius-m);
     box-shadow: 0 24px 60px rgba(0,0,0,0.35);
     overflow: auto;
     padding: 16px;
@@ -224,7 +225,7 @@
   .search {
     flex: 1;
     padding: 12px 14px;
-    border-radius: 10px;
+    border-radius: var(--radius-m);
     border: 1px solid hsl(var(--border));
     background: hsl(var(--surface-1));
     color: hsl(var(--foreground));
@@ -261,7 +262,7 @@
     padding: 10px 12px;
     background: hsl(var(--surface-1));
     border: 1px solid hsl(var(--border));
-    border-radius: 8px;
+    border-radius: var(--radius-s);
     color: hsl(var(--foreground));
     cursor: pointer;
     margin-bottom: 6px;

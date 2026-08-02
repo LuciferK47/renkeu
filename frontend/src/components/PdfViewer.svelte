@@ -284,7 +284,7 @@
     padding: 4px 12px;
     font-size: 12px;
     border: 1px solid hsl(var(--border));
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: transparent;
     color: hsl(var(--text-dim));
     cursor: pointer;
@@ -312,7 +312,7 @@
   .bbox {
     position: absolute;
     border: 2px solid hsl(var(--err));
-    background: rgba(229, 57, 53, 0.2);
+    background: hsl(var(--err) / 0.2);
     pointer-events: none;
   }
 
@@ -329,7 +329,7 @@
   .overlay-msg {
     background: hsl(var(--surface-1));
     padding: 10px 20px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-weight: bold;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
   }
@@ -354,6 +354,7 @@
   .spinner {
     width: 40px;
     height: 40px;
+    /* A rotating arc, not a side accent: the thick ring is the spinner. */
     border: 4px solid hsl(var(--line-soft));
     border-top: 4px solid hsl(var(--primary));
     border-radius: 50%;
@@ -385,7 +386,7 @@
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }
@@ -403,7 +404,7 @@
     width: 60px;
     padding: 0.4rem;
     border: 1px solid hsl(var(--border));
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     text-align: center;
   }
 

@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import { compileStore } from '../stores/compileStore.js'
   import { fileStore } from '../stores/fileStore.js'
   
@@ -11,7 +12,7 @@
                       $fileStore.lastSaved ? `Saved ${formatTime($fileStore.lastSaved)}` : ''
   
   // Pending compile indicator
-  $: pendingCompile = $compileStore.pendingAutoCompile ? '⏱ Compile pending' : ''
+  $: pendingCompile = $compileStore.pendingAutoCompile ? 'Compile pending' : ''
   
   function formatTime(date) {
     if (!date) return ''
@@ -33,7 +34,7 @@
       {#if $fileStore.saving}
         <span class="spinner"></span>
       {:else}
-        <span class="checkmark">[OK]</span>
+        <span class="checkmark"><Icon name="check" /></span>
       {/if}
       {autoSaveStatus}
     </span>
