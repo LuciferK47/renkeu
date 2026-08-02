@@ -42,7 +42,7 @@
       const res = await fetch(`/api/files?${params.toString()}`)
       if (!res.ok) return
       const data = await res.json()
-      const files = data.files || []
+      const files = (data.files || []).map(toFileEntry)
       allFiles = reset ? files : [...allFiles, ...files]
       offset += files.length
       hasMore = Boolean(data.has_more)
@@ -53,6 +53,21 @@
     } finally {
       loading = false
     }
+  }
+
+  /**
+   * The server returns `files` as plain path strings (Vec<String> in
+   * routes/files.rs), while the rest of this component wants `{ path, name }`.
+   * Nothing bridged the two, so organizeIntoTree hit `file.path.substring` on
+   * an undefined and every load ended in "Failed to load files" -- the tree has
+   * never listed anything. Objects are passed through in case the endpoint ever
+   * grows richer entries.
+   */
+  function toFileEntry(entry) {
+    if (entry && typeof entry === 'object') return entry
+    const path = String(entry)
+    const slash = path.lastIndexOf('/')
+    return { path, name: slash === -1 ? path : path.slice(slash + 1) }
   }
 
   function organizeIntoTree(fileList) {

@@ -1,4 +1,5 @@
 <script>
+  import { createEventDispatcher } from 'svelte'
   import Icon from '../components/Icon.svelte'
   import KeyboardShortcuts from '../components/KeyboardShortcuts.svelte'
   import ThemeToggle from '../components/ThemeToggle.svelte'
@@ -8,6 +9,12 @@
   import SearchResults from '../components/SearchResults.svelte'
   import StatusBar from '../components/StatusBar.svelte'
   
+  // `on:compile` and friends on a plain <button> forward a DOM event of that
+  // name -- and a button only ever fires `click`, so those handlers could never
+  // run. Compile and Settings did nothing at all when clicked. Dispatch the
+  // named events explicitly instead.
+  const dispatch = createEventDispatcher()
+
   import { uiStore, toggleFileTree, toggleHistory, toggleSettings } from '../stores/uiStore.js'
   import { fileStore } from '../stores/fileStore.js'
   import { compileStore } from '../stores/compileStore.js'
@@ -41,8 +48,8 @@
       {#if $fileStore.dirty}<span aria-live="polite" class="text-destructive" title="Unsaved changes">•</span>{/if}
       <button on:click={toggleFileTree} class="ml-2 px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity" aria-label={$uiStore.showFileTree ? 'Hide file tree' : 'Show file tree'} aria-pressed={$uiStore.showFileTree}>{$uiStore.showFileTree ? 'Hide Tree' : 'Files'}</button>
       <button on:click={toggleHistory} class="ml-2 px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity" aria-label={$uiStore.showHistory ? 'Hide history' : 'Show file history'} aria-pressed={$uiStore.showHistory}>{$uiStore.showHistory ? 'Hide' : 'History'}</button>
-      <button on:click|preventDefault on:compile disabled={!$fileStore.filePath || $compileStore.status === 'compiling'} class="ml-2 px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed" title="Compile to PDF (Ctrl+Enter)" aria-busy={$compileStore.status === 'compiling'}>{$compileStore.status === 'compiling' ? 'Compiling…' : 'Compile'}</button>
-      <button on:click|preventDefault on:settings-toggle class="ml-2 px-4 py-2 bg-secondary text-secondary-foreground border border-border rounded hover:bg-accent transition-colors" aria-label={$uiStore.showSettings ? 'Close settings' : 'Open settings'} aria-pressed={$uiStore.showSettings}>Settings</button>
+      <button on:click|preventDefault={() => dispatch('compile')} disabled={!$fileStore.filePath || $compileStore.status === 'compiling'} class="ml-2 px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed" title="Compile to PDF (Ctrl+Enter)" aria-busy={$compileStore.status === 'compiling'}>{$compileStore.status === 'compiling' ? 'Compiling…' : 'Compile'}</button>
+      <button on:click|preventDefault={() => dispatch('settings-toggle')} class="ml-2 px-4 py-2 bg-secondary text-secondary-foreground border border-border rounded hover:bg-accent transition-colors" aria-label={$uiStore.showSettings ? 'Close settings' : 'Open settings'} aria-pressed={$uiStore.showSettings}>Settings</button>
       {#if selectedFiles.length > 0}<span class="ml-2 px-3 py-2 bg-secondary text-foreground border border-border rounded" role="status" aria-live="polite" aria-atomic="true">{selectedFiles.length} {selectedFiles.length === 1 ? 'file' : 'files'} selected</span>{/if}
       <div class="ml-auto"><ThemeToggle on:theme-change /></div>
     </div>
@@ -59,8 +66,8 @@
           <h2 id="conflict-title">File Conflict Detected</h2>
           <p>The file has been modified by another process. How would you like to proceed?</p>
           <div class="conflict-actions">
-            <button class="conflict-btn conflict-btn-primary" on:click|preventDefault on:conflict-resolve={{action: 'overwrite'}}>Overwrite Server Version</button>
-            <button class="conflict-btn conflict-btn-secondary" on:click|preventDefault on:conflict-resolve={{action: 'reload'}}>Reload from Server</button>
+            <button class="conflict-btn conflict-btn-primary" on:click|preventDefault={() => dispatch('conflict-resolve', { action: 'overwrite' })}>Overwrite Server Version</button>
+            <button class="conflict-btn conflict-btn-secondary" on:click|preventDefault={() => dispatch('conflict-resolve', { action: 'reload' })}>Reload from Server</button>
             <button class="conflict-btn conflict-btn-cancel" on:click={() => uiStore.update(ui => ({ ...ui, showConflictDialog: false }))}>Cancel</button>
           </div>
         </div>

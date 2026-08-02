@@ -107,7 +107,14 @@
     if (e.detail.action === 'toggle_history') toggleHistory();
     if (e.detail.action === 'toggle_file_tree') toggleFileTree();
   }}
-  on:change={() => loadFile($fileStore.filePath)}
+  on:change={(e) => {
+    // Read the path the user just typed. This used to pass
+    // `$fileStore.filePath`, but the input is one-way (`value=`, not `bind:`),
+    // so the store still held the *previous* path -- null on first use. Typing
+    // a path and pressing Enter did nothing at all, and Compile stayed disabled
+    // because nothing ever opened.
+    loadFile(e.target.value);
+  }}
   on:compile={() => compileDocument($fileStore.filePath)}
   on:settings-toggle={async () => { if (!$uiStore.showSettings) await loadSettingsPanel(); toggleSettings(); }}
   on:command={(e) => requestAIPlan(e.detail.command ?? e.detail)}
