@@ -5,8 +5,9 @@
    *
    * The proposal is surfaced for review — this component never applies edits.
    */
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { api } from '../lib/api/client.js';
+  import { activeTone } from '../stores/paperStore.js';
   import { normalizeDrag, isMeaningfulDrag, toImagePixels } from '../utils/bbox.js';
 
   const dispatch = createEventDispatcher();
@@ -28,7 +29,30 @@
   let instruction = '';
   let result = null;
 
-  $: pageUrl = filePath ? api.pdfPageUrl(filePath, page, dpi) : '';
+  // Track the theme the same way PdfViewer does, so entering visual-fix mode
+  // does not swap the toned page for a pure white one. Selecting a region is
+  // about *where*, not about colour, and a sudden white sheet in a dark room is
+  // exactly what the tone mapping exists to prevent. The crop sent to the model
+  // is still rendered untoned server-side; that is a separate request.
+  let isDark = false;
+  let themeObserver = null;
+
+  onMount(() => {
+    const readTheme = () => {
+      isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    };
+    readTheme();
+    themeObserver = new MutationObserver(readTheme);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+  });
+
+  onDestroy(() => themeObserver?.disconnect());
+
+  $: tone = isDark ? $activeTone : { paper: 1, warmth: 0 };
+  $: pageUrl = filePath ? api.pdfPageUrl(filePath, page, dpi, tone) : '';
   // Changing page/file invalidates any in-progress selection.
   $: if (page || filePath) resetSelection();
 
