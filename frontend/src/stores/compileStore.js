@@ -1,80 +1,36 @@
-// Enhanced compile store with debounced auto-compile
+// Compile state, written by CompileController.
+//
+// This file used to export eight mutators -- setCompileJob, setCompileSuccess,
+// setCompileError and friends -- with no callers anywhere in the repo. The
+// controller writes the store directly instead, and because the helpers were
+// never exercised their vocabulary drifted: `setCompileJob` defaulted to a
+// `'pending'` status that nothing checks, while every consumer tests for
+// `'compiling'`. Anyone who had reached for them would have found the compile
+// button not disabling and the coalescing in CompileController not engaging.
+//
+// They are gone rather than tested, because a test over an unused mutator only
+// locks in the wrong default. `resetCompile` survives: it is the one that
+// carries real meaning, and it keeps a new document from inheriting the last
+// one's errors.
 import { writable } from 'svelte/store'
-import { debounce } from '../utils/debounce.js'
 
 export const compileStore = writable({
   jobId: null,
-  status: 'idle', // idle, pending, compiling, success, error
+  // idle | compiling | success | error
+  status: 'idle',
   progress: 0,
   pdfUrl: null,
   pageCount: 0,
   errors: [],
   warnings: [],
-  logs: [],
-  duration: null,
   lastCompileAt: null,
-  autoCompile: true,
-  autoCompileDelay: 2000, // 2 second delay for auto-compile
-  pendingAutoCompile: false // Indicates debounced compile is pending
+  // Set while a debounced auto-compile is waiting; StatusBar shows it.
+  pendingAutoCompile: false,
 })
 
-export function setCompileJob(jobId, status = 'pending') {
-  compileStore.update(c => ({
-    ...c,
-    jobId,
-    status,
-    progress: 0,
-    errors: [],
-    warnings: [],
-    logs: [],
-    pendingAutoCompile: false
-  }))
-}
-
-export function updateCompileProgress(progress, logs = []) {
-  compileStore.update(c => ({
-    ...c,
-    progress: Math.min(progress, 100),
-    logs: [...(c.logs || []), ...logs]
-  }))
-}
-
-export function setCompileSuccess(result) {
-  compileStore.update(c => ({
-    ...c,
-    jobId: null,
-    status: 'success',
-    progress: 100,
-    pdfUrl: result.pdf_url,
-    pageCount: result.page_count || 0,
-    errors: [],
-    warnings: result.warnings || [],
-    logs: [],
-    duration: result.compile_time,
-    lastCompileAt: new Date(),
-    pendingAutoCompile: false
-  }))
-}
-
-export function setCompileError(errors, warnings = []) {
-  compileStore.update(c => ({
-    ...c,
-    jobId: null,
-    status: 'error',
-    progress: 0,
-    pdfUrl: null,
-    pageCount: 0,
-    errors,
-    warnings,
-    logs: [],
-    duration: null,
-    lastCompileAt: new Date(),
-    pendingAutoCompile: false
-  }))
-}
-
+/** Return to a clean slate, so a newly opened document shows no stale result. */
 export function resetCompile() {
-  compileStore.update(c => ({
+  compileStore.update((c) => ({
     ...c,
     jobId: null,
     status: 'idle',
@@ -83,57 +39,7 @@ export function resetCompile() {
     pageCount: 0,
     errors: [],
     warnings: [],
-    logs: [],
-    duration: null,
     lastCompileAt: null,
-    pendingAutoCompile: false
+    pendingAutoCompile: false,
   }))
-}
-
-/**
- * Set auto-compile delay in milliseconds.
- * Adjusts debounce delay for auto-compile triggers.
- */
-export function setAutoCompileDelay(delay) {
-  compileStore.update(c => ({
-    ...c,
-    autoCompileDelay: Math.max(500, Math.min(delay, 10000)) // Clamp between 500ms and 10s
-  }))
-}
-
-/**
- * Mark that an auto-compile is pending (debounced).
- * Shows visual indicator to user that compile will trigger soon.
- */
-export function setPendingAutoCompile(pending) {
-  compileStore.update(c => ({
-    ...c,
-    pendingAutoCompile: pending
-  }))
-}
-
-/**
- * Create a debounced compile function that can be cancelled.
- * Returns a function that triggers compilation after the specified delay.
- * 
- * @param {Function} compileCallback - Function to call when compile should execute
- * @param {number} delay - Debounce delay in milliseconds (default: 2000)
- * @returns {Function} Debounced compile function with cancel method
- */
-export function createDebouncedCompile(compileCallback, delay = 2000) {
-  const debouncedCompile = debounce((filePath) => {
-    setPendingAutoCompile(false)
-    compileCallback(filePath)
-  }, delay)
-  
-  return {
-    trigger: (filePath) => {
-      setPendingAutoCompile(true)
-      debouncedCompile(filePath)
-    },
-    cancel: () => {
-      setPendingAutoCompile(false)
-      debouncedCompile.cancel()
-    }
-  }
 }

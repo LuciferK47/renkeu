@@ -82,6 +82,15 @@ export async function handleChatMessage(content) {
     );
 
     addMessage('assistant', transcript.join('\n') || 'No response from agent.');
+  } catch (e) {
+    // The onError callback above only covers failures *during* the stream. If
+    // the call itself rejects -- the request never connects, or the server
+    // answers 500 -- nothing had handled it: App.svelte invokes this from an
+    // event handler with no catch, so the rejection went unhandled and the user
+    // saw the status return to "Ready" with no message at all.
+    append(`Error: ${e.message}`);
+    addMessage('assistant', transcript.join('\n'));
+    pushToast(`AI request failed: ${e.message}`, 'error');
   } finally {
     aiStore.update((a) => ({
       ...a,
@@ -104,24 +113,32 @@ export async function requestAIPlan(instruction) {
   uiStore.update((ui) => ({ ...ui, status: 'Planning with AI...' }));
   let proposal = null;
 
-  await aiService.streamAIPlan(
-    filePath,
-    instruction,
-    ({ event, data }) => {
-      if (event === 'proposal') {
-        proposal = data;
-        setProposal(data);
-        uiStore.update((ui) => ({ ...ui, status: 'AI plan ready', activeRightTab: 'ai' }));
-      } else if (event === 'error') {
-        uiStore.update((ui) => ({ ...ui, status: `AI error: ${data.message}` }));
-        pushToast(data.message, 'error');
+  try {
+    await aiService.streamAIPlan(
+      filePath,
+      instruction,
+      ({ event, data }) => {
+        if (event === 'proposal') {
+          proposal = data;
+          setProposal(data);
+          uiStore.update((ui) => ({ ...ui, status: 'AI plan ready', activeRightTab: 'ai' }));
+        } else if (event === 'error') {
+          uiStore.update((ui) => ({ ...ui, status: `AI error: ${data.message}` }));
+          pushToast(data.message, 'error');
+        }
+      },
+      (error) => {
+        uiStore.update((ui) => ({ ...ui, status: `AI error: ${error.message}` }));
+        pushToast(error.message, 'error');
       }
-    },
-    (error) => {
-      uiStore.update((ui) => ({ ...ui, status: `AI error: ${error.message}` }));
-      pushToast(error.message, 'error');
-    }
-  );
+    );
+  } catch (e) {
+    // Same reason as handleChatMessage: a rejected call is not a stream error,
+    // and the command palette does not catch either.
+    uiStore.update((ui) => ({ ...ui, status: `AI error: ${e.message}` }));
+    pushToast(`AI request failed: ${e.message}`, 'error');
+    return null;
+  }
 
   return proposal;
 }
