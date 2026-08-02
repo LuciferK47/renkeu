@@ -1,6 +1,8 @@
 //! Durable workspace writes: blake3 `ETag` optimistic concurrency, atomic
 //! tmp-file + rename, and one `history` row per mutation (masterplan.md §4.5).
 
+pub mod jobs;
+
 use crate::apply;
 use crate::compile::AgentEdit;
 use sqlx::SqlitePool;
@@ -57,6 +59,12 @@ pub struct Store {
 }
 
 impl Store {
+    /// The underlying pool, for the durable-job helpers in [`jobs`].
+    #[must_use]
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
     #[must_use]
     pub fn new(pool: SqlitePool, workspace_root: PathBuf) -> Self {
         Self {

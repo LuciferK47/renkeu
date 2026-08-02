@@ -128,6 +128,9 @@ pub async fn plan_stream(
             return;
         }
 
+        // Counted before the call so an in-flight or failed request is
+        // still visible (§12 M5 audit: integration).
+        state.metrics.record_llm_call();
         match state
             .planner
             .plan_edits(&instruction, &content, task_cancel)
@@ -215,10 +218,16 @@ async fn run_agent_loop(
     };
     let initial_etag = etag_of(&initial_content);
 
+    state.metrics.record_agent_run();
+
     let mut content = initial_content;
     let mut instruction = original_instruction.clone();
+    // Diagnostics from every failed iteration, attached to the history row
+    // once the loop finally succeeds (masterplan §7.1, §12 M5).
+    let mut failures: Vec<latex_ai_core::storage::jobs::CompileErrorRecord> = Vec::new();
 
     for iteration in 1..=u32::from(max_iterations) {
+        state.metrics.record_agent_iteration();
         if !sse::send(
             &tx,
             "thinking",
@@ -229,6 +238,7 @@ async fn run_agent_loop(
             return; // client gone; CancelOnDisconnect already fired the token
         }
 
+        state.metrics.record_llm_call();
         let mut edits = match state
             .planner
             .plan_edits(&instruction, &content, cancel.clone())
@@ -327,6 +337,19 @@ async fn run_agent_loop(
                     .await
                 {
                     Ok(outcome) => {
+                        // The errors that were healed on the way here are part
+                        // of the audit trail for this edit.
+                        if !failures.is_empty() {
+                            if let Err(e) = latex_ai_core::storage::jobs::record_compile_errors(
+                                state.store.pool(),
+                                outcome.history_id,
+                                &failures,
+                            )
+                            .await
+                            {
+                                tracing::warn!(error = %e, "could not record compile errors");
+                            }
+                        }
                         sse::send(&tx, "compiled", &json!({ "success": true })).await;
                         sse::send(
                             &tx,
@@ -366,6 +389,12 @@ async fn run_agent_loop(
             Err(CompileError::Tectonic(msg)) => {
                 scratch.cleanup();
                 let summary = truncate(&msg, MAX_ERROR_SUMMARY_LEN);
+                failures.push(
+                    latex_ai_core::storage::jobs::CompileErrorRecord::engine_failure(
+                        iteration,
+                        summary.clone(),
+                    ),
+                );
                 sse::send(
                     &tx,
                     "compiled",
@@ -439,6 +468,8 @@ pub async fn apply_selected(
             "apply-selected",
         )
         .await?;
+
+    state.metrics.record_edits_applied(selected.len() as u64);
 
     Ok(Json(ApplySelectedResponse {
         success: true,

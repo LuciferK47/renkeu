@@ -35,20 +35,50 @@ pub async fn compile(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let abs_path = validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?;
 
+    state.metrics.record_compile_started();
     let job_id = Uuid::new_v4().to_string();
     let job_tx = state.jobs.create(&job_id);
 
-    tokio::spawn(run_compile_job(state, abs_path, job_tx));
+    // Durable audit row alongside the in-memory registry, so a job
+    // interrupted by a crash is recoverable (masterplan §12 M5).
+    if let Err(e) =
+        latex_ai_core::storage::jobs::record_started(state.store.pool(), &job_id, &req.file_path)
+            .await
+    {
+        tracing::warn!(error = %e, "could not persist the compile job");
+    }
+
+    tokio::spawn(run_compile_job(state, abs_path, job_tx, job_id.clone()));
 
     Ok(Json(json!({ "job_id": job_id, "status": "queued" })))
+}
+
+/// Close a job's durable row out. A failure to record must not fail the job
+/// itself — the compile already happened either way.
+async fn close_job_record(
+    pool: &sqlx::SqlitePool,
+    job_id: &str,
+    status: latex_ai_core::storage::jobs::JobStatus,
+    error: Option<&str>,
+) {
+    if let Err(e) = latex_ai_core::storage::jobs::record_finished(pool, job_id, status, error).await
+    {
+        tracing::warn!(error = %e, "could not close the compile job record");
+    }
 }
 
 async fn run_compile_job(
     state: AppState,
     abs_path: PathBuf,
     job_tx: tokio::sync::watch::Sender<JobState>,
+    job_id: String,
 ) {
+    use latex_ai_core::storage::jobs::JobStatus;
+
+    let metrics = state.metrics.clone();
+    let pool = state.store.pool().clone();
     let fail = |job_tx: &tokio::sync::watch::Sender<JobState>, summary: String| {
+        metrics.record_compile_finished(false);
         job_tx.send_replace(JobState {
             phase: JobPhase::Failed,
             message: "compile failed".to_owned(),
@@ -60,7 +90,11 @@ async fn run_compile_job(
 
     let content = match tokio::fs::read_to_string(&abs_path).await {
         Ok(c) => c,
-        Err(e) => return fail(&job_tx, format!("read failed: {e}")),
+        Err(e) => {
+            let summary = format!("read failed: {e}");
+            close_job_record(&pool, &job_id, JobStatus::Failed, Some(&summary)).await;
+            return fail(&job_tx, summary);
+        }
     };
 
     job_tx.send_replace(JobState {
@@ -84,14 +118,23 @@ async fn run_compile_job(
         .await
     {
         Ok(r) if r.success => r,
-        Ok(_) => return fail(&job_tx, "empty PDF produced".to_owned()),
-        Err(e) => return fail(&job_tx, e.to_string()),
+        Ok(_) => {
+            close_job_record(&pool, &job_id, JobStatus::Failed, Some("empty PDF")).await;
+            return fail(&job_tx, "empty PDF produced".to_owned());
+        }
+        Err(e) => {
+            let summary = e.to_string();
+            close_job_record(&pool, &job_id, JobStatus::Failed, Some(&summary)).await;
+            return fail(&job_tx, summary);
+        }
     };
 
     // Persist next to the source so GET /api/pdf/page can rasterize it.
     let pdf_path = abs_path.with_extension("pdf");
     if let Err(e) = tokio::fs::write(&pdf_path, result.pdf_bytes.as_ref()).await {
-        return fail(&job_tx, format!("could not write PDF: {e}"));
+        let summary = format!("could not write PDF: {e}");
+        close_job_record(&pool, &job_id, JobStatus::Failed, Some(&summary)).await;
+        return fail(&job_tx, summary);
     }
 
     // …and the source map beside it, for POST /api/visual-fix.
@@ -109,6 +152,8 @@ async fn run_compile_job(
 
     let page_count = count_pages(pdf_path).await;
 
+    metrics.record_compile_finished(true);
+    close_job_record(&pool, &job_id, JobStatus::Succeeded, None).await;
     job_tx.send_replace(JobState {
         phase: JobPhase::Done,
         message: "Compiled".to_owned(),

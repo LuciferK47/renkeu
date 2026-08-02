@@ -135,6 +135,7 @@ pub async fn visual_fix(
     // --- ask the model --------------------------------------------------
     let instruction = sanitized_instruction(req.instruction.as_deref())?;
 
+    state.metrics.record_llm_call();
     let mut edits = state
         .planner
         .visual_fix(
