@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte'
-  import { uiStore, initLayoutPreferences, toggleFileTree, toggleHistory, toggleSettings } from './stores/uiStore.js'
+  import { uiStore, initLayoutPreferences, toggleFileTree, toggleHistory, toggleSettings, setStatus, pushToast } from './stores/uiStore.js'
   import { fileStore } from './stores/fileStore.js'
   import { compileStore } from './stores/compileStore.js'
   import { aiStore, resetAI } from './stores/aiStore.js'
@@ -135,6 +135,11 @@
   </svelte:fragment>
 
   <svelte:fragment slot="workspace">
+    <!-- The editor dispatches dirty-change, content-changed, saved, save-error
+         and save-conflict, and WorkspaceLayout forwards all five, but nothing
+         listened: the unsaved-changes dot never appeared, the status bar never
+         said "Saved", and a conflict was reported only inside the editor.
+         Saving worked; you just could not tell it had. -->
     <WorkspaceLayout
       filePath={$fileStore.filePath}
       bind:editorContent={$fileStore.content}
@@ -163,6 +168,28 @@
       chatStreamingMessage={$aiStore.streamingMessage}
       on:apply-selected={(e) => handleApplyHunks(e.detail)}
       on:message-sent={(e) => handleChatMessage(e.detail.content)}
+      on:dirty-change={(e) => fileStore.update((f) => ({ ...f, dirty: e.detail.isDirty }))}
+      on:content-changed={(e) =>
+        fileStore.update((f) => ({
+          ...f,
+          content: e.detail.content,
+          dirty: e.detail.isDirty,
+        }))}
+      on:saved={() => {
+        fileStore.update((f) => ({ ...f, dirty: false, savedContent: f.content, lastSavedAt: new Date() }));
+        setStatus('Saved');
+      }}
+      on:save-error={(e) => {
+        setStatus(`Save failed: ${e.detail.error}`);
+        pushToast(`Save failed: ${e.detail.error}`, 'error');
+      }}
+      on:save-conflict={(e) => {
+        // The file moved under the edit, so the buffer stays dirty: telling the
+        // user it saved would be a lie, and a retry would clobber the other
+        // change with a stale etag.
+        setStatus('Conflict: file changed on disk');
+        pushToast(`${e.detail.filePath} changed elsewhere — reload before saving`, 'error');
+      }}
     />
   </svelte:fragment>
 </IdeShell>
