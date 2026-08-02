@@ -38,6 +38,16 @@ enum Command {
         #[arg(short, long, default_value = "output.pdf")]
         out: PathBuf,
     },
+    /// Probe a running server's `/health`, exiting non-zero if it is unwell.
+    ///
+    /// This exists so the container image needs no HTTP client of its own. The
+    /// only thing curl did there was run `HEALTHCHECK`, and it dragged in a
+    /// dependency tree far larger than the check was worth.
+    Healthcheck {
+        /// Port the server is listening on.
+        #[arg(long, default_value_t = 3000)]
+        port: u16,
+    },
 }
 
 #[tokio::main]
@@ -52,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Command::Serve { port, host } => serve(&host, port).await,
         Command::Compile { file, out } => compile(&file, &out).await,
+        Command::Healthcheck { port } => healthcheck(port).await,
     }
 }
 
@@ -128,6 +139,38 @@ async fn serve(host: &str, port: u16) -> anyhow::Result<()> {
     }
     tracing::info!(%addr, "latex-ai serving");
     axum::serve(listener, app).await.context("axum serve")?;
+    Ok(())
+}
+
+/// One HTTP/1.1 request over a raw socket, so no HTTP client crate is pulled in
+/// for a job this small. `Connection: close` makes the server hang up after
+/// responding, which is what lets the read terminate.
+async fn healthcheck(port: u16) -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    // Always loopback: this runs inside the container, probing its own server.
+    let connect = tokio::net::TcpStream::connect(("127.0.0.1", port));
+    let mut stream = tokio::time::timeout(TIMEOUT, connect)
+        .await
+        .context("timed out connecting to the server")?
+        .context("connecting to the server")?;
+
+    stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .context("sending the health request")?;
+
+    let mut response = Vec::new();
+    tokio::time::timeout(TIMEOUT, stream.read_to_end(&mut response))
+        .await
+        .context("timed out reading the health response")?
+        .context("reading the health response")?;
+
+    let text = String::from_utf8_lossy(&response);
+    let status = text.lines().next().unwrap_or("(no status line)");
+    anyhow::ensure!(status.contains(" 200"), "unhealthy: {status}");
     Ok(())
 }
 

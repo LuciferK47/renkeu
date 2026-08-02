@@ -188,6 +188,24 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The runtime is `scratch` holding only the binary's ldd closure. Adding
+      # a package or switching back to a distro base would undo that quietly,
+      # so assert it. Measured by flattening the filesystem rather than reading
+      # `docker images`, whose SIZE column double-counts compressed and
+      # uncompressed blobs on the containerd store and so differs by Docker
+      # version — a guard has to mean the same thing everywhere.
+      - name: Image stays minimal
+        run: |
+          set -euo pipefail
+          cid=$(docker create latex-ai:ci)
+          bytes=$(docker export "$cid" | wc -c)
+          docker rm -f "$cid" >/dev/null
+          mb=$((bytes / 1048576))
+          echo "flattened image: ${mb} MB"
+          # ~60 MB today, over half of it libicudata. 90 leaves room for
+          # dependency drift without letting a distro base back in.
+          [ "$mb" -lt 90 ] || { echo "image grew to ${mb} MB (limit 90)"; exit 1; }
+
       # Building is not enough: the daemon bound loopback only, which Docker
       # cannot route a published port to, while the in-container healthcheck
       # still passed. Assert reachability from *outside* the container.

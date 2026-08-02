@@ -201,6 +201,27 @@ bundled into the desktop app. Compose publishes to **host loopback**
 (`127.0.0.1:3000:3000`) and mounts `./examples` as the sandboxed workspace,
 with named volumes for the Tectonic bundle and the history database.
 
+It is built `FROM scratch`: **62.8 MB unpacked, 24.9 MB to pull, 55 files**.
+The runtime holds the binary and exactly the shared objects `ldd` reports for
+it — the library set is derived from the binary at build time rather than
+hand-listed, so a new transitive dependency cannot be missed. Roughly half the
+remaining size is `libicudata.so`, which XeTeX needs for bidi, normalisation
+and line breaking.
+
+Two consequences worth knowing:
+
+- **There is no shell**, so `docker compose exec … sh` will not work. Debug by
+  reading logs, or run the same binary outside the container.
+- **`HEALTHCHECK` runs `latex-ai healthcheck`**, the binary probing its own
+  `/health`. That is why the image needs no curl — carrying the curl
+  dependency tree just to run one health probe was most of what a
+  `debian-slim` runtime was for.
+
+> **Reading image sizes.** `docker images` on the containerd store sums the
+> unpacked layers *and* the compressed blob, so it reports 89 MB for this
+> image. `docker history` totals the real unpacked size; `docker image
+> inspect --format '{{.Size}}'` gives the compressed one.
+
 Inside the container the server binds `0.0.0.0`, because Docker forwards a
 published port to the container's interface address — a loopback-only bind
 would be unreachable from the host while the in-container healthcheck still
