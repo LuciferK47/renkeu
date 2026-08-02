@@ -46,9 +46,6 @@
   let lastSyncedETag = null
   
   onMount(async () => {
-    console.log('[TARGET] Editor.svelte onMount called')
-    console.log('editorContainer:', editorContainer)
-    console.log('editorContainer dimensions:', editorContainer?.offsetWidth, 'x', editorContainer?.offsetHeight)
     
     // Wait for DOM to be ready
     await new Promise(resolve => setTimeout(resolve, 100))
@@ -61,7 +58,6 @@
       ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
       : theme === 'dark'
 
-    console.log('[MARKER] Theme:', isDark ? 'dark' : 'light')
     monacoApi.editor.setTheme(isDark ? 'vs-dark' : 'vs-light')
 
     // Ensure container has proper dimensions
@@ -69,7 +65,6 @@
       editorContainer.style.width = '100%'
       editorContainer.style.height = '100%'
       editorContainer.style.position = 'relative'
-      console.log('[MEASURE] Container styled, new dimensions:', editorContainer.offsetWidth, 'x', editorContainer.offsetHeight)
     }
 
     try {
@@ -86,7 +81,6 @@
         ariaLabel: `LaTeX editor${filePath ? ` for ${filePath}` : ''}`,
         accessibilitySupport: 'on',
       })
-      console.log('editor created', editor)
     } catch (err) {
       console.error('editor failed to create', err)
       throw err
@@ -95,13 +89,11 @@
     // Manual layout updates for better responsiveness
     const resizeObserver = new ResizeObserver(() => {
       if (editor) {
-        console.log('[MEASURE] ResizeObserver triggered, calling layout()')
         editor.layout()
       }
     })
     if (editorContainer) {
       resizeObserver.observe(editorContainer)
-      console.log('[WATCH] ResizeObserver attached')
     }
 
     currentFilePath = filePath
@@ -231,7 +223,7 @@
           
           updateDirtyIndicator(false)
           dispatch('external-change-detected', { content, etag: newETag })
-          console.log('External file change detected and merged:', filePath)
+          console.debug('external change merged into the buffer:', filePath)
         }
       }
     } catch (error) {

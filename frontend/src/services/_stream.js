@@ -64,3 +64,26 @@ export async function* streamSSE(response) {
     reader.releaseLock?.();
   }
 }
+
+/** Events after which the server is finished and closing is expected. */
+const TERMINAL = new Set(['done', 'error', 'awaiting_approval']);
+
+/**
+ * Consume an SSE response, reporting a stream that stops early.
+ *
+ * A dropped connection does not always throw: the reader can simply report
+ * done, in which case `for await` ends quietly and the caller cannot tell a
+ * finished run from a severed one. That is how a mid-run agent failure used to
+ * present -- the transcript stopped, the status bar went back to Ready, and
+ * nothing said the work had been abandoned.
+ *
+ * Returns true when the stream ended on a terminal event.
+ */
+export async function consumeSSE(response, onEvent) {
+  let sawTerminal = false;
+  for await (const message of streamSSE(response)) {
+    if (TERMINAL.has(message.event)) sawTerminal = true;
+    onEvent(message);
+  }
+  return sawTerminal;
+}

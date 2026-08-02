@@ -4,7 +4,7 @@
  */
 
 import { api } from '../lib/api/client.js';
-import { streamSSE } from './_stream.js';
+import { consumeSSE } from './_stream.js';
 
 /**
  * Stream a one-shot plan. `onEvent` receives { event, data } from the locked
@@ -48,7 +48,14 @@ async function streamAgentEndpoint(path, body, onEvent, onError) {
       throw new Error(detail);
     }
 
-    for await (const message of streamSSE(response)) onEvent(message);
+    const finished = await consumeSSE(response, onEvent);
+    if (!finished) {
+      // Deliberately not retried. Re-POSTing this endpoint starts a *second*
+      // agent run against the same file, and with auto_apply that can apply the
+      // same edits twice. The run may still be going server-side, so say that
+      // rather than implying it failed.
+      throw new Error('Connection lost before the agent finished. It may still be running — reload to see the current state.');
+    }
   } catch (error) {
     if (onError) onError(error);
     else throw error;
