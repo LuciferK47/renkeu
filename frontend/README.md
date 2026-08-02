@@ -79,6 +79,15 @@ taxonomy (masterplan §8.2), enforced in CI:
 Consume them as `{ event, data }` from `streamSSE` — never reach for a `type`
 field inside the payload.
 
+## Desktop shell
+
+In the Tauri build the page is served from `tauri://localhost`, so a relative
+`/api` would resolve against *that* origin and never reach the embedded
+server. The shell binds an ephemeral loopback port and injects the real base
+URL as `globalThis.__LATEX_AI_API__` before any page script runs;
+`client.js` prefers it over `VITE_API_BASE`. Nothing else in the SPA needs to
+know whether it is running in a browser or the desktop app.
+
 ## Notes
 
 - **No axios, no fuse.js, no PDF.js.** Native `fetch`, backend `nucleo` search,
