@@ -3333,6 +3333,7 @@ dependencies = [
  "latex-ai-compiler",
  "latex-ai-core",
  "latex-ai-server",
+ "serde_json",
  "sqlx",
  "tauri",
  "tauri-build",

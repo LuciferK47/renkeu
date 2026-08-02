@@ -10,7 +10,11 @@ export class APIError extends Error {
   }
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE || '/api';
+// In the desktop shell the page is served from `tauri://localhost`, so a
+// relative '/api' would resolve against that origin instead of the embedded
+// server. The shell injects its real loopback base before any page script
+// runs; in the browser we fall back to the dev-proxy path.
+const BASE_URL = globalThis.__LATEX_AI_API__ || import.meta.env.VITE_API_BASE || '/api';
 
 export class APIClient {
   buildUrl(endpoint) {
@@ -18,6 +22,8 @@ export class APIClient {
   }
 
   async request(method, path, { body, headers = {}, params, signal } = {}) {
+    // `buildUrl` may return an absolute URL (desktop) or a path (browser);
+    // the second argument is ignored for the former.
     const url = new URL(this.buildUrl(path), window.location.origin);
     if (params) {
       for (const [k, v] of Object.entries(params)) {

@@ -23,12 +23,20 @@ tower-http = { version = "0.6", features = ["trace", "cors"] }
 
 # tectonic: NO default-features=false — that kills the bundle downloader (geturl backend).
 #
+# `external-harfbuzz` links the SYSTEM harfbuzz instead of Tectonic's vendored
+# copy. This is load-bearing for the desktop shell: webkit2gtk links the system
+# harfbuzz dynamically, and having two copies of it in one process makes the
+# linker resolve symbols across implementations — the shell segfaulted inside
+# `hb_face_t::reference_table` on a corrupted function pointer before this was
+# set. One copy, one set of symbols. (Requires libharfbuzz-dev, which the
+# README already lists as a build dependency.)
+#
 # Do NOT run a blanket `cargo update`. Doing so bumps the whole `tectonic_*`
 # family (incl. the semver-major `tectonic_io_base` 0.5 -> 0.6 and the
 # app_dirs2 -> directories cache-path swap), which breaks compilation with a
 # bare "the LaTeX engine failed" — verified 2026-08-02. Update specific crates
 # instead (`cargo update -p <crate>`) and re-run `cargo nextest run` after.
-tectonic = "0.16"
+tectonic = { version = "0.16", features = ["external-harfbuzz"] }
 
 blake3 = "1.5"
 thiserror = "2"
