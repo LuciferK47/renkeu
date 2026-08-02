@@ -7,13 +7,18 @@
   export let onClose = () => {}
   export let onSave = async (updates) => {}
 
-  let config = {
+  // Defaults for everything this panel binds to. /api/config answers with a
+  // much smaller object than the panel reads -- it has no `editor` or `theme`
+  // key at all -- so these are what the controls fall back to.
+  const DEFAULT_CONFIG = {
     keyboard_shortcuts: {},
-    theme: {},
-    editor: {},
+    theme: { mode: 'auto', primary_color: '#0b0b0c', accent_color: '#2a2a2a', error_color: '#f0616b' },
+    editor: { font_size: 14, font_family: 'JetBrains Mono', tab_size: 2, word_wrap: true, minimap_enabled: false },
     auto_save: true,
-    history_limit: 100
+    history_limit: 100,
   }
+
+  let config = structuredClone(DEFAULT_CONFIG)
 
   let selectedTab = 'editor'
   let loading = true
@@ -30,7 +35,21 @@
       loading = true
       const res = await fetch('/api/config')
       if (!res.ok) throw new Error('Failed to load config')
-      config = await res.json()
+      // Merge rather than replace. Assigning the response wholesale dropped
+      // `editor`, `theme` and `keyboard_shortcuts`, and the very next thing the
+      // markup does is read `config.editor.font_size` -- which threw, so the
+      // whole panel failed to render and Settings appeared to do nothing.
+      const fromServer = await res.json()
+      config = {
+        ...DEFAULT_CONFIG,
+        ...fromServer,
+        theme: { ...DEFAULT_CONFIG.theme, ...(fromServer.theme ?? {}) },
+        editor: { ...DEFAULT_CONFIG.editor, ...(fromServer.editor ?? {}) },
+        keyboard_shortcuts: {
+          ...DEFAULT_CONFIG.keyboard_shortcuts,
+          ...(fromServer.keyboard_shortcuts ?? {}),
+        },
+      }
 
       // One configured planner model (masterplan Q1) — reported by /api/config.
       modelsLoading = true
