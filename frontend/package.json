@@ -13,8 +13,7 @@
   "dependencies": {
     "monaco-editor": "^0.45.0",
     "svelte": "^5.1.0",
-    "svelte-splitpanes": "^8.0.12",
-    "svelte-virtual-list": "^3.0.1"
+    "svelte-splitpanes": "^8.0.12"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",

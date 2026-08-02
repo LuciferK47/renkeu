@@ -1,6 +1,5 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte'
-  import VirtualList from 'svelte-virtual-list'
 
   export let filePath = ''
   export let agentOnly = false
@@ -66,7 +65,10 @@
     <p class="no-history">No history yet</p>
   {:else}
     <div class="history-list">
-      <VirtualList items={history} let:item height="calc(100vh - 140px)">
+      <!-- Plain list, same reason as FileTree: svelte-virtual-list is a
+           Svelte 3 package with no `svelte` exports condition, and under
+           Svelte 5 its viewport gets no height, so it renders nothing. -->
+      {#each history as item (item.id)}
         <div class="history-item">
           <div class="command">{item.command}</div>
           <div class="timestamp">{formatDate(item.timestamp)}</div>
@@ -77,7 +79,7 @@
             Restore
           </button>
         </div>
-      </VirtualList>
+      {/each}
     </div>
   {/if}
 </div>

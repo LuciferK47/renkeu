@@ -1,7 +1,6 @@
 <script>
   import Icon from './Icon.svelte'
   import { createEventDispatcher, onMount } from 'svelte'
-  import VirtualList from 'svelte-virtual-list'
 
   const dispatch = createEventDispatcher()
 
@@ -81,21 +80,27 @@
     return treeMap
   }
   
-  function flattenTree() {
-    // Flatten tree for virtual list: each item is either a directory header or file
+  // `tree` and `expanded` are arguments rather than closure reads on purpose.
+  // Svelte works out a reactive statement's dependencies from the expression
+  // itself, and `flattenTree()` mentions neither, so the statement ran once at
+  // init -- while `tree` was still {} -- and never again. virtualFiles stayed
+  // empty, the `{#if virtualFiles.length > 0}` guard never opened, and the tree
+  // rendered nothing however many files loaded.
+  function flattenTree(treeByDir, expandedDirs) {
+    // Each item is either a directory header or a file under it.
     const items = []
-    Object.entries(tree).forEach(([dir, dirFiles]) => {
+    Object.entries(treeByDir).forEach(([dir, dirFiles]) => {
       items.push({ type: 'dir', dir, fileCount: dirFiles.length })
-      if (expanded[dir]) {
-        dirFiles.forEach(file => {
+      if (expandedDirs[dir]) {
+        dirFiles.forEach((file) => {
           items.push({ type: 'file', file })
         })
       }
     })
     return items
   }
-  
-  $: virtualFiles = flattenTree()  // Update virtual list when tree or expanded changes
+
+  $: virtualFiles = flattenTree(tree, expanded)
 
   function toggleExpand(path) {
     expanded[path] = !expanded[path]
@@ -209,18 +214,19 @@
     <div 
       class="tree-items"
       bind:this={treeContainer}
+      on:scroll={handleScroll}
       role="tree"
       aria-labelledby="file-tree-title"
       aria-multiselectable="true"
     >
+      <!-- A plain scrolling list. svelte-virtual-list is a Svelte 3 package --
+           the build already warns it has no `svelte` exports condition -- and
+           under Svelte 5 it rendered its viewport with no height, so it
+           computed zero visible rows and showed nothing however many files
+           loaded. The list is paginated by handleScroll anyway, so
+           virtualising it was buying nothing for a workspace of this size. -->
       {#if virtualFiles.length > 0}
-        <VirtualList
-          items={virtualFiles}
-          let:item
-          height={300}
-          itemHeight={24}
-          on:scroll={handleScroll}
-        >
+        {#each virtualFiles as item (item.type === 'dir' ? `d:${item.dir}` : `f:${item.file.path}`)}
           {#if item.type === 'dir'}
             <button
               on:click={() => toggleExpand(item.dir)}
@@ -255,7 +261,7 @@
               <span class="file-size" aria-label={`File size: ${formatSize(item.file.size)}`}>{formatSize(item.file.size)}</span>
             </div>
           {/if}
-        </VirtualList>
+        {/each}
       {/if}
     </div>
 
