@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Run a command under a hard memory cap.
+#
+# Why: several commands in this repo (cargo builds with fat LTO, `cargo
+# nextest` across the Tectonic tests, and especially `cargo tarpaulin`, which
+# rebuilds the workspace instrumented AND re-runs every test under ptrace) can
+# request more memory than the machine has. `.config/nextest.toml` and
+# `.cargo/config.toml` cap the common paths, but they cannot bound a tool that
+# spawns its own build.
+#
+# This puts the command in its own systemd scope with `MemoryMax`, so the
+# kernel kills *that cgroup* if it overruns — never the shell, the editor, or
+# the desktop session.
+#
+# Usage:
+#   scripts/capped cargo tarpaulin --workspace
+#   CAP=4G scripts/capped cargo build --release
+#
+# Default cap leaves headroom on a 16 GB machine; override with CAP.
+set -euo pipefail
+
+CAP="${CAP:-6G}"
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: [CAP=6G] $0 <command> [args...]" >&2
+  exit 64
+fi
+
+if ! command -v systemd-run >/dev/null 2>&1; then
+  echo "warning: systemd-run not available; running uncapped" >&2
+  exec "$@"
+fi
+
+echo "running under MemoryMax=$CAP: $*" >&2
+# --scope keeps it in the foreground and attached to this terminal.
+# MemorySwapMax=0 stops it from thrashing swap instead of failing fast.
+exec systemd-run --user --scope --quiet \
+  -p "MemoryMax=$CAP" -p "MemorySwapMax=0" \
+  -- "$@"
