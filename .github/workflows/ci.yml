@@ -78,6 +78,53 @@ jobs:
       - name: cargo machete (unused dependencies)
         run: cargo machete
 
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Tectonic build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libgraphite2-dev libharfbuzz-dev \
+            libicu-dev libfreetype-dev libssl-dev zlib1g-dev
+
+      - name: Cache Tectonic bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-bundle-${{ runner.os }}-v1
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+
+      # tarpaulin rebuilds the workspace instrumented and re-runs every test
+      # under ptrace; one test thread keeps only one Tectonic engine resident.
+      - name: Measure coverage
+        run: |
+          cargo tarpaulin --workspace --exclude latex-ai-tauri \
+            --out Xml --timeout 400 --jobs 2 -- --test-threads=1
+
+  desktop-deps:
+    name: Desktop link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The workspace links the SYSTEM harfbuzz (Tectonic's
+      # `external-harfbuzz`) so it does not collide with webkit2gtk's copy.
+      # Assert the manifest keeps that feature: dropping it reintroduces a
+      # segfault that only appears when the desktop bundle is *run*.
+      - name: external-harfbuzz is still enabled
+        run: |
+          grep -q 'features = \["external-harfbuzz"\]' Cargo.toml \
+            || { echo "tectonic must keep external-harfbuzz — see masterplan §15.1"; exit 1; }
+          echo "external-harfbuzz OK"
+
   contracts:
     name: SSE taxonomy lock
     runs-on: ubuntu-latest
