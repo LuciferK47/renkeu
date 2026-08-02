@@ -103,21 +103,21 @@
 
   .filter-toggle button {
     padding: 0.4rem;
-    border: 1px solid #ddd;
-    background: #f7f7f7;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--surface-2));
     border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
   }
 
   .filter-toggle button.active {
-    background: #e0ebff;
-    border-color: #4a90e2;
-    color: #0f3d91;
+    background: hsl(var(--primary) / 0.12);
+    border-color: hsl(var(--primary));
+    color: hsl(var(--primary));
   }
 
   .no-history {
-    color: #999;
+    color: hsl(var(--text-faint));
     text-align: center;
     padding: 2rem 0;
   }
@@ -130,8 +130,8 @@
 
   .history-item {
     padding: 0.75rem;
-    background: #f9f9f9;
-    border: 1px solid #ddd;
+    background: hsl(var(--surface-2));
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
   }
 
@@ -143,15 +143,15 @@
 
   .timestamp {
     font-size: 11px;
-    color: #999;
+    color: hsl(var(--text-faint));
     margin-bottom: 0.5rem;
   }
 
   .restore-btn {
     width: 100%;
     padding: 0.4rem;
-    background: #28a745;
-    color: white;
+    background: hsl(var(--ok));
+    color: hsl(var(--primary-foreground));
     border: none;
     border-radius: 3px;
     cursor: pointer;
@@ -159,6 +159,6 @@
   }
 
   .restore-btn:hover {
-    background: #218838;
+    background: hsl(var(--ok));
   }
 </style>

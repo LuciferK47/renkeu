@@ -26,15 +26,33 @@
     padding: 10px 14px;
     border-radius: 6px;
     box-shadow: 0 4px 14px rgba(0,0,0,0.12);
-    background: #111827;
-    color: #f9fafb;
+    background: hsl(var(--surface-1));
+    color: hsl(var(--foreground));
     font-size: 13px;
   }
 
-  .toast.success { background: #065f46; }
-  .toast.error { background: #991b1b; }
-  .toast.info { background: #1f2937; }
-  .toast.warn { background: #92400e; }
+  /* Tinted ground plus matching text, rather than a solid fill. A solid
+     dark-green toast was invisible against a light theme and shouted against a
+     dark one; this reads at the same weight on both. */
+  .toast.success {
+    background: hsl(var(--ok) / 0.16);
+    border: 1px solid hsl(var(--ok) / 0.4);
+    color: hsl(var(--ok));
+  }
+  .toast.error {
+    background: hsl(var(--err) / 0.16);
+    border: 1px solid hsl(var(--err) / 0.4);
+    color: hsl(var(--err));
+  }
+  .toast.info {
+    background: hsl(var(--foreground) / 0.08);
+    border: 1px solid hsl(var(--border));
+  }
+  .toast.warn {
+    background: hsl(var(--warn) / 0.16);
+    border: 1px solid hsl(var(--warn) / 0.4);
+    color: hsl(var(--warn));
+  }
 
   .msg { display: block; }
 </style>

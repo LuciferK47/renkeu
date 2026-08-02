@@ -1,5 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  // Follow the app's own toggle, not the OS. Without this Tailwind defaults to
+  // `media`, so every `dark:` utility tracked prefers-color-scheme and silently
+  // ignored the in-app theme switch.
+  darkMode: ['selector', '[data-theme="dark"]'],
   content: [
     './index.html',
     './src/**/*.{svelte,js,ts}'

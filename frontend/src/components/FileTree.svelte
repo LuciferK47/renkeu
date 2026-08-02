@@ -258,14 +258,14 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #f9f9f9;
-    border-right: 1px solid #ddd;
+    background: hsl(var(--surface-2));
+    border-right: 1px solid hsl(var(--border));
   }
 
   .file-tree-header {
     padding: 1rem;
-    background: #fff;
-    border-bottom: 1px solid #ddd;
+    background: hsl(var(--surface-1));
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .file-tree-header h3 {
@@ -280,34 +280,34 @@
   .search-input {
     width: 100%;
     padding: 0.4rem;
-    border: 1px solid #ddd;
+    border: 1px solid hsl(var(--border));
     border-radius: 3px;
     font-size: 12px;
   }
 
   .search-input:focus {
     outline: none;
-    border-color: #007bff;
+    border-color: hsl(var(--primary));
   }
 
   .loading {
     padding: 2rem 1rem;
     text-align: center;
-    color: #666;
+    color: hsl(var(--text-dim));
     font-size: 12px;
   }
 
   .no-files {
     padding: 2rem 1rem;
     text-align: center;
-    color: #999;
+    color: hsl(var(--text-faint));
     font-size: 12px;
   }
 
   .controls {
     padding: 0.5rem 1rem;
-    background: #f0f0f0;
-    border-bottom: 1px solid #ddd;
+    background: hsl(var(--surface-2));
+    border-bottom: 1px solid hsl(var(--border));
     display: flex;
     gap: 0.5rem;
     align-items: center;
@@ -315,15 +315,15 @@
   }
 
   .selected-count {
-    color: #007bff;
+    color: hsl(var(--primary));
     font-weight: bold;
   }
 
   .btn-select-all,
   .btn-clear {
     padding: 0.3rem 0.6rem;
-    background: #007bff;
-    color: white;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
     border-radius: 3px;
     cursor: pointer;
@@ -331,7 +331,7 @@
   }
 
   .btn-clear {
-    background: #dc3545;
+    background: hsl(var(--err));
   }
 
   .btn-select-all:hover,
@@ -358,15 +358,15 @@
 
   .load-more {
     padding: 0.75rem 1rem;
-    border-top: 1px solid #e0e0e0;
-    background: #fafafa;
+    border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--surface-2));
   }
 
   .btn-load-more {
     width: 100%;
     padding: 0.5rem 0.75rem;
-    background: #007bff;
-    color: #fff;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -374,28 +374,28 @@
   }
 
   .btn-load-more:disabled {
-    background: #ccc;
+    background: hsl(var(--accent));
     cursor: not-allowed;
   }
 
   .directory-group {
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .dir-toggle {
     width: 100%;
     padding: 0.6rem 1rem;
     text-align: left;
-    background: #f5f5f5;
+    background: hsl(var(--surface-2));
     border: none;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid hsl(var(--border));
     cursor: pointer;
     font-size: 13px;
     font-weight: bold;
   }
 
   .dir-toggle:hover {
-    background: #eeeeee;
+    background: hsl(var(--muted));
   }
 
   .dir-contents {
@@ -417,7 +417,7 @@
   .file-name-btn {
     flex: 1;
     cursor: pointer;
-    color: #007bff;
+    color: hsl(var(--primary));
     background: transparent;
     border: none;
     padding: 0;
@@ -429,7 +429,7 @@
   }
 
   .file-size {
-    color: #999;
+    color: hsl(var(--text-faint));
     font-size: 11px;
   }
 </style>

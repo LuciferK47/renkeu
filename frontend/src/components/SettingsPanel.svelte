@@ -432,19 +432,19 @@
   .cap-pill {
     display: inline-block;
     padding: 0.2rem 0.5rem;
-    background: #eef2ff;
-    color: #3730a3;
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
     border-radius: 999px;
     font-size: 12px;
   }
 
   .cap-pill.provider {
-    background: #f3f4f6;
-    color: #1f2937;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--foreground));
   }
 
   .settings-panel {
-    background: white;
+    background: hsl(var(--surface-1));
     border-radius: 8px;
     width: 90%;
     max-width: 600px;
@@ -459,13 +459,13 @@
     justify-content: space-between;
     align-items: center;
     padding: 1.5rem;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .settings-header h2 {
     margin: 0;
     font-size: 1.25rem;
-    color: #333;
+    color: hsl(var(--foreground));
   }
 
   .close-btn {
@@ -473,7 +473,7 @@
     border: none;
     font-size: 1.5rem;
     cursor: pointer;
-    color: #999;
+    color: hsl(var(--text-faint));
     padding: 0;
     width: 32px;
     height: 32px;
@@ -484,14 +484,14 @@
   }
 
   .close-btn:hover {
-    background: #f0f0f0;
-    color: #333;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--foreground));
   }
 
   .settings-tabs {
     display: flex;
-    border-bottom: 1px solid #e0e0e0;
-    background: #f9f9f9;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--surface-2));
   }
 
   .tab-btn {
@@ -499,21 +499,22 @@
     padding: 1rem;
     background: none;
     border: none;
+    color: hsl(var(--text-dim));
     border-bottom: 2px solid transparent;
     cursor: pointer;
-    color: #666;
+    color: hsl(var(--text-dim));
     font-weight: 500;
     transition: all 0.2s ease;
   }
 
   .tab-btn:hover {
-    color: #333;
-    background: #f0f0f0;
+    color: hsl(var(--foreground));
+    background: hsl(var(--surface-2));
   }
 
   .tab-btn.active {
-    color: #007bff;
-    border-bottom-color: #007bff;
+    color: hsl(var(--primary));
+    border-bottom-color: hsl(var(--primary));
   }
 
   .settings-content {
@@ -529,7 +530,7 @@
   .settings-section h3 {
     margin-top: 0;
     margin-bottom: 1rem;
-    color: #333;
+    color: hsl(var(--foreground));
     font-size: 1rem;
   }
 
@@ -545,7 +546,7 @@
     align-items: center;
     gap: 0.5rem;
     font-weight: 500;
-    color: #555;
+    color: hsl(var(--text-dim));
   }
 
   .setting-group label input[type='checkbox'] {
@@ -557,7 +558,7 @@
   .setting-group input[type='color'],
   .setting-group select {
     padding: 0.5rem;
-    border: 1px solid #ddd;
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     font-size: 0.9rem;
     font-family: inherit;
@@ -571,14 +572,14 @@
 
   .setting-group code {
     font-family: monospace;
-    color: #666;
+    color: hsl(var(--text-dim));
     font-size: 0.85rem;
   }
 
   .help-text {
     margin: 0;
     font-size: 0.85rem;
-    color: #999;
+    color: hsl(var(--text-faint));
   }
 
   .capabilities {
@@ -589,83 +590,55 @@
     align-items: center;
   }
 
+  /* One chip for every capability, distinguished by its label.
+   *
+   * These were six pastel gradients — vision blue, code pink, context purple —
+   * where the hue encoded nothing: they are static facts about a model, not
+   * state to react to. Six competing colours also meant the three that do carry
+   * state (compile error, warning, success) had to shout to be noticed. Spending
+   * no colour here is what lets a failed compile read instantly.
+   *
+   * The scale-on-hover went with them: these are spans with a title, not
+   * controls, and movement promised an interaction that does not exist. */
   .cap-badge {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     padding: 0.35rem 0.75rem;
-    border-radius: 16px;
+    border-radius: 999px;
     font-size: 0.8rem;
-    font-weight: 600;
+    font-weight: 500;
     white-space: nowrap;
-    transition: transform 0.1s ease;
-  }
-
-  .cap-badge:hover {
-    transform: scale(1.05);
-  }
-
-  .cap-badge.streaming {
-    background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 100%);
-    color: #2e7d32;
-    box-shadow: 0 2px 4px rgba(46, 125, 50, 0.15);
-  }
-
-  .cap-badge.vision {
-    background: linear-gradient(135deg, #b3e5fc 0%, #81d4fa 100%);
-    color: #01579b;
-    box-shadow: 0 2px 4px rgba(1, 87, 155, 0.15);
-  }
-
-  .cap-badge.code {
-    background: linear-gradient(135deg, #f8bbd0 0%, #f48fb1 100%);
-    color: #c2185b;
-    box-shadow: 0 2px 4px rgba(194, 24, 91, 0.15);
-  }
-
-  .cap-badge.json {
-    background: linear-gradient(135deg, #ffe0b2 0%, #ffcc80 100%);
-    color: #e65100;
-    box-shadow: 0 2px 4px rgba(230, 81, 0, 0.15);
-  }
-
-  .cap-badge.context {
-    background: linear-gradient(135deg, #e1bee7 0%, #ce93d8 100%);
-    color: #6a1b9a;
-    box-shadow: 0 2px 4px rgba(106, 27, 154, 0.15);
-  }
-
-  .cap-badge.tools {
-    background: linear-gradient(135deg, #bbdefb 0%, #90caf9 100%);
-    color: #0d47a1;
-    box-shadow: 0 2px 4px rgba(13, 71, 161, 0.15);
+    background: hsl(var(--foreground) / 0.06);
+    border: 1px solid hsl(var(--border));
+    color: hsl(var(--foreground));
   }
 
   .cap-provider {
     display: inline-block;
     padding: 0.35rem 0.75rem;
-    background: #f5f5f5;
-    border: 1px solid #ddd;
+    background: hsl(var(--surface-2));
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     font-size: 0.8rem;
-    color: #666;
+    color: hsl(var(--text-dim));
   }
 
   .cap-info {
     display: inline-block;
     padding: 0.35rem 0.75rem;
-    background: #f5f5f5;
-    border: 1px solid #ddd;
+    background: hsl(var(--surface-2));
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     font-size: 0.8rem;
-    color: #999;
+    color: hsl(var(--text-faint));
   }
 
   .settings-footer {
     display: flex;
     gap: 1rem;
     padding: 1.5rem;
-    border-top: 1px solid #e0e0e0;
+    border-top: 1px solid hsl(var(--border));
     justify-content: flex-end;
   }
 
@@ -681,49 +654,21 @@
   }
 
   .btn-cancel {
-    background: #f0f0f0;
-    color: #333;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--foreground));
   }
 
   .btn-cancel:hover {
-    background: #e0e0e0;
+    background: hsl(var(--muted));
   }
 
   .btn-save {
-    background: #007bff;
-    color: white;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
   }
 
   .btn-save:hover {
-    background: #0056b3;
+    background: hsl(var(--primary));
   }
 
-  :global(.dark-mode) .settings-panel {
-    background: #2d2d2d;
-    color: #e0e0e0;
-  }
-
-  :global(.dark-mode) .settings-header,
-  :global(.dark-mode) .settings-tabs,
-  :global(.dark-mode) .settings-footer {
-    border-bottom-color: #404040;
-  }
-
-  :global(.dark-mode) .settings-header h2,
-  :global(.dark-mode) .settings-section h3,
-  :global(.dark-mode) .setting-group label {
-    color: #e0e0e0;
-  }
-
-  :global(.dark-mode) .tab-btn {
-    color: #b0b0b0;
-  }
-
-  :global(.dark-mode) .tab-btn.active {
-    color: #4a9eff;
-  }
-
-  :global(.dark-mode) .tab-btn:hover {
-    background: #3a3a3a;
-  }
 </style>

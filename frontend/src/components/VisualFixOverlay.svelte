@@ -200,7 +200,7 @@
     opacity: 0.75;
   }
   .error {
-    color: #c33;
+    color: hsl(var(--err));
     margin: 0;
   }
   .page-wrap {
@@ -218,7 +218,7 @@
   }
   .selection {
     position: absolute;
-    border: 2px solid #4f46e5;
+    border: 2px solid hsl(var(--primary));
     background: rgba(79, 70, 229, 0.15);
     pointer-events: none;
   }

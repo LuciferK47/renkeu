@@ -381,8 +381,8 @@
     display: inline-block;
     width: 14px;
     height: 14px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top-color: white;
+    border: 2px solid hsl(var(--primary-foreground) / 0.3);
+    border-top-color: hsl(var(--primary-foreground));
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }

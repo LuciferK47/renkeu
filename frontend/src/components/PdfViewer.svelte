@@ -217,17 +217,17 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #fafafa;
+    background: hsl(var(--surface-2));
     position: relative;
   }
   
   .spacer { flex: 1; }
   
   .visual-fix-btn {
-    background: #4caf50 !important;
+    background: hsl(var(--ok)) !important;
   }
   .visual-fix-btn.active {
-    background: #e53935 !important;
+    background: hsl(var(--err)) !important;
   }
   
   .pdf-frame {
@@ -236,14 +236,14 @@
     position: relative;
     display: flex;
     justify-content: center;
-    background: #e0e0e0;
+    background: hsl(var(--muted));
     padding: 20px;
   }
 
   .img-container {
     position: relative;
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    background: white;
+    background: hsl(var(--paper));
     display: inline-block;
   }
 
@@ -255,7 +255,7 @@
 
   .bbox {
     position: absolute;
-    border: 2px solid #e53935;
+    border: 2px solid hsl(var(--err));
     background: rgba(229, 57, 53, 0.2);
     pointer-events: none;
   }
@@ -271,7 +271,7 @@
   }
   
   .overlay-msg {
-    background: white;
+    background: hsl(var(--surface-1));
     padding: 10px 20px;
     border-radius: 4px;
     font-weight: bold;
@@ -280,15 +280,15 @@
 
   .error-message {
     padding: 1rem;
-    background: #ffebee;
-    color: #c62828;
-    border-bottom: 1px solid #ef5350;
+    background: hsl(var(--err) / 0.1);
+    color: hsl(var(--err));
+    border-bottom: 1px solid hsl(var(--err));
   }
 
   .loading {
     padding: 2rem;
     text-align: center;
-    color: #666;
+    color: hsl(var(--text-dim));
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -298,8 +298,8 @@
   .spinner {
     width: 40px;
     height: 40px;
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #007bff;
+    border: 4px solid hsl(var(--line-soft));
+    border-top: 4px solid hsl(var(--primary));
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -312,7 +312,7 @@
   .no-pdf {
     padding: 2rem;
     text-align: center;
-    color: #999;
+    color: hsl(var(--text-faint));
   }
 
   .pdf-controls {
@@ -320,14 +320,14 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.75rem 1rem;
-    background: #fff;
-    border-bottom: 1px solid #ddd;
+    background: hsl(var(--surface-1));
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .pdf-controls button {
     padding: 0.4rem 0.8rem;
-    background: #007bff;
-    color: white;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
     border-radius: 3px;
     cursor: pointer;
@@ -335,24 +335,24 @@
   }
 
   .pdf-controls button:disabled {
-    background: #ccc;
+    background: hsl(var(--accent));
     cursor: not-allowed;
   }
 
   .pdf-controls button:hover:not(:disabled) {
-    background: #0056b3;
+    background: hsl(var(--primary));
   }
 
   .pdf-controls input {
     width: 60px;
     padding: 0.4rem;
-    border: 1px solid #ccc;
+    border: 1px solid hsl(var(--border));
     border-radius: 3px;
     text-align: center;
   }
 
   .pdf-controls span {
     font-size: 13px;
-    color: #666;
+    color: hsl(var(--text-dim));
   }
 </style>

@@ -589,7 +589,7 @@
     width: 100%;
     height: 100%;
     flex: 1;
-    background: #fff;
+    background: hsl(var(--surface-1));
     border: none;
   }
 

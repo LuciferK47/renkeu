@@ -210,7 +210,7 @@
     opacity: 0.75;
   }
   .error {
-    color: #c33;
+    color: hsl(var(--err));
     margin: 0;
   }
   .status {
@@ -253,7 +253,7 @@
   }
   .stale-reason {
     font-size: 0.8rem;
-    color: #c33;
+    color: hsl(var(--err));
   }
   .diff {
     margin: 0;

@@ -37,12 +37,12 @@
     <div class="top-bar" role="toolbar" aria-label="Document controls">
       <label for="file-path-input" class="sr-only">File path</label>
       <input id="file-path-input" type="text" placeholder="File path..." value={$fileStore.filePath} on:change class="flex-1 px-3 py-2 border rounded" aria-label="Current file path" />
-      {#if $fileStore.dirty}<span aria-live="polite" class="text-red-600" title="Unsaved changes">•</span>{/if}
-      <button on:click={toggleFileTree} class="ml-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" aria-label={$uiStore.showFileTree ? 'Hide file tree' : 'Show file tree'} aria-pressed={$uiStore.showFileTree}>{$uiStore.showFileTree ? 'Hide Tree' : 'Files'}</button>
-      <button on:click={toggleHistory} class="ml-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" aria-label={$uiStore.showHistory ? 'Hide history' : 'Show file history'} aria-pressed={$uiStore.showHistory}>{$uiStore.showHistory ? 'Hide' : 'History'}</button>
-      <button on:click|preventDefault on:compile disabled={!$fileStore.filePath || $compileStore.status === 'compiling'} class="ml-2 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed" title="Compile to PDF (Ctrl+Enter)" aria-busy={$compileStore.status === 'compiling'}>{$compileStore.status === 'compiling' ? '⏳ Compiling...' : '📄 Compile'}</button>
-      <button on:click|preventDefault on:settings-toggle class="ml-2 px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600" aria-label={$uiStore.showSettings ? 'Close settings' : 'Open settings'} aria-pressed={$uiStore.showSettings}>⚙️ Settings</button>
-      {#if selectedFiles.length > 0}<span class="ml-2 px-3 py-2 bg-green-100 text-green-800 rounded" role="status" aria-live="polite" aria-atomic="true">{selectedFiles.length} {selectedFiles.length === 1 ? 'file' : 'files'} selected</span>{/if}
+      {#if $fileStore.dirty}<span aria-live="polite" class="text-destructive" title="Unsaved changes">•</span>{/if}
+      <button on:click={toggleFileTree} class="ml-2 px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity" aria-label={$uiStore.showFileTree ? 'Hide file tree' : 'Show file tree'} aria-pressed={$uiStore.showFileTree}>{$uiStore.showFileTree ? 'Hide Tree' : 'Files'}</button>
+      <button on:click={toggleHistory} class="ml-2 px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity" aria-label={$uiStore.showHistory ? 'Hide history' : 'Show file history'} aria-pressed={$uiStore.showHistory}>{$uiStore.showHistory ? 'Hide' : 'History'}</button>
+      <button on:click|preventDefault on:compile disabled={!$fileStore.filePath || $compileStore.status === 'compiling'} class="ml-2 px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed" title="Compile to PDF (Ctrl+Enter)" aria-busy={$compileStore.status === 'compiling'}>{$compileStore.status === 'compiling' ? '⏳ Compiling...' : '📄 Compile'}</button>
+      <button on:click|preventDefault on:settings-toggle class="ml-2 px-4 py-2 bg-secondary text-secondary-foreground border border-border rounded hover:bg-accent transition-colors" aria-label={$uiStore.showSettings ? 'Close settings' : 'Open settings'} aria-pressed={$uiStore.showSettings}>⚙️ Settings</button>
+      {#if selectedFiles.length > 0}<span class="ml-2 px-3 py-2 bg-secondary text-foreground border border-border rounded" role="status" aria-live="polite" aria-atomic="true">{selectedFiles.length} {selectedFiles.length === 1 ? 'file' : 'files'} selected</span>{/if}
       <div class="ml-auto"><ThemeToggle on:theme-change /></div>
     </div>
 
@@ -77,8 +77,8 @@
 
 <style>
   :global(body) { margin: 0; padding: 0; }
-  .app { display: flex; height: 100vh; background: #f5f5f5; }
-  .sidebar { width: 280px; background: #fff; border-right: 1px solid #ddd; overflow-y: auto; }
+  .app { display: flex; height: 100vh; background: hsl(var(--surface-0)); }
+  .sidebar { width: 280px; background: hsl(var(--surface-1)); border-right: 1px solid hsl(var(--border)); overflow-y: auto; }
   .main { flex: 1; display: flex; flex-direction: column; }
-  .top-bar { padding: 1rem; background: #fff; border-bottom: 1px solid #ddd; display: flex; gap: 0.5rem; align-items: center; }
+  .top-bar { padding: 1rem; background: hsl(var(--surface-1)); border-bottom: 1px solid hsl(var(--border)); display: flex; gap: 0.5rem; align-items: center; }
 </style>

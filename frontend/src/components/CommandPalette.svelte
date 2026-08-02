@@ -366,8 +366,8 @@
 
 <style>
   .command-palette {
-    border-top: 1px solid #ddd;
-    background: #fff;
+    border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--surface-1));
     padding: 1rem;
   }
 
@@ -383,8 +383,8 @@
   .bulk-indicator {
     display: inline-block;
     padding: 0.3rem 0.8rem;
-    background: #fff3cd;
-    color: #856404;
+    background: hsl(var(--warn) / 0.14);
+    color: hsl(var(--warn));
     border-radius: 3px;
     font-size: 12px;
     font-weight: bold;
@@ -394,7 +394,7 @@
     display: flex;
     gap: 0.75rem;
     font-size: 11px;
-    color: #999;
+    color: hsl(var(--text-faint));
   }
 
   .hint {
@@ -402,16 +402,16 @@
     align-items: center;
     gap: 0.25rem;
     padding: 0.2rem 0.4rem;
-    background: #f5f5f5;
+    background: hsl(var(--surface-2));
     border-radius: 2px;
-    border: 1px solid #e0e0e0;
+    border: 1px solid hsl(var(--border));
     cursor: help;
     white-space: nowrap;
   }
 
   .hint:hover {
-    background: #efefef;
-    color: #666;
+    background: hsl(var(--muted));
+    color: hsl(var(--text-dim));
   }
 
   .input-wrapper {
@@ -423,21 +423,21 @@
   .command-input {
     flex: 1;
     padding: 0.5rem;
-    border: 1px solid #ccc;
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     font-size: 14px;
   }
 
   .command-input:focus {
     outline: none;
-    border-color: #007bff;
+    border-color: hsl(var(--primary));
     box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
   }
 
   .execute-btn {
     padding: 0.5rem 1rem;
-    background: #007bff;
-    color: white;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -445,7 +445,7 @@
   }
 
   .execute-btn:hover {
-    background: #0056b3;
+    background: hsl(var(--primary));
   }
 
   .dry-run-label {
@@ -458,11 +458,11 @@
 
   .suggestions {
     margin-top: 0.5rem;
-    border: 1px solid #ddd;
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     max-height: 200px;
     overflow-y: auto;
-    background: #f9f9f9;
+    background: hsl(var(--surface-2));
   }
 
   .suggestion-item {
@@ -476,7 +476,7 @@
     background: none;
     cursor: pointer;
     font-size: 14px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid hsl(var(--border));
     transition: background 0.2s;
   }
 
@@ -486,22 +486,22 @@
 
   .suggestion-item:hover,
   .suggestion-item.selected {
-    background: #e8f0ff;
+    background: hsl(var(--primary) / 0.1);
   }
 
   .suggestion-item:focus {
-    outline: 2px solid #007bff;
+    outline: 2px solid hsl(var(--primary));
     outline-offset: -2px;
   }
 
   .cmd-name {
     font-weight: 600;
-    color: #333;
+    color: hsl(var(--foreground));
   }
 
   .cmd-desc {
     font-size: 12px;
-    color: #666;
+    color: hsl(var(--text-dim));
   }
 
   .cmd-tags {
@@ -514,22 +514,22 @@
   .tag {
     display: inline-block;
     padding: 0.1rem 0.4rem;
-    background: #f0f0f0;
-    color: #555;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--text-dim));
     border-radius: 2px;
     font-size: 11px;
   }
 
   .model-select select {
     padding: 0.4rem 0.5rem;
-    border: 1px solid #ccc;
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     font-size: 13px;
   }
 
   .loading {
     font-size: 12px;
-    color: #666;
+    color: hsl(var(--text-dim));
   }
 
   .capabilities {
@@ -541,20 +541,20 @@
   .cap-pill {
     display: inline-block;
     padding: 0.2rem 0.5rem;
-    background: #eef2ff;
-    color: #3730a3;
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
     border-radius: 999px;
     font-size: 12px;
   }
 
   .cap-pill.provider {
-    background: #f3f4f6;
-    color: #1f2937;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--foreground));
   }
 
   .cap-pill.cost {
-    background: #fff7ed;
-    color: #9a3412;
+    background: hsl(var(--warn) / 0.08);
+    color: hsl(var(--warn));
   }
 
   .model-display {
@@ -562,32 +562,32 @@
     align-items: center;
     gap: 0.4rem;
     padding: 0.3rem 0.6rem;
-    background: #f0f0f0;
+    background: hsl(var(--surface-2));
     border-radius: 3px;
     font-size: 12px;
-    color: #555;
+    color: hsl(var(--text-dim));
   }
 
   .model-label {
     font-weight: 600;
-    color: #333;
+    color: hsl(var(--foreground));
   }
 
   .model-name {
-    color: #007bff;
+    color: hsl(var(--primary));
     font-weight: 500;
   }
 
   .model-name.loading {
-    color: #999;
+    color: hsl(var(--text-faint));
     font-style: italic;
   }
 
   .model-tier {
     display: inline-block;
     padding: 0.1rem 0.3rem;
-    background: #fff3cd;
-    color: #856404;
+    background: hsl(var(--warn) / 0.14);
+    color: hsl(var(--warn));
     border-radius: 2px;
     font-size: 10px;
     font-weight: bold;

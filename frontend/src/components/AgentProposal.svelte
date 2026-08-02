@@ -203,11 +203,11 @@
 
 <style>
   .proposal {
-    border: 1px solid #2d3748;
+    border: 1px solid hsl(var(--border));
     border-radius: 8px;
     padding: 16px;
-    background: #1a202c;
-    color: #e5e7eb;
+    background: hsl(var(--surface-1));
+    color: hsl(var(--foreground));
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -235,17 +235,17 @@
     font-size: 12px;
     padding: 4px 8px;
     border-radius: 4px;
-    background: #2d3748;
-    color: #a0aec0;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--text-dim));
   }
   
   .source-badge.error-fix {
-    background: #7c2d12;
-    color: #fed7aa;
+    background: hsl(var(--warn) / 0.16);
+    color: hsl(var(--warn));
   }
   
   .edit-section {
-    border-top: 1px solid #2d3748;
+    border-top: 1px solid hsl(var(--border));
     padding-top: 12px;
   }
   
@@ -264,18 +264,18 @@
   .path {
     font-family: monospace;
     font-size: 12px;
-    color: #cbd5e0;
+    color: hsl(var(--foreground));
   }
   
   .diff-viewer {
-    background: #0f172a;
-    border: 1px solid #1f2937;
+    background: hsl(var(--surface-1));
+    border: 1px solid hsl(var(--border));
     border-radius: 6px;
     overflow: auto;
   }
   
   .hunk {
-    border-bottom: 1px solid #1f2937;
+    border-bottom: 1px solid hsl(var(--border));
   }
   
   .hunk:last-child {
@@ -283,7 +283,7 @@
   }
   
   .hunk.selected {
-    background: #1f2937;
+    background: hsl(var(--surface-2));
   }
   
   .hunk-select {
@@ -292,9 +292,9 @@
     gap: 8px;
     padding: 8px 12px;
     cursor: pointer;
-    background: #111827;
+    background: hsl(var(--surface-1));
     font-size: 12px;
-    color: #9ca3af;
+    color: hsl(var(--text-faint));
   }
   
   .hunk-select input {
@@ -302,7 +302,7 @@
   }
   
   .hunk-select:hover {
-    background: #1f2937;
+    background: hsl(var(--surface-2));
   }
   
   .hunk-content {
@@ -319,18 +319,18 @@
   
   .line.added {
     background: rgba(34, 197, 94, 0.1);
-    color: #86efac;
+    color: hsl(var(--ok));
   }
   
   .line.removed {
     background: rgba(239, 68, 68, 0.1);
-    color: #fca5a5;
+    color: hsl(var(--err));
   }
   
   .line .prefix {
     width: 20px;
     text-align: center;
-    color: #6b7280;
+    color: hsl(var(--text-dim));
   }
   
   .line code {
@@ -343,22 +343,22 @@
     padding: 12px;
     white-space: pre-wrap;
     word-break: break-all;
-    color: #9ca3af;
+    color: hsl(var(--text-faint));
     margin: 0;
   }
   
   .compile-result {
-    border-top: 1px solid #2d3748;
+    border-top: 1px solid hsl(var(--border));
     padding-top: 12px;
   }
   
   .compile-result.error {
     background: rgba(127, 29, 29, 0.1);
-    border-left: 3px solid #dc2626;
+    border-left: 3px solid hsl(var(--err));
   }
   
   .success {
-    color: #86efac;
+    color: hsl(var(--ok));
     font-weight: 500;
   }
   
@@ -366,22 +366,22 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    color: #fca5a5;
+    color: hsl(var(--err));
     font-weight: 500;
   }
   
   .error-message button {
     padding: 4px 8px;
     font-size: 12px;
-    background: #7c2d12;
-    border: none;
+    background: hsl(var(--warn) / 0.16);
+    border: 1px solid hsl(var(--warn) / 0.4);
     border-radius: 4px;
-    color: #fed7aa;
+    color: hsl(var(--warn));
     cursor: pointer;
   }
   
   .error-message button:hover {
-    background: #9a3412;
+    background: hsl(var(--warn) / 0.28);
   }
   
   .error-message button:disabled {
@@ -398,17 +398,17 @@
   
   .error-item {
     padding: 6px 12px;
-    background: #1f2937;
+    background: hsl(var(--surface-2));
     border-radius: 4px;
     font-family: monospace;
     font-size: 11px;
-    color: #f87171;
+    color: hsl(var(--err));
   }
   
   .error-banner {
-    background: #7c2d12;
-    border: 1px solid #dc2626;
-    color: #fed7aa;
+    background: hsl(var(--err) / 0.14);
+    border: 1px solid hsl(var(--err) / 0.4);
+    color: hsl(var(--err));
     padding: 8px 12px;
     border-radius: 4px;
     font-size: 12px;
@@ -428,13 +428,16 @@
     font-weight: 500;
     cursor: pointer;
     font-size: 13px;
-    background: #2563eb;
-    color: white;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     transition: background 0.2s;
   }
   
+  /* Was `button: hover:not(:disabled)`. The space after the colon made it an
+     invalid declaration rather than a selector, so this hover state never
+     applied to anything. */
   button:hover:not(:disabled) {
-    background: #1d4ed8;
+    background: hsl(var(--primary));
   }
   
   button:disabled {
@@ -443,17 +446,17 @@
   }
   
   button.secondary {
-    background: #4b5563;
-    color: #e5e7eb;
+    background: hsl(var(--accent));
+    color: hsl(var(--foreground));
   }
   
   button.secondary:hover:not(:disabled) {
-    background: #5a6370;
+    background: hsl(var(--accent));
   }
   
   .empty {
     text-align: center;
-    color: #6b7280;
+    color: hsl(var(--text-dim));
     padding: 20px;
   }
 </style>
