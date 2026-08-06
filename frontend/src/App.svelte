@@ -1,11 +1,12 @@
 <script>
   import { onMount } from 'svelte'
-  import { uiStore, initLayoutPreferences, toggleFileTree, toggleHistory, toggleSettings } from './stores/uiStore.js'
+  if (import.meta.env.DEV) window.__probe = { }
+  import { uiStore, initLayoutPreferences, toggleFileTree, toggleHistory, toggleSettings, setStatus, pushToast } from './stores/uiStore.js'
   import { fileStore } from './stores/fileStore.js'
   import { compileStore } from './stores/compileStore.js'
   import { aiStore, resetAI } from './stores/aiStore.js'
   import * as configService from './services/configService.js'
-  import { loadFile, applyCommand } from './controllers/FileController.js'
+  import { loadFile } from './controllers/FileController.js'
   import { compileDocument } from './controllers/CompileController.js'
   import { requestAIPlan, handleChatMessage, handleApplyHunks } from './controllers/ChatController.js'
 
@@ -107,11 +108,18 @@
     if (e.detail.action === 'toggle_history') toggleHistory();
     if (e.detail.action === 'toggle_file_tree') toggleFileTree();
   }}
-  on:change={() => loadFile($fileStore.filePath)}
+  on:change={(e) => {
+    // Read the path the user just typed. This used to pass
+    // `$fileStore.filePath`, but the input is one-way (`value=`, not `bind:`),
+    // so the store still held the *previous* path -- null on first use. Typing
+    // a path and pressing Enter did nothing at all, and Compile stayed disabled
+    // because nothing ever opened.
+    loadFile(e.target.value);
+  }}
   on:compile={() => compileDocument($fileStore.filePath)}
   on:settings-toggle={async () => { if (!$uiStore.showSettings) await loadSettingsPanel(); toggleSettings(); }}
-  on:command={(e) => applyCommand($fileStore.filePath, e.detail, false)}
-  on:ai-plan={(e) => requestAIPlan(e.detail, 'gemini')}
+  on:command={(e) => requestAIPlan(e.detail.command ?? e.detail)}
+  on:ai-plan={(e) => requestAIPlan(e.detail.request ?? e.detail)}
 >
   <svelte:fragment slot="sidebar">
     <PanelManager
@@ -128,6 +136,11 @@
   </svelte:fragment>
 
   <svelte:fragment slot="workspace">
+    <!-- The editor dispatches dirty-change, content-changed, saved, save-error
+         and save-conflict, and WorkspaceLayout forwards all five, but nothing
+         listened: the unsaved-changes dot never appeared, the status bar never
+         said "Saved", and a conflict was reported only inside the editor.
+         Saving worked; you just could not tell it had. -->
     <WorkspaceLayout
       filePath={$fileStore.filePath}
       bind:editorContent={$fileStore.content}
@@ -154,10 +167,30 @@
       chatMessages={$aiStore.messages}
       chatLoading={$aiStore.status === 'streaming' || $aiStore.status === 'thinking'}
       chatStreamingMessage={$aiStore.streamingMessage}
-      on:apply-selected={(e) => handleApplyHunks(e.detail.hunks, e.detail.selected, $aiStore.currentProposal)}
-      on:message-sent={(e) => handleChatMessage(e.detail.content, e.detail.timestamp)}
-      on:compiled={(e) => compileStore.update(c => ({...c, status: 'success', pdfUrl: e.detail.pdf_url, pageCount: e.detail.page_count, errors: e.detail.diagnostics?.errors, warnings: e.detail.diagnostics?.warnings}))}
-      on:compileFailed={(e) => compileStore.update(c => ({...c, status: 'error', errors: e.detail.diagnostics?.errors}))}
+      on:apply-selected={(e) => handleApplyHunks(e.detail)}
+      on:message-sent={(e) => handleChatMessage(e.detail.content)}
+      on:dirty-change={(e) => fileStore.update((f) => ({ ...f, dirty: e.detail.isDirty }))}
+      on:content-changed={(e) =>
+        fileStore.update((f) => ({
+          ...f,
+          content: e.detail.content,
+          dirty: e.detail.isDirty,
+        }))}
+      on:saved={() => {
+        fileStore.update((f) => ({ ...f, dirty: false, savedContent: f.content, lastSavedAt: new Date() }));
+        setStatus('Saved');
+      }}
+      on:save-error={(e) => {
+        setStatus(`Save failed: ${e.detail.error}`);
+        pushToast(`Save failed: ${e.detail.error}`, 'error');
+      }}
+      on:save-conflict={(e) => {
+        // The file moved under the edit, so the buffer stays dirty: telling the
+        // user it saved would be a lie, and a retry would clobber the other
+        // change with a stale etag.
+        setStatus('Conflict: file changed on disk');
+        pushToast(`${e.detail.filePath} changed elsewhere — reload before saving`, 'error');
+      }}
     />
   </svelte:fragment>
 </IdeShell>

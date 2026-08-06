@@ -1,6 +1,6 @@
 <script>
+  import Icon from './Icon.svelte'
   import { createEventDispatcher, onMount } from 'svelte'
-  import VirtualList from 'svelte-virtual-list'
 
   const dispatch = createEventDispatcher()
 
@@ -41,7 +41,7 @@
       const res = await fetch(`/api/files?${params.toString()}`)
       if (!res.ok) return
       const data = await res.json()
-      const files = data.files || []
+      const files = (data.files || []).map(toFileEntry)
       allFiles = reset ? files : [...allFiles, ...files]
       offset += files.length
       hasMore = Boolean(data.has_more)
@@ -52,6 +52,21 @@
     } finally {
       loading = false
     }
+  }
+
+  /**
+   * The server returns `files` as plain path strings (Vec<String> in
+   * routes/files.rs), while the rest of this component wants `{ path, name }`.
+   * Nothing bridged the two, so organizeIntoTree hit `file.path.substring` on
+   * an undefined and every load ended in "Failed to load files" -- the tree has
+   * never listed anything. Objects are passed through in case the endpoint ever
+   * grows richer entries.
+   */
+  function toFileEntry(entry) {
+    if (entry && typeof entry === 'object') return entry
+    const path = String(entry)
+    const slash = path.lastIndexOf('/')
+    return { path, name: slash === -1 ? path : path.slice(slash + 1) }
   }
 
   function organizeIntoTree(fileList) {
@@ -65,21 +80,27 @@
     return treeMap
   }
   
-  function flattenTree() {
-    // Flatten tree for virtual list: each item is either a directory header or file
+  // `tree` and `expanded` are arguments rather than closure reads on purpose.
+  // Svelte works out a reactive statement's dependencies from the expression
+  // itself, and `flattenTree()` mentions neither, so the statement ran once at
+  // init -- while `tree` was still {} -- and never again. virtualFiles stayed
+  // empty, the `{#if virtualFiles.length > 0}` guard never opened, and the tree
+  // rendered nothing however many files loaded.
+  function flattenTree(treeByDir, expandedDirs) {
+    // Each item is either a directory header or a file under it.
     const items = []
-    Object.entries(tree).forEach(([dir, dirFiles]) => {
+    Object.entries(treeByDir).forEach(([dir, dirFiles]) => {
       items.push({ type: 'dir', dir, fileCount: dirFiles.length })
-      if (expanded[dir]) {
-        dirFiles.forEach(file => {
+      if (expandedDirs[dir]) {
+        dirFiles.forEach((file) => {
           items.push({ type: 'file', file })
         })
       }
     })
     return items
   }
-  
-  $: virtualFiles = flattenTree()  // Update virtual list when tree or expanded changes
+
+  $: virtualFiles = flattenTree(tree, expanded)
 
   function toggleExpand(path) {
     expanded[path] = !expanded[path]
@@ -193,18 +214,19 @@
     <div 
       class="tree-items"
       bind:this={treeContainer}
+      on:scroll={handleScroll}
       role="tree"
       aria-labelledby="file-tree-title"
       aria-multiselectable="true"
     >
+      <!-- A plain scrolling list. svelte-virtual-list is a Svelte 3 package --
+           the build already warns it has no `svelte` exports condition -- and
+           under Svelte 5 it rendered its viewport with no height, so it
+           computed zero visible rows and showed nothing however many files
+           loaded. The list is paginated by handleScroll anyway, so
+           virtualising it was buying nothing for a workspace of this size. -->
       {#if virtualFiles.length > 0}
-        <VirtualList
-          items={virtualFiles}
-          let:item
-          height={300}
-          itemHeight={24}
-          on:scroll={handleScroll}
-        >
+        {#each virtualFiles as item (item.type === 'dir' ? `d:${item.dir}` : `f:${item.file.path}`)}
           {#if item.type === 'dir'}
             <button
               on:click={() => toggleExpand(item.dir)}
@@ -214,7 +236,7 @@
               aria-selected="false"
               aria-label={`${expanded[item.dir] ? 'Collapse' : 'Expand'} directory: ${item.dir === 'root' ? 'root' : item.dir} (${item.fileCount} files)`}
             >
-              {expanded[item.dir] ? '📂' : '📁'} {item.dir === 'root' ? 'root' : item.dir}
+              <Icon name={expanded[item.dir] ? 'folder-open' : 'folder'} /> {item.dir === 'root' ? 'root' : item.dir}
             </button>
           {:else if item.type === 'file'}
             <div class="tree-item" role="none">
@@ -234,12 +256,12 @@
                 aria-selected={selected.has(item.file.path)}
                 aria-label={`Open file ${item.file.name} (${formatSize(item.file.size)})`}
               >
-                📄 {item.file.name}
+                <Icon name="document" /> {item.file.name}
               </button>
               <span class="file-size" aria-label={`File size: ${formatSize(item.file.size)}`}>{formatSize(item.file.size)}</span>
             </div>
           {/if}
-        </VirtualList>
+        {/each}
       {/if}
     </div>
 
@@ -258,14 +280,14 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #f9f9f9;
-    border-right: 1px solid #ddd;
+    background: hsl(var(--surface-2));
+    border-right: 1px solid hsl(var(--border));
   }
 
   .file-tree-header {
     padding: 1rem;
-    background: #fff;
-    border-bottom: 1px solid #ddd;
+    background: hsl(var(--surface-1));
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .file-tree-header h3 {
@@ -280,34 +302,34 @@
   .search-input {
     width: 100%;
     padding: 0.4rem;
-    border: 1px solid #ddd;
-    border-radius: 3px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-xs);
     font-size: 12px;
   }
 
   .search-input:focus {
     outline: none;
-    border-color: #007bff;
+    border-color: hsl(var(--primary));
   }
 
   .loading {
     padding: 2rem 1rem;
     text-align: center;
-    color: #666;
+    color: hsl(var(--text-dim));
     font-size: 12px;
   }
 
   .no-files {
     padding: 2rem 1rem;
     text-align: center;
-    color: #999;
+    color: hsl(var(--text-faint));
     font-size: 12px;
   }
 
   .controls {
     padding: 0.5rem 1rem;
-    background: #f0f0f0;
-    border-bottom: 1px solid #ddd;
+    background: hsl(var(--surface-2));
+    border-bottom: 1px solid hsl(var(--border));
     display: flex;
     gap: 0.5rem;
     align-items: center;
@@ -315,23 +337,23 @@
   }
 
   .selected-count {
-    color: #007bff;
+    color: hsl(var(--primary));
     font-weight: bold;
   }
 
   .btn-select-all,
   .btn-clear {
     padding: 0.3rem 0.6rem;
-    background: #007bff;
-    color: white;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 11px;
   }
 
   .btn-clear {
-    background: #dc3545;
+    background: hsl(var(--err));
   }
 
   .btn-select-all:hover,
@@ -358,44 +380,44 @@
 
   .load-more {
     padding: 0.75rem 1rem;
-    border-top: 1px solid #e0e0e0;
-    background: #fafafa;
+    border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--surface-2));
   }
 
   .btn-load-more {
     width: 100%;
     padding: 0.5rem 0.75rem;
-    background: #007bff;
-    color: #fff;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }
 
   .btn-load-more:disabled {
-    background: #ccc;
+    background: hsl(var(--accent));
     cursor: not-allowed;
   }
 
   .directory-group {
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .dir-toggle {
     width: 100%;
     padding: 0.6rem 1rem;
     text-align: left;
-    background: #f5f5f5;
+    background: hsl(var(--surface-2));
     border: none;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid hsl(var(--border));
     cursor: pointer;
     font-size: 13px;
     font-weight: bold;
   }
 
   .dir-toggle:hover {
-    background: #eeeeee;
+    background: hsl(var(--muted));
   }
 
   .dir-contents {
@@ -417,7 +439,7 @@
   .file-name-btn {
     flex: 1;
     cursor: pointer;
-    color: #007bff;
+    color: hsl(var(--primary));
     background: transparent;
     border: none;
     padding: 0;
@@ -429,7 +451,7 @@
   }
 
   .file-size {
-    color: #999;
+    color: hsl(var(--text-faint));
     font-size: 11px;
   }
 </style>

@@ -1,0 +1,28 @@
+# Test-run limits (added 2026-08-02 after an OOM on a 14 GiB / 16-core box).
+#
+# nextest defaults to one test process per core. Several of our tests spin up a
+# full Tectonic engine — each loads the font/bundle cache and costs hundreds of
+# MB — so 16 at once exhausts memory. Two limits fix that:
+#   * a global cap well below core count, and
+#   * a serial group for everything that actually compiles LaTeX.
+#
+# Raise these if you have RAM to spare; they trade wall-clock for headroom.
+
+[test-groups]
+# Only ever one LaTeX compile in flight across the whole run. This mirrors the
+# engine's own process-global mutex, so it costs almost no wall-clock.
+tectonic = { max-threads = 1 }
+
+[profile.default]
+test-threads = 4
+# A hung Tectonic run should fail, not wedge the suite.
+slow-timeout = { period = "60s", terminate-after = 4 }
+
+[[profile.default.overrides]]
+filter = 'package(latex-ai-compiler) or binary(m2) or binary(m3)'
+test-group = 'tectonic'
+
+# CI runners are small too; keep the same shape there.
+[profile.ci]
+test-threads = 2
+fail-fast = false

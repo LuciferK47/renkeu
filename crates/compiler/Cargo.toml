@@ -17,6 +17,9 @@ latex-ai-core = { path = "../latex_ai_core" }
 
 [dev-dependencies]
 tokio = { workspace = true }
+synctex = { path = "../synctex" }
+flate2 = "1"
+tempfile = "3"
 
 [lints]
 workspace = true

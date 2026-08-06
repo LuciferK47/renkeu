@@ -43,8 +43,8 @@
   {#if showFileTree}
     <div class="panel">
       <FileTree
-        on:selection-changed={onFileTreeSelection}
-        on:file-selected={onFileClick}
+        on:selection-changed={(e) => onFileTreeSelection(e.detail)}
+        on:file-selected={(e) => onFileClick(e.detail)}
       />
     </div>
   {/if}
@@ -88,7 +88,7 @@
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
   }
 

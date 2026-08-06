@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte'
+  import { searchWorkspace } from '../services/fileService.js'
   
   const dispatch = createEventDispatcher()
   
@@ -22,21 +23,9 @@
     loading = true
     
     try {
-      const params = new URLSearchParams({
-        query: searchQuery,
-        file_pattern: filePattern,
-        case_sensitive: caseSensitive.toString(),
-        limit: '50'
-      })
-      
-      const response = await fetch(`/api/search?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        results = data.results || []
-      } else {
-        console.error('Search failed:', await response.text())
-        results = []
-      }
+      // Backend nucleo fuzzy search over workspace files -> { hits: [{value, score}] }
+      const hits = await searchWorkspace(searchQuery)
+      results = hits.map(hit => ({ file: hit.value, score: hit.score }))
     } catch (err) {
       console.error('Search error:', err)
       results = []
@@ -168,9 +157,9 @@
     right: 20px;
     width: 400px;
     max-height: 600px;
-    background: white;
-    border: 1px solid #ddd;
-    border-radius: 8px;
+    background: hsl(var(--surface-1));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-s);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     display: flex;
     flex-direction: column;
@@ -182,13 +171,13 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid hsl(var(--border));
   }
   
   .search-header h3 {
     margin: 0;
     font-size: 1.1rem;
-    color: #333;
+    color: hsl(var(--foreground));
   }
   
   .close-btn {
@@ -196,7 +185,7 @@
     border: none;
     font-size: 1.5rem;
     cursor: pointer;
-    color: #666;
+    color: hsl(var(--text-dim));
     padding: 0;
     width: 24px;
     height: 24px;
@@ -204,19 +193,19 @@
   }
   
   .close-btn:hover {
-    color: #000;
+    color: hsl(var(--foreground));
   }
   
   .search-controls {
     padding: 1rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid hsl(var(--border));
   }
   
   .search-input {
     width: 100%;
     padding: 0.5rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-xs);
     font-size: 0.95rem;
     margin-bottom: 0.75rem;
   }
@@ -238,8 +227,8 @@
   .pattern-input {
     flex: 1;
     padding: 0.4rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-xs);
     font-size: 0.85rem;
   }
   
@@ -252,31 +241,31 @@
   .results-count {
     padding: 0.5rem 1rem;
     font-size: 0.9rem;
-    color: #666;
-    border-bottom: 1px solid #eee;
+    color: hsl(var(--text-dim));
+    border-bottom: 1px solid hsl(var(--border));
   }
   
   .result-file {
     margin-bottom: 1rem;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid hsl(var(--line-soft));
     padding-bottom: 0.5rem;
   }
   
   .file-name {
     padding: 0.5rem 1rem;
-    background: #f8f8f8;
-    border-radius: 4px;
+    background: hsl(var(--surface-2));
+    border-radius: var(--radius-xs);
     margin-bottom: 0.5rem;
   }
   
   .file-name strong {
-    color: #333;
+    color: hsl(var(--foreground));
     font-size: 0.95rem;
   }
   
   .match-count {
     margin-left: 0.5rem;
-    color: #888;
+    color: hsl(var(--text-faint));
     font-size: 0.85rem;
   }
   
@@ -293,84 +282,84 @@
     background: none;
     cursor: pointer;
     text-align: left;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     transition: background 0.2s;
   }
   
   .match-line:hover {
-    background: #f0f7ff;
+    background: hsl(var(--primary) / 0.08);
   }
   
   .line-number {
     min-width: 40px;
-    color: #0066cc;
-    font-family: monospace;
+    color: hsl(var(--primary));
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 0.85rem;
     flex-shrink: 0;
   }
   
   .line-content {
-    color: #555;
-    font-family: monospace;
+    color: hsl(var(--text-dim));
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 0.85rem;
     line-height: 1.4;
     word-break: break-all;
   }
   
   .line-content :global(mark) {
-    background: #ffeb3b;
+    background: hsl(var(--warn) / 0.28);
     padding: 0 2px;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
   }
   
   .loading,
   .no-results {
     padding: 2rem;
     text-align: center;
-    color: #666;
+    color: hsl(var(--text-dim));
     font-size: 0.95rem;
   }
   
   /* Dark mode support */
   @media (prefers-color-scheme: dark) {
     .search-panel {
-      background: #2d2d2d;
-      border-color: #444;
+      background: hsl(var(--surface-2));
+      border-color: hsl(var(--border));
     }
     
     .search-header h3 {
-      color: #eee;
+      color: hsl(var(--foreground));
     }
     
     .close-btn {
-      color: #aaa;
+      color: hsl(var(--text-faint));
     }
     
     .close-btn:hover {
-      color: #fff;
+      color: hsl(var(--primary-foreground));
     }
     
     .search-input,
     .pattern-input {
-      background: #1e1e1e;
-      color: #eee;
-      border-color: #555;
+      background: hsl(var(--surface-1));
+      color: hsl(var(--foreground));
+      border-color: hsl(var(--border));
     }
     
     .file-name {
-      background: #333;
+      background: hsl(var(--surface-2));
     }
     
     .file-name strong {
-      color: #eee;
+      color: hsl(var(--foreground));
     }
     
     .match-line:hover {
-      background: #3a3a3a;
+      background: hsl(var(--accent));
     }
     
     .line-content {
-      color: #ccc;
+      color: hsl(var(--text-dim));
     }
   }
 </style>

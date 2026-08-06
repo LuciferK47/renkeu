@@ -96,3 +96,10 @@ history.db
 
 # Agent tooling runtime state
 .omo/
+
+# Local dev database (created on first `serve`)
+.latex-ai.db
+
+# Design scratch: screenshots and the published plan page live outside the build
+.design/
+.playwright-mcp/

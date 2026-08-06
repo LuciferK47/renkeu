@@ -2,11 +2,11 @@
 
 > **Purpose**: Implement the Autonomous Document Engine described in `idea.md` as a Rust-native codebase where Tectonic runs as an in-process LaTeX engine (no subprocess, no TeX Live install on host), axum serves both as standalone daemon and embedded inside a Tauri desktop shell (single binary, ≤25 MB), and `genai-rs` owns chat history via Gemini's Interactions API (we don't manage state).
 > **Date**: 2026-06-24 (Rust pivot — supersedes the Python masterplan)
-> **Status**: Master reference. Supersedes README/GUIDE/incomplete architectural comments in the existing repo when those conflict. `CONTEXT.md` is the binding law; `idea.md` is the product pitch; `rust.md` is the binding coding guideline + migration spec; this doc is the engineering execution plan and reads all three as inputs.
+> **Status**: Master reference. Supersedes README/GUIDE/incomplete architectural comments in the existing repo when those conflict. `CONTEXT.md` is the binding law; `idea.md` is the product pitch; `rust.md` is the binding coding guideline (its Part II port spec was removed at the close of M5); this doc is the engineering execution plan and reads all three as inputs.
 > **Reference sources**:
 > - `CONTEXT.md` — four pillars (Modularity / Completeness / Auditability / Intentionality), workflow, red flags
 > - `idea.md` — three-pillar pitch, M1–M5 milestones, locked Rust libraries, audit gates, 18 contracts
-> - `rust.md` — Rust coding guidelines (Part I) + existing-codebase→Rust port spec (Part II)
+> - `rust.md` — Rust coding guidelines (Part I). Part II (the port spec) was removed at the close of M5, as it always said it would be.
 > - State-of-practice scan (2026): `tectonic` Rust docs ([docs.rs/tectonic](https://docs.rs/tectonic)), `genai-rs` ([docs.rs/genai-rs](https://docs.rs/genai-rs)), `tauri-plugin-axum` ([docs.rs/tauri-plugin-axum](https://docs.rs/tauri-plugin-axum)), `ferroleaf` (peer Rust LaTeX editor using Iced + pdfium-render), `r/tauri` 2026-03 thread (114-route axum embedded in Tauri 2 at 18 MB), peer `TexGuardian` / `PaperFit` / `scholia` (Python LLM-LaTeX agents minus the in-process-engine advantage)
 
 ---
@@ -62,7 +62,7 @@ Cross-cutting principles from `CONTEXT.md` (binding):
 | **Config** | `serde` + `toml` + `figment` ≥ 0.10 | latest | Layered env+file+args config with auto-generated `.config.example.toml` from `figment`'s derive. No env-vs-toml split-brain (kills the Python bug). |
 | **Frontend** | Svelte 5 (kept — JS) + Vite 8 + Monaco + native `fetch`; PDF view via backend `pdfium-render`, fuzzy via backend `nucleo` | latest | Frontend is JavaScript (language decision LOCKED, §10.1). Pivot of backend to Rust doesn't force a frontend rewrite. Rust-leaning pieces (PDF render, fuzzy search) land as backend endpoints, not a UI rewrite. axios/PDF.js/fuse.js dropped. |
 | **CLI** | `clap` ≥ 4.5 with `derive` | latest | Single `latex-ai` binary entry; subcommands `serve`, `desktop` (Tauri shell), `tui` (ratatui, M5+ optional). |
-| **Container build** | `rust:1.85-slim-bookworm` builder + `debian:trixie-slim` runtime | — | Tectonic ships musl-static binaries ~10 MB; our Docker image target: ≤ 200 MB release (vs current 4 GB via full TeX Live). |
+| **Container build** | `rust:1-slim-bookworm` builder + **`scratch`** runtime holding the binary's `ldd` closure (§15.1) | — | **62.8 MB unpacked, 24.9 MB compressed**, against a ≤ 200 MB target (vs ~4 GB via full TeX Live). Sizes are measured unpacked; `docker images` double-counts on the containerd store. |
 | **CI** | `cargo nextest` + `cargo tarpaulin` + `cargo deny` + `cargo audit` + `cargo machete` + `cargo clippy -- -D warnings -D clippy::pedantic` + `cargo fmt --check` | latest | All gates mandatory in `.github/workflows/ci.yml`. |
 | **Workspace builder** | `cargo` with single `Cargo.toml` workspace + single `Cargo.lock` | latest | No `cargo-hakari` unless proven scale need. Simpler builds, smaller closure. |
 
@@ -1093,15 +1093,15 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: Cargo workspace green; old Python `src/latex_ai/` deleted; Tectonic compiles `examples/sample.tex` in-process; axum serves `/health` alive.
 
 **Deliverables**:
-- [ ] `Cargo.toml` workspace with members: `crates/{compiler,latex_ai_core,latex_ai_server}`. (synctex/visual/lsp at M3/M5, latex_ai_tauri at M5 — created when implemented, not scaffolded empty per rust.md I.15.)
-- [ ] `cargo deny init` + `.cargo-deny.toml` (advisories + license + bans config).
-- [ ] `crates/compiler/src/lib.rs`: `tectonic::latex_to_pdf` wrapper + global mutex + tiny in-memory compile cache (moka replaces at M2).
-- [ ] `crates/latex_ai_server/src/main.rs`: axum app with `health` route only + `TraceLayer` configured.
-- [ ] One integration test: `examples/sample.tex` → `latex-ai compile examples/sample.tex -o /tmp/sample.pdf` exits 0 and PDF bytes non-empty.
-- [ ] `clippy.toml` with `-D warnings -D clippy::pedantic -D clippy::unwrap_used -D clippy::expect_used` configured.
-- [ ] `.github/workflows/ci.yml`: cargo fmt/check/clippy/nextest/deny/audit/machete on push + PR.
-- [ ] Delete `src/latex_ai/` and `Makefile` (Python residue).
-- [ ] Update `README.md` from scratch with build/run instructions.
+- [x] `Cargo.toml` workspace with members: `crates/{compiler,latex_ai_core,latex_ai_server}`. (synctex/visual/lsp at M3/M5, latex_ai_tauri at M5 — created when implemented, not scaffolded empty per rust.md I.15.)
+- [x] `cargo deny init` + `.cargo-deny.toml` (advisories + license + bans config).
+- [x] `crates/compiler/src/lib.rs`: `tectonic::latex_to_pdf` wrapper + global mutex + tiny in-memory compile cache (moka replaces at M2).
+- [x] `crates/latex_ai_server/src/main.rs`: axum app with `health` route only + `TraceLayer` configured.
+- [x] One integration test: `examples/sample.tex` → `latex-ai compile examples/sample.tex -o /tmp/sample.pdf` exits 0 and PDF bytes non-empty.
+- [x] `clippy.toml` with `-D warnings -D clippy::pedantic -D clippy::unwrap_used -D clippy::expect_used` configured.
+- [x] `.github/workflows/ci.yml`: cargo fmt/check/clippy/nextest/deny/audit/machete on push + PR.
+- [x] Delete `src/latex_ai/` and `Makefile` (Python residue).
+- [x] Update `README.md` from scratch with build/run instructions.
 
 **Acceptance**:
 - `cargo nextest run` green; `cargo clippy` green; `cargo deny check` clean.
@@ -1119,16 +1119,16 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: agent-loop self-heals in ≤3 iterations; pillar 1 lands.
 
 **Deliverables**:
-- [ ] `crates/compiler/queue.rs`: full `CompilationQueue` with Moka dedup, debounce, `Semaphore(cap=1)` sized to Tectonic's global mutex.
-- [ ] `crates/compiler/scratchpad.rs`: per-session `~/.latex-ai/scratch/<session_id>/` tree; `apply_edits(edits) -> Result<()>`; `cleanup()` on session drop.
-- [ ] `crates/latex_ai_core/ai.rs`: `EditPlanner` trait + `GeminiPlanner` impl using `genai_rs::Client` + `client.interaction().with_store_enabled().create().await` to retrieve `interaction_id` for next turn.
-- [ ] `router::agent::plan_stream` + `router::agent::agent_loop_stream` SSE handlers emitting the locked taxonomy.
-- [ ] Cancellation-deconnect tower middleware (invention): the stream's `Drop` triggers a bound `CancellationToken`.
-- [ ] `core::prompt_safety::sanitize_user_instruction` wired on every `intent` field.
-- [ ] `crates/latex_ai_core/search.rs` + `GET /api/search` (nucleo matcher) — replaces frontend fuse.js (§10.1).
-- [ ] Frontend swaps: `lib/api/client.js` on native `fetch` (drop axios); Tailwind via standalone CLI (drop node build dep); command palette/file search call `/api/search`.
-- [ ] Tests: induce `\begin{tabular}` without `\end`; assert 3 iterations; final `done(success=False)` with compile errors; induce trivial `\frac{`-typo; assert 1–2 iterations ending in `done(success=True)`.
-- [ ] Tests: disconnect mid-iteration; assert compile-future cancelled within 200 ms.
+- [x] `crates/compiler/queue.rs`: full `CompilationQueue` with Moka dedup, debounce, `Semaphore(cap=1)` sized to Tectonic's global mutex.
+- [x] `crates/compiler/scratchpad.rs`: per-session `~/.latex-ai/scratch/<session_id>/` tree; `apply_edits(edits) -> Result<()>`; `cleanup()` on session drop.
+- [x] `crates/latex_ai_core/ai.rs`: `EditPlanner` trait + `GeminiPlanner` impl using `genai_rs::Client` + `client.interaction().with_store_enabled().create().await` to retrieve `interaction_id` for next turn.
+- [x] `router::agent::plan_stream` + `router::agent::agent_loop_stream` SSE handlers emitting the locked taxonomy.
+- [x] Cancellation-deconnect tower middleware (invention): the stream's `Drop` triggers a bound `CancellationToken`.
+- [x] `core::prompt_safety::sanitize_user_instruction` wired on every `intent` field.
+- [x] `crates/latex_ai_core/search.rs` + `GET /api/search` (nucleo matcher) — replaces frontend fuse.js (§10.1).
+- [x] Frontend swaps: `lib/api/client.js` on native `fetch` (drop axios ✅, drop fuse.js ✅); command palette/file search call `/api/search` ✅. **Tailwind standalone CLI: consciously skipped** — Vite already requires node for the SPA build, so the swap removes no dependency (§15.1).
+- [x] Tests: induce `\begin{tabular}` without `\end`; assert 3 iterations; final `done(success=False)` with compile errors; induce trivial `\frac{`-typo; assert 1–2 iterations ending in `done(success=True)`.
+- [x] Tests: disconnect mid-iteration; assert compile-future cancelled within 200 ms.
 
 **Acceptance**:
 - Send "make table 3-col" via curl; SSE stream shows `thinking → proposal → applying → compiled → done`.
@@ -1146,14 +1146,14 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: visual bbox → bounded edit proposal grounded in PDF coordinates.
 
 **Deliverables**:
-- [ ] `crates/synctex/`: full nom parser (~600 LOC); `parse()`, `backward_search()`, `forward_search()` APIs.
-- [ ] `crates/visual/`: `pdfium_render` clipped rasterize (crop) **and** full-page render; one integration test on a real `.synctex.gz` fixture.
-- [ ] `GET /api/pdf/page?n=&dpi=` → `image/png` full-page render — replaces PDF.js viewer (§10.1). Frontend PDF view becomes an image viewer (zoom/pan) over these PNGs.
-- [ ] `router::visual::fix` endpoint: validate bounds → SyncTeX backward_search → ±30-line snippet → PNG crop → GeminiPlanner `visual_fix()` → return `VisualFixResponse { edits }` (no auto-apply).
-- [ ] `crates/latex_ai_core/ai.rs::visual_fix`: uses `genai_rs::Interaction::with_response_format(ResponseFormat::Json)` for VLM call.
-- [ ] `frontend/src/lib/api/client.js#repairVisualCrop`: SSE-style POST with bbox JSON; `VisualFixOverlay.svelte`: pdfium page PNG (`GET /api/pdf/page`) + canvas overlay for drag select.
-- [ ] Tests: bbox over overflowing image in `examples/` fixture; intent `"shrink this image to fit column"`; assert `edits` contains exactly one `replace_range` touching the `\includegraphics` line range only.
-- [ ] Tests: missing synctex file → 404 with proper envelope; out-of-bounds bbox → 422.
+- [x] `crates/synctex/`: full parser, `parse()`, `backward_search()`, `forward_search()` APIs — **hand-written recursive reader, not nom** (§15.1): the grammar is line-oriented with single-char prefixes, so a parser-combinator dependency bought nothing. Adds the scaled-point -> PDF-point conversion the format actually requires.
+- [x] `crates/visual/`: `pdfium_render` clipped rasterize (crop) **and** full-page render; one integration test on a real `.synctex.gz` fixture.
+- [x] `GET /api/pdf/page?n=&dpi=` → `image/png` full-page render — replaces PDF.js viewer (§10.1). Frontend PDF view becomes an image viewer (zoom/pan) over these PNGs.
+- [x] `router::visual::fix` endpoint: validate bounds → SyncTeX backward_search → ±30-line snippet → PNG crop → GeminiPlanner `visual_fix()` → return `VisualFixResponse { edits }` (no auto-apply).
+- [x] `crates/latex_ai_core/ai.rs::visual_fix`: uses `genai_rs::Interaction::with_response_format(ResponseFormat::Json)` for VLM call.
+- [x] `frontend/src/lib/api/client.js#repairVisualCrop`: SSE-style POST with bbox JSON; `VisualFixOverlay.svelte`: pdfium page PNG (`GET /api/pdf/page`) + canvas overlay for drag select.
+- [x] Tests: bbox over overflowing image in `examples/` fixture; intent `"shrink this image to fit column"`; assert `edits` contains exactly one `replace_range` touching the `\includegraphics` line range only.
+- [x] Tests: missing synctex file → 404 with proper envelope; out-of-bounds bbox → 422.
 
 **Audit Gate (M3)**:
 - Data Integrity: `backward_search` return shape always present; null only when SyncTeX miss (404).
@@ -1166,11 +1166,11 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: user accepts/rejects per hunk atomically; hunk_id stable across requeries.
 
 **Deliverables**:
-- [ ] `router::agent::apply_selected`: atomic single-file lock + single etag check + single history entry tagged `apply-selected`.
-- [ ] `HunkId = blake3::hash(search_text).to_hex()[..16]` type (Newtype).
-- [ ] `DiffView.svelte` promoted to standalone component with hunk-level accept/reject affordances.
-- [ ] Per-PR Svelte 5 runes migration in touched files (no forced repo-wide migration).
-- [ ] Tests: same plan twice → identical hunk_id set; reject-all → file unchanged; accept 1/3 → only that range modified.
+- [x] `router::agent::apply_selected`: atomic single-file lock + single etag check + single history entry tagged `apply-selected`.
+- [x] `HunkId = blake3::hash(search_text).to_hex()[..16]` type (Newtype).
+- [x] `DiffView.svelte` promoted to standalone component with hunk-level accept/reject affordances.
+- [x] Per-PR Svelte 5 runes migration in touched files (no forced repo-wide migration) — `DiffView.svelte` and `VisualFixOverlay.svelte` use runes; the other 14 components remain Svelte 4 syntax by design, migrating as they are touched.
+- [x] Tests: same plan twice → identical hunk_id set; reject-all → file unchanged; accept 1/3 → only that range modified.
 
 **Audit Gate (M4)**:
 - Data Integrity: identical hunks across two prompts collapse; reject stale `hunk_id` with 409 when underlying `expected_etag` drifts.
@@ -1183,18 +1183,18 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 **Goal**: production-grade local-first release; Tauri binary ≤ 25 MB; metrics emit; persisted queue; history auditable.
 
 **Deliverables**:
-- [ ] `crates/latex_ai_tauri/src/main.rs`: Tauri shell wrapping `latex_ai_server::build_router`, opening SPA in a webview.
-- [ ] `tauri-plugin-axum` registered with our router; SSE routes via `http://127.0.0.1:<port>` (Tauri custom protocol streaming limitation per issue #1404).
-- [ ] Wire `core::metrics::record_*` as axum middleware dependency (`tower-http::trace` instrumentation with custom span name capture).
-- [ ] Persist `CompileQueue.active_jobs` to `compile_queue` table on `submit`; recover on startup (mark in-flight as `completed` with `error=abandoned`).
-- [ ] Add `compile_errors` table migrations + `compiler::CompilationError::for_history(history_id, iter, errors)`.
-- [ ] Tighten CORS: `ENV=production` + missing `ALLOWED_ORIGINS` → startup panic with explicit message.
-- [ ] Cargo release profile: `opt-level="z"`, `lto="fat"`, `codegen-units=1`, `strip=true`, `panic="abort"`.
-- [ ] `cargo deny` policies: RUSTSEC advisories, license whitelist (MIT, Apache-2.0, BSD-3, MPL-2.0).
-- [ ] Tauri bundlers configured for `.deb`/`.dmg`/`.msi`/`.AppImage` via `tauri.conf.json`.
-- [ ] `cargo tarpaulin --workspace --fail-under-80` green.
-- [ ] Update `README.md` final with desktop install instructions for supported OS.
-- [ ] Remove Part II of `rust.md` (the port spec) per the user's directive.
+- [x] `crates/latex_ai_tauri/src/main.rs`: Tauri shell wrapping `latex_ai_server::build_router`, opening SPA in a webview.
+- [x] SSE routes via `http://127.0.0.1:<port>` — **`tauri-plugin-axum` evaluated and rejected** (§15.1): its own README confirms custom protocols cannot stream (#1404), so the TCP listener is needed regardless and the plugin would add a protocol, an npm package and per-route URL branching for no reduction in surface. The port is ephemeral rather than a fixed 3000.
+- [x] `core::metrics::record_*` wired as axum middleware (`from_fn` rather than trace-span capture — §15.1), exposed at `GET /api/metrics` as JSON and Prometheus text.
+- [x] Compile jobs persisted to `compile_queue` on submit and closed out on completion; startup marks anything still `running` as `abandoned`.
+- [x] `compile_errors` realigned to §7.1 with the `history_id` FK + cascade (corrective migration, §15.1); the agent loop records each healed iteration's failure against the resulting history row.
+- [x] `ENV=production` + missing/blank `ALLOWED_ORIGINS` → startup refuses with an explicit message (returned as an error rather than a panic, so the binary reports it cleanly).
+- [x] Cargo release profile: `opt-level="z"`, `lto="fat"`, `codegen-units=1`, `strip=true`, `panic="abort"`.
+- [x] `cargo deny` policies: advisories, license allow-list, sources — green, with every unavoidable ignore carrying a documented reason.
+- [x] Tauri bundlers configured for `.deb`/`.appimage`/`.dmg`/`.msi` in `tauri.conf.json`; `.deb` built and measured (**6.5 MB bundle, 15.4 MB binary — inside the <=25 MB target**). Only the Linux targets are buildable here: Tauri does not cross-compile bundles.
+- [x] `cargo tarpaulin --workspace --fail-under-80` green — **86.73% (2602/3000 lines)**, measured 2026-08-02 under `scripts/capped` (tarpaulin rebuilds instrumented and re-runs every test under ptrace; unbounded it OOMed this machine). CI runs the same measurement in a `coverage` job.
+- [x] `README.md` documents desktop build/install and production deployment.
+- [x] Part II of `rust.md` removed (1276 -> 382 lines), with a note recording why.
 
 **Acceptance**:
 - Desktop bundle launches, opens `examples/sample.tex`, compiles, all major flows work.
@@ -1290,6 +1290,47 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 
 ---
 
+## 15.1 Implemented Deviations (recorded 2026-08-02, at M2 completion)
+
+Where shipped code intentionally differs from this document. The code is
+authoritative; these entries explain why, so the delta is a decision and not
+drift.
+
+| Area | Plan said | Shipped | Why |
+|---|---|---|---|
+| LLM SDK | `genai-rs` 0.7 with Gemini **Interactions API**, `previous_interaction_id` so the provider owns chat history | `genai` 0.1 one-shot chat against **Groq** (`llama-3.3-70b-versatile`), no stored history | Provider switched to Groq (2026-08-02, user decision). Groq has no Interactions equivalent, so there is no server-side history to inherit. The agent loop folds compile errors into the next instruction instead, which keeps the §12-M2 audit rule ("no `HashMap<session_id, Vec<Content>>` in our crate") satisfied — we store no history at all. Revisit if a provider with server-side threads returns. |
+| `EditPlanner` | `-> BoxStream<Result<Event, _>>` | `-> PlanFuture` (boxed future, whole batch) | Object safety was the actual requirement (it is what lets tests inject a scripted planner). Token-level streaming buys nothing while the response must be parsed as one JSON array. |
+| Edit application | `patch(1)` for `apply_unified_diff` | Pure-Rust hunk application in `core::apply` | Shelling out contradicted the no-subprocess principle (§1) and made results depend on the host's `patch`. Also relocates hunks when line numbers drift. |
+| Config | `figment` layered TOML + env | Plain env vars | Nothing yet needs layered files; `figment` would be speculative scaffolding (CONTEXT.md §5). Revisit when a config file is genuinely required. |
+| Validation | `garde::Validate` on payloads | `serde(deny_unknown_fields)` + explicit checks | Current payloads have a handful of fields; a derive framework is not yet earned. |
+| Rate limiting | `tower-governor` per `X-Session-ID` | Not implemented | Single-user loopback binding; no demonstrated need (CONTEXT.md §5 "defensive over-engineering"). |
+| Tailwind | standalone CLI to "drop node from the build" | Kept as an npm dev dependency | Incoherent as stated: Vite already requires Node for the SPA build, so the swap removes no dependency. Consciously skipped. |
+| Frontend fuzzy search | `nucleo` behind `GET /api/search` | Done, plus `POST /api/search` for caller-supplied candidates | The command palette ranks its own static command list; the server does not own that list. |
+| `AgentEdit.hunk_id` | server-computed, `skip_deserializing` | plain optional field | With `deny_unknown_fields`, a skipped field made the client's echo of a proposal un-deserializable on apply-selected. |
+| Scratchpad | `~/.latex-ai/scratch/<session>` | Same, `LATEX_AI_HOME`-overridable, LRU-10 + explicit cleanup | Matches Q3; the override exists so tests and containers do not write to `$HOME`. |
+| `SyncTeX` emission (M3) | `synctex: true` in `Tectonic.toml` | `ProcessingSessionBuilder::synctex(true)` + `into_file_data()` | `tectonic::latex_to_pdf` cannot emit `SyncTeX` at all. Driving the session builder returns the PDF **and** the `.synctex.gz` in memory — no config file, no output directory, no temp files. |
+| `SyncTeX` parser (M3) | `nom` combinators, ~600 LOC | hand-written line reader + unit conversion, ~210 LOC | The format is line-oriented with single-char record prefixes; `nom` would add a dependency and obscure it. The real work was the missing sp->bp conversion, verified against a known value (a 1in margin is 4736287sp = 72bp). |
+| `SyncTeX` input name (M3) | source path recorded in the map | Tectonic always records the primary input as `texput` | Not configurable via `tex_input_name`. Single-document hits therefore resolve to the file the caller compiled; a real name (multi-file, once `bundle` lands) is re-validated against the workspace before being read. |
+| VLM call (M3) | `gemini-2.5-flash-image` | separate `LATEX_AI_VISION_MODEL`, image sent as a real `ContentPart::Image` + `ChatResponseFormat::JsonMode`; honest text-only fallback when unset | Follows the provider switch (row 1). Verified live 2026-08-02: **Groq serves no vision model** (`llama-3.2-*-vision-preview`, which `genai` still lists, are retired), and a text-only model rejects image parts with a 400. So vision is its own configurable model — any provider `genai` routes — and with none configured the route degrades to a source-only fix and logs that it did, rather than pasting base64 into a prompt no model can read. |
+| VLM response shape (M3) | strict JSON array | array, `{"edits": [...]}`, **or a lone edit object** | OpenAI-style JSON mode forces a top-level *object*, so a bare array is impossible for those providers regardless of the prompt. Groq returns a single edit object for a single-change request; the decoder accepts all three and still 422s on anything else. |
+| Hunk preview (M4) | not specified | new `POST /api/agent/preview` | Per-hunk accept needs to show what each hunk *does*, and computing that in the browser would drift from the Rust apply semantics (first-occurrence replace, line splice, diff relocation). The endpoint runs each hunk through the same `core::apply` the write uses, so a test can assert preview and apply produce byte-identical diffs — and does. |
+| Hunk selection scope (M4) | "per hunk" | one hunk == one `AgentEdit` | `hunk_id` is already defined as blake3 of the anchor text (§13), so the edit *is* the unit of review. Sub-splitting an edit's diff would produce hunks with no stable id, which is what the milestone's stability requirement forbids. |
+| `tauri-plugin-axum` (M5) | register the plugin, custom protocol for non-streaming + TCP for SSE | **rejected**; loopback TCP only | The plugin's value is removing the bound port. Its own README confirms custom protocols cannot stream (wry #1404), so our SSE-heavy API needs the TCP listener regardless — adopting it would mean a protocol *and* a port, plus an npm package and per-route URL branching in the SPA, for no reduction in surface. The port is instead bound as ephemeral (`:0`) rather than a guessable fixed 3000. |
+| Desktop API base (M5) | not specified | injected via `initialization_script` | Found while evaluating the above: the SPA is served from `tauri://localhost`, so its relative `/api/...` resolved against that origin and never reached the server — the desktop shell could not have worked. The window is now built in code so the real loopback base is injected before any page script runs. |
+| Desktop async runtime (M5) | not specified | `tauri::async_runtime`, not `#[tokio::main]` | Found by running the built bundle: the process stayed alive with a single thread and **nothing listening**. `tauri::run()` installs its own runtime and blocks; a server spawned with `tokio::spawn` on a separate `#[tokio::main]` runtime is orphaned the moment it does. Setup now runs under `tauri::async_runtime::block_on` and the server under `tauri::async_runtime::spawn`. Both this and the row above were invisible to `cargo check` — only launching the artefact exposed them. |
+| Tectonic C libraries (M5) | vendored, as shipped | `tectonic/external-harfbuzz` | The desktop shell segfaulted on launch inside `hb_face_t::reference_table` on a corrupted function pointer. Cause, from the gdb stack: Tectonic statically links its **vendored** harfbuzz while webkit2gtk dynamically links the **system** one, and two copies in one process let the linker resolve symbols across implementations. Linking the system copy fixes it. **Caveat:** Tectonic also vendors freetype, graphite2 and icu but exposes an `external-*` feature only for harfbuzz, so the same collision class could resurface in an unexercised path. Stable across everything tested; not proven safe in general. |
+| Desktop `devUrl` (M5) | not specified | removed | A debug build follows `devUrl`, so a manually-run debug binary showed "localhost refused to connect" unless a Vite server happened to be up. Both build types now load the bundled SPA; browser hot-reload stays in the documented `npm run dev` + `latex-ai serve` workflow. |
+| Heavy-command limits (M5) | not specified | `scripts/capped` + `.config/nextest.toml` + `.cargo/config.toml` | `cargo tarpaulin` rebuilds the workspace instrumented *and* re-runs every test under ptrace; it exhausted a 14 GB machine twice during this milestone. The nextest and cargo caps cannot bound a tool that spawns its own build, so heavy commands now run in a systemd scope with `MemoryMax` — an overrun kills that cgroup rather than the session. |
+| Metrics (M5) | `tower-http::trace` instrumentation with custom span capture | `axum::middleware::from_fn` + atomic counters | Counting requests is not a tracing concern; a middleware that owns the counter is both simpler and exactly-once by construction. Exposed as JSON and Prometheus text from one endpoint. |
+| `compile_errors` schema (M5) | `history_id` FK per §7.1 | same, via a corrective migration | The table had shipped with `session_id` and no FK. Nothing had ever written it, so the migration recreates it rather than attempting a data-preserving alter. `PRAGMA foreign_keys = ON` is set at startup — SQLite ignores foreign keys otherwise, which would have made the constraint decorative. |
+| Container bind address (M5) | `serve` binds `127.0.0.1` | `--host` / `LATEX_AI_HOST`, still defaulting to `127.0.0.1` | Found by reading the container gate rather than trusting it: Docker forwards a published port to the container's **interface** address, so a loopback-only bind is unreachable from the host — while the in-container `HEALTHCHECK` (which curls its own localhost) still reports healthy. `docker compose up` would have gone green with a dead API. The bind address is now explicit, loopback stays the default so the no-auth design (§11.1) is unchanged for direct runs, the container passes `0.0.0.0`, and a non-loopback bind logs a warning. Access control in the container comes from the host-side `127.0.0.1:3000:3000` mapping. |
+| Container toolchain (M5) | `rust:1-slim-bookworm` builder, headers only | same base + `g++`, and `SQLX_OFFLINE=true` | The image had never built. `rust:*-slim` ships the Rust toolchain but no C/C++ one, and `tectonic_engine_xetex` compiles vendored C **and** C++ sources — its build script aborts with `failed to find tool "c++"` after ~390 crates. The Dockerfile installed the `-dev` headers those sources need but not the compiler that consumes them. `SQLX_OFFLINE=true` is set for the same reason CI sets it: the `query_scalar!` macro is checked at compile time and there is no database during an image build. |
+| Container volume ownership (M5) | not specified | mount points created and chowned in the image | The daemon died on its first compile with `Permission denied` making the Tectonic cache root. Docker initialises a named volume from the image path, and when that path does not exist it creates it root-owned — so the unprivileged runtime user could not write it. Tectonic's cache-root creation is an `unwrap` and the release profile sets `panic="abort"`, which turned one failed request into the whole process aborting. Creating the three mount points as `latexai` before `USER` fixes it. Incidentally the abort proved the M5 crash-recovery path: the restarted process logged `recovered abandoned compile jobs count=1`. |
+| Image build caching (M5) | not specified | BuildKit cache mounts for the cargo registry and `target/` | `COPY . .` precedes `cargo build`, so any source change invalidated all ~460 dependency crates — about an hour, mostly Tectonic's vendored C/C++ engines, plus minutes committing a multi-GB `target/` into the builder layer. Cache mounts survive that invalidation and are not part of the image, so the binary is copied out inside the same `RUN`. A `container` CI job now builds and boots the image against the GitHub Actions cache: the image had been broken for four milestones precisely because nothing ever built it. |
+| Container runtime (M5) | `debian:trixie-slim` runtime, image target <= 200 MB | `FROM scratch` + the binary's `ldd` closure | The distro runtime cost 162 MB unpacked to carry a program whose real closure is ~60 MB: a userland the daemon never calls, plus the entire curl dependency tree, which existed only to run `HEALTHCHECK`. The runtime now holds the binary and exactly the shared objects `ldd` resolves for it, derived at build time rather than hand-listed, so a new transitive dependency cannot be missed. **62.8 MB unpacked / 24.9 MB compressed / 55 files.** Two things `ldd` cannot tell you, both of which fail only on a cold cache and so would survive a warm-volume smoke test: glibc `dlopen`s its NSS modules at call time (without them `getaddrinfo` fails and the Tectonic bundle never downloads), and OpenSSL's compiled-in CA directory does not exist on scratch (so TLS verification fails). Verified against wiped volumes: 42 MB / 270 files fetched, `compiles_succeeded=1`, `restarts=0`. Trade-off: no shell in the image, so `docker compose exec ... sh` is gone. |
+| `HEALTHCHECK` client (M5) | `curl -fsS .../health` | `latex-ai healthcheck` | curl appeared nowhere in the binary's link closure — it was in the image purely for the health probe, and it dragged in a dependency tree far larger than the check. The binary now probes its own `/health` with one HTTP/1.1 request over a raw tokio socket, adding no crate. |
+| Image size measurement (M5) | image target <= 200 MB | measured unpacked, via `docker history` or a flattened export | `docker images` on the containerd store sums the unpacked layers **and** the compressed blob, so it reported 222 MB for an image that was 162 MB unpacked and 56 MB to pull — and this milestone was briefly recorded as missing the <=200 MB target on that inflated figure. It never did. The CI size guard flattens the filesystem instead, so it means the same thing on any Docker version. |
+
 ## 16. Open Questions
 
 | # | Question | Default | Owner |
@@ -1304,12 +1345,12 @@ Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT
 | Q8 | `tower-lsp` maturity | community fork stable; if upstream matures by M3, swap | tracked |
 | Q9 | Tectonic async API | sync in 0.16; use `spawn_blocking` + tokio select; refactor if future release offers async | tracked |
 | Q10 | Auth surface | None for V1 (local-first 127.0.0.1 binding) | locked |
-| Q11 | Optional local LLM (Ollama) for fully-offline mode | Cloud Gemini only for V1. A provider abstraction allowing a local model (Ollama) fits the local-first pillar, but conflicts with the genai-rs design where Gemini's `previous_interaction_id` makes the server own chat history — Ollama would force us to manage history ourselves (the `HashMap<session, Vec<Content>>` §12-M2 audit forbids). Defer; revisit only with a concrete offline requirement. (Inspiration: interviewstreet/hiring-agent dual Ollama/Gemini backend.) | M6+ |
+| Q11 | Optional local LLM (Ollama) for fully-offline mode | Cloud Groq only for V1 (see §15.1 — the Gemini/Interactions rationale below is superseded; because we now keep no chat history at all, an Ollama backend no longer conflicts with the M2 audit rule and is a smaller change than originally assessed). A provider abstraction allowing a local model (Ollama) fits the local-first pillar, but conflicts with the genai-rs design where Gemini's `previous_interaction_id` makes the server own chat history — Ollama would force us to manage history ourselves (the `HashMap<session, Vec<Content>>` §12-M2 audit forbids). Defer; revisit only with a concrete offline requirement. (Inspiration: interviewstreet/hiring-agent dual Ollama/Gemini backend.) | M6+ |
 
 ---
 
 *Document version: 2.0 (Rust Edition)*
 *Date: 2026-06-24*
 *Authors: synthesized from `idea.md`, `CONTEXT.md`, `rust.md`, existing repo audit, and peer-state-of-practice scan (TexGuardian, PaperFit, scholia, ferroleaf, XandSuite, r/tauri 2026-03 thread, genai-rs 0.7 docs, tectonic docs).*
-*Status: M1 prerequisite. M2–M5 sequential with audit gates. See §12.*
+*Status: M1–M4 complete and verified (2026-08-02) — see §15.1 for recorded deviations. M5 remains. See §12.*
 *Re-read this doc + `CONTEXT.md` + `idea.md` + `rust.md` at the start of every implementation session.*

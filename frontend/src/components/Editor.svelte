@@ -46,9 +46,6 @@
   let lastSyncedETag = null
   
   onMount(async () => {
-    console.log('[TARGET] Editor.svelte onMount called')
-    console.log('editorContainer:', editorContainer)
-    console.log('editorContainer dimensions:', editorContainer?.offsetWidth, 'x', editorContainer?.offsetHeight)
     
     // Wait for DOM to be ready
     await new Promise(resolve => setTimeout(resolve, 100))
@@ -61,7 +58,6 @@
       ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
       : theme === 'dark'
 
-    console.log('[MARKER] Theme:', isDark ? 'dark' : 'light')
     monacoApi.editor.setTheme(isDark ? 'vs-dark' : 'vs-light')
 
     // Ensure container has proper dimensions
@@ -69,7 +65,6 @@
       editorContainer.style.width = '100%'
       editorContainer.style.height = '100%'
       editorContainer.style.position = 'relative'
-      console.log('[MEASURE] Container styled, new dimensions:', editorContainer.offsetWidth, 'x', editorContainer.offsetHeight)
     }
 
     try {
@@ -86,22 +81,19 @@
         ariaLabel: `LaTeX editor${filePath ? ` for ${filePath}` : ''}`,
         accessibilitySupport: 'on',
       })
-      console.log('[SUCCESS] Editor created successfully:', editor)
     } catch (err) {
-      console.error('[ERROR] Error creating editor:', err)
+      console.error('editor failed to create', err)
       throw err
     }
 
     // Manual layout updates for better responsiveness
     const resizeObserver = new ResizeObserver(() => {
       if (editor) {
-        console.log('[MEASURE] ResizeObserver triggered, calling layout()')
         editor.layout()
       }
     })
     if (editorContainer) {
       resizeObserver.observe(editorContainer)
-      console.log('[WATCH] ResizeObserver attached')
     }
 
     currentFilePath = filePath
@@ -208,21 +200,12 @@
     }
     
     try {
-      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`, {
-        method: 'GET',
-        headers: {
-          'If-None-Match': lastSyncedETag || currentETag || ''
-        }
-      })
-      
-      if (res.status === 304) {
-        // No changes detected
-        return
-      }
-      
+      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`)
+
       if (res.ok) {
         const data = await res.json()
-        const newETag = res.headers.get('ETag')
+        // The server has no conditional-GET support; compare the body etag.
+        const newETag = data.etag
         
         // File was modified externally
         if (newETag && newETag !== lastSyncedETag && newETag !== currentETag) {
@@ -240,7 +223,7 @@
           
           updateDirtyIndicator(false)
           dispatch('external-change-detected', { content, etag: newETag })
-          console.log('External file change detected and merged:', filePath)
+          console.debug('external change merged into the buffer:', filePath)
         }
       }
     } catch (error) {
@@ -270,8 +253,8 @@
       })
       if (response.ok) {
         const duration = performance.now() - saveStartTime
-        const newETag = response.headers.get('etag')
-        if (newETag) currentETag = newETag
+        const saved = await response.json().catch(() => null)
+        if (saved?.etag) currentETag = saved.etag
         if (content === contentToSave) {
           originalContent = content
           isDirty = false
@@ -355,11 +338,10 @@
       const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`)
       if (response.ok) {
         const data = await response.json()
-        
-        // Store ETag from response headers
-        const etag = response.headers.get('etag')
-        if (etag) {
-          currentETag = etag
+
+        // Backend returns the blake3 etag in the body (routes/files.rs)
+        if (data.etag) {
+          currentETag = data.etag
         }
         
         // Update content
@@ -420,6 +402,9 @@
   }
 
   async function connectLsp() {
+    // The in-binary LaTeX LSP is M5 scope (masterplan §4.2); until the
+    // `crates/lsp` server exists there is no /ws/lsp endpoint to dial.
+    if (!import.meta.env.VITE_ENABLE_LSP) return
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
       const wsUrl = `${protocol}://${window.location.host}/ws/lsp`
@@ -596,7 +581,7 @@
     width: 100%;
     height: 100%;
     flex: 1;
-    background: #fff;
+    background: hsl(var(--surface-1));
     border: none;
   }
 

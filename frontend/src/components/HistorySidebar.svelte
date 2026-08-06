@@ -1,6 +1,5 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte'
-  import VirtualList from 'svelte-virtual-list'
 
   export let filePath = ''
   export let agentOnly = false
@@ -20,9 +19,10 @@
 
   async function loadHistory() {
     try {
-      const base = filterAgentOnly ? '/api/history/agent' : '/api/history'
-      // Increased limit to support virtual scrolling with many entries
-      const res = await fetch(`${base}?path=${encodeURIComponent(filePath)}&limit=1000`)
+      const params = new URLSearchParams({ limit: '1000' })
+      if (filePath) params.set('path', filePath)
+      if (filterAgentOnly) params.set('agent_only', 'true')
+      const res = await fetch(`/api/history?${params.toString()}`)
       if (!res.ok) return
       history = await res.json()
     } catch (e) {
@@ -65,7 +65,10 @@
     <p class="no-history">No history yet</p>
   {:else}
     <div class="history-list">
-      <VirtualList items={history} let:item height="calc(100vh - 140px)">
+      <!-- Plain list, same reason as FileTree: svelte-virtual-list is a
+           Svelte 3 package with no `svelte` exports condition, and under
+           Svelte 5 its viewport gets no height, so it renders nothing. -->
+      {#each history as item (item.id)}
         <div class="history-item">
           <div class="command">{item.command}</div>
           <div class="timestamp">{formatDate(item.timestamp)}</div>
@@ -76,7 +79,7 @@
             Restore
           </button>
         </div>
-      </VirtualList>
+      {/each}
     </div>
   {/if}
 </div>
@@ -102,21 +105,21 @@
 
   .filter-toggle button {
     padding: 0.4rem;
-    border: 1px solid #ddd;
-    background: #f7f7f7;
-    border-radius: 4px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--surface-2));
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }
 
   .filter-toggle button.active {
-    background: #e0ebff;
-    border-color: #4a90e2;
-    color: #0f3d91;
+    background: hsl(var(--primary) / 0.12);
+    border-color: hsl(var(--primary));
+    color: hsl(var(--primary));
   }
 
   .no-history {
-    color: #999;
+    color: hsl(var(--text-faint));
     text-align: center;
     padding: 2rem 0;
   }
@@ -129,9 +132,9 @@
 
   .history-item {
     padding: 0.75rem;
-    background: #f9f9f9;
-    border: 1px solid #ddd;
-    border-radius: 4px;
+    background: hsl(var(--surface-2));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-xs);
   }
 
   .command {
@@ -142,22 +145,22 @@
 
   .timestamp {
     font-size: 11px;
-    color: #999;
+    color: hsl(var(--text-faint));
     margin-bottom: 0.5rem;
   }
 
   .restore-btn {
     width: 100%;
     padding: 0.4rem;
-    background: #28a745;
-    color: white;
+    background: hsl(var(--ok));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }
 
   .restore-btn:hover {
-    background: #218838;
+    background: hsl(var(--ok));
   }
 </style>

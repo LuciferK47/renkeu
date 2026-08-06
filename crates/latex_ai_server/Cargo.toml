@@ -25,16 +25,19 @@ tracing-subscriber = { workspace = true }
 clap = { workspace = true }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros"] }
 tokio-stream = "0.1.18"
-futures = "0.3.32"
 uuid = { version = "1.23.4", features = ["v4"] }
 base64 = "0.22.1"
 synctex = { version = "0.1.0", path = "../synctex" }
 visual = { version = "0.1.0", path = "../visual" }
 image = "0.25.9"
 thiserror = { workspace = true }
+similar = "2.6"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+base64 = "0.22"
+image = "0.25"
+tempfile = "3"
 
 [lints]
 workspace = true

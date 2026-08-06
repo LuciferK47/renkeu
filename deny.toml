@@ -1,10 +1,47 @@
-# cargo-deny config (rust.md I.5). We are MIT OR Apache-2.0; reject (A)GPL.
+# cargo-deny config (rust.md I.5, masterplan.md §12 M5).
+# We are MIT OR Apache-2.0; reject (A)GPL.
 
 [advisories]
 yanked = "deny"
+# Each ignore must state WHY it cannot be fixed today and what would clear it.
+# Reviewed 2026-08-02. Nothing here is reachable from the daemon build
+# (`latex-ai-server`); everything traces to the M5 Tauri desktop tree, the
+# Tectonic engine tree, or the image codec tree, none of which have a
+# published fix at our pinned versions.
+ignore = [
+    # --- GTK3 bindings, pulled in by tauri 2 on Linux (webkit2gtk/wry). ---
+    # Upstream gtk-rs archived the GTK3 crates; Tauri v2 has no GTK4 backend
+    # yet. Clears when Tauri ships a GTK4/non-GTK Linux backend.
+    { id = "RUSTSEC-2024-0411", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0412", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0413", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0414", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0415", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0416", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0417", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0418", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0419", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    { id = "RUSTSEC-2024-0420", reason = "gtk3 via tauri (M5 desktop shell); no GTK4 backend in tauri 2" },
+    # proc-macro-error: transitive through the same gtk3/webkit2gtk macros.
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error via gtk3-macros/webkit2gtk (tauri, M5)" },
+    # unic-*: unmaintained, reached through the tauri tree. No successor API
+    # exposed to us; nothing to migrate on our side.
+    { id = "RUSTSEC-2024-0436", reason = "paste, unmaintained; via image codec (ravif/rav1e) and tauri" },
+    { id = "RUSTSEC-2025-0075", reason = "unic-* unmaintained; transitive via tauri" },
+    { id = "RUSTSEC-2025-0080", reason = "unic-* unmaintained; transitive via tauri" },
+    { id = "RUSTSEC-2025-0081", reason = "unic-* unmaintained; transitive via tauri" },
+    { id = "RUSTSEC-2025-0098", reason = "unic-* unmaintained; transitive via tauri" },
+    { id = "RUSTSEC-2025-0100", reason = "unic-* unmaintained; transitive via tauri" },
+    # quick-xml DoS advisories: only reachable from the tauri desktop tree
+    # (bundler/plist handling), not from the daemon's request path. Clears
+    # when tauri bumps quick-xml past 0.37.5.
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml via tauri (M5 desktop shell); not on the daemon request path" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml via tauri (M5 desktop shell); not on the daemon request path" },
+]
 
 [licenses]
-# Permissive set per rust.md plus the SPDX ids the tectonic/axum dep tree pulls.
+# Permissive set per rust.md plus the SPDX ids the tectonic/axum/pdfium dep
+# trees pull.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -16,6 +53,13 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "CC0-1.0",
+    # pdfium-render is "(MIT OR Apache-2.0) AND NCSA"; NCSA is a permissive
+    # BSD-style license (University of Illinois), compatible with our dual
+    # MIT/Apache-2.0 distribution.
+    "NCSA",
+    # CDLA-Permissive-2.0: permissive data license on a transitive dep
+    # (Unicode/IDNA tables). No copyleft obligations.
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.9
 

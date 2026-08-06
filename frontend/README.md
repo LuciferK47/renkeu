@@ -1,78 +1,97 @@
 # LaTeX-AI Frontend
 
-Svelte + Vite web UI for AI-assisted LaTeX editing: Monaco editor, PDF preview, diffable AI plans, template inserts, and streaming chat.
+Svelte 5 + Vite SPA for the LaTeX-AI engine: Monaco editor, server-rendered PDF
+preview, streaming AI agent loop, and per-hunk diff review.
+
+The backend is the Rust `latex-ai` daemon in this repo — see the root
+[README](../README.md).
 
 ## Setup
 
 ```bash
-cd frontend
-npm install
+npm ci
+npm run dev     # http://localhost:5173, proxies /api and /ws to :3000
 ```
 
-## Development
+Start the backend in another terminal (from the repo root, which becomes the
+workspace the API is sandboxed to):
 
 ```bash
-npm run dev
+source .env                                     # GROQ_API_KEY
+cargo run -p latex-ai-server -- serve --port 3000
 ```
 
-Opens at http://localhost:5173 with proxy to backend http://127.0.0.1:3000.
-
-## Build
+## Test & build
 
 ```bash
-npm run build
+npx vitest run
+npm run build   # -> dist/ (also what the Tauri shell bundles)
 ```
 
-Emits static assets to `src/latex_ai/static/` (served by FastAPI).
+## Layout
 
-## Experience overview
+| Path | Role |
+|---|---|
+| `src/lib/api/client.js` | The only HTTP layer. Native `fetch`; one method per backend route. |
+| `src/services/_stream.js` | The single SSE parser. Every stream in the app goes through it. |
+| `src/services/` | Thin wrappers over `client.js` per domain (file, compile, ai, config). |
+| `src/controllers/` | Orchestration: services in, store updates out. Components stay dumb. |
+| `src/stores/` | Svelte stores: `fileStore`, `compileStore`, `aiStore`, `uiStore`. |
+| `src/layouts/` | `IdeShell` → `WorkspaceLayout` / `PanelManager`. |
+| `src/components/` | Editor, PdfViewer, VisualFixOverlay, DiffView, ChatPanel, CommandPalette, … |
+| `src/utils/bbox.js` | Screen→image pixel conversion for region selection (unit-tested). |
 
-- Layout: Overleaf-style (Editor | Right panel | optional Chat). Dividers are keyboard/mouse draggable buttons.
-- Editor: Monaco, auto-save, dirty tracking, optional TexLab LSP (diagnostics → markers, hover, completions). Degrades if TexLab absent.
-- Files: File tree (search, multi-select), quick open (pinned/recent/search), bulk mode driven by selections.
-- Command palette: Fuzzy suggestions + recent/frequent. Enter → preview/execute, Shift+Enter → apply-focused preview, Ctrl+Enter → apply now. Dry-run toggle, AI plan option with model picker.
-- Right panel: PDF preview, diff view, compile errors/warnings with explain/apply-fix, AI plan steps, suggestions, template library insert.
-- Chat: Bottom panel streams AI responses via SSE.
-- Accessibility: Combobox ARIA wiring, tree items announce selection, overlay backdrop button to close, dividers are buttons.
+## Backend contract
 
-## Key components
+Everything the UI calls exists in `crates/latex_ai_server`:
 
-- `App.svelte` — Layout, state, wiring of editor/preview/chat/command palette
-- `Editor.svelte` — Monaco + LSP bridging (TexLab WebSocket), save/dirty events
-- `PdfViewer.svelte` — Renders compiled PDF URL
-- `DiffView.svelte` — Unified diff with apply-selected/apply-all flows
-- `CommandPalette.svelte` — Command/AI input, shortcuts, dry-run, model select
-- `ChatPanel.svelte` — Streaming AI chat (SSE)
-- `RightPanel.svelte` — Tabs for preview/diff/errors/templates/suggestions
-- `FileTree.svelte` — File browser with selection and search
-- `FileOpener.svelte` — Quick open with pinned/recent/search
+- **Files** — `GET /api/files`, `GET /api/file?path=`, `POST /api/file`
+  (send `If-Match` with the ETag; a **409** carries `current_etag`).
+- **Search** — `GET /api/search?q=` (workspace files) and `POST /api/search`
+  (client-supplied candidates). Fuzzy matching is server-side via `nucleo`.
+- **Compile** — `POST /api/compile` → `{ job_id }`, then
+  `GET /api/compile/stream/{job_id}` (SSE). Pages come from
+  `GET /api/pdf/page?file=&n=&dpi=`.
+- **AI** — `POST /api/plan/stream` and `POST /api/agent/stream` (SSE).
+- **Per-hunk review** — `POST /api/agent/preview` returns
+  `{ etag, hunks: [{hunk_id, diff, applies, error}] }`, one entry per proposed
+  edit, computed with the same code that writes. `POST /api/agent/apply-selected`
+  then takes the chosen `hunk_id`s; echo the preview's `etag` back as each
+  edit's `expected_etag` so a file that changed during review gives a 409
+  instead of clobbering. Selection rules live in `src/utils/hunks.js`
+  (unit-tested); `DiffView.svelte` is the UI.
+- **Visual fix** — `POST /api/visual-fix` with a region in **page-image pixels**
+  plus the `dpi` those pixels were rendered at. The backend maps the region's
+  centre through SyncTeX to a source line and returns
+  `{ file, line, exact, snippet, base64_crop, edits }`. Edits arrive with
+  `hunk_id`s stamped, so the proposal goes through the normal
+  apply-selected review path — `VisualFixOverlay` never applies anything.
+- **Other** — `GET /api/config`, `GET /api/history`.
 
-## Backend integration (high level)
+### SSE rules
 
-- Files: list/search (`/api/files`), read/write current file
-- Compile: enqueue/poll job → PDF URL + errors/warnings
-- AI: chat/plan/review/suggestions/explain/apply-fix via SSE/REST
-- Models: list available models and current default
+Payloads are **always JSON objects**, and event names come only from the locked
+taxonomy (masterplan §8.2), enforced in CI:
 
-## Running with backend
+`progress` · `step` · `proposal` · `applying` · `compiled` · `thinking` ·
+`done` · `error` · `awaiting_approval` · `keepalive`
 
-```bash
-# Terminal 1: backend
-cd ..
-python -m latex_ai serve --host 0.0.0.0 --port 3000
+Consume them as `{ event, data }` from `streamSSE` — never reach for a `type`
+field inside the payload.
 
-# Terminal 2: frontend dev
-cd frontend
-npm run dev
-```
+## Desktop shell
 
-Production: `npm run build` then `python -m latex_ai serve` (serves static build).
+In the Tauri build the page is served from `tauri://localhost`, so a relative
+`/api` would resolve against *that* origin and never reach the embedded
+server. The shell binds an ephemeral loopback port and injects the real base
+URL as `globalThis.__LATEX_AI_API__` before any page script runs;
+`client.js` prefers it over `VITE_API_BASE`. Nothing else in the SPA needs to
+know whether it is running in a browser or the desktop app.
 
-## Environment
+## Notes
 
-- `VITE_API_BASE` — Override backend base URL (default http://127.0.0.1:3000)
-
-## Debugging tips
-
-- Network tab for API/SSE calls; console for component errors
-- Backend logs: `python -m latex_ai serve --log-level debug`
+- **No axios, no fuse.js, no PDF.js.** Native `fetch`, backend `nucleo` search,
+  and backend pdfium rendering respectively (masterplan §10.1).
+- **LSP is off.** There is no in-binary LaTeX language server until M5; set
+  `VITE_ENABLE_LSP=1` only once `crates/lsp` exists.
+- `VITE_API_BASE` overrides the API base URL (default `/api`, via the dev proxy).

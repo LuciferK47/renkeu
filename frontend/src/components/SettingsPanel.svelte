@@ -1,17 +1,24 @@
 <script>
+  import Icon from './Icon.svelte'
+  import { paperStore } from '../stores/paperStore.js'
   import { onMount } from 'svelte'
 
   export let isOpen = false
   export let onClose = () => {}
   export let onSave = async (updates) => {}
 
-  let config = {
+  // Defaults for everything this panel binds to. /api/config answers with a
+  // much smaller object than the panel reads -- it has no `editor` or `theme`
+  // key at all -- so these are what the controls fall back to.
+  const DEFAULT_CONFIG = {
     keyboard_shortcuts: {},
-    theme: {},
-    editor: {},
+    theme: { mode: 'auto', primary_color: '#0b0b0c', accent_color: '#2a2a2a', error_color: '#f0616b' },
+    editor: { font_size: 14, font_family: 'JetBrains Mono', tab_size: 2, word_wrap: true, minimap_enabled: false },
     auto_save: true,
-    history_limit: 100
+    history_limit: 100,
   }
+
+  let config = structuredClone(DEFAULT_CONFIG)
 
   let selectedTab = 'editor'
   let loading = true
@@ -28,18 +35,27 @@
       loading = true
       const res = await fetch('/api/config')
       if (!res.ok) throw new Error('Failed to load config')
-      config = await res.json()
+      // Merge rather than replace. Assigning the response wholesale dropped
+      // `editor`, `theme` and `keyboard_shortcuts`, and the very next thing the
+      // markup does is read `config.editor.font_size` -- which threw, so the
+      // whole panel failed to render and Settings appeared to do nothing.
+      const fromServer = await res.json()
+      config = {
+        ...DEFAULT_CONFIG,
+        ...fromServer,
+        theme: { ...DEFAULT_CONFIG.theme, ...(fromServer.theme ?? {}) },
+        editor: { ...DEFAULT_CONFIG.editor, ...(fromServer.editor ?? {}) },
+        keyboard_shortcuts: {
+          ...DEFAULT_CONFIG.keyboard_shortcuts,
+          ...(fromServer.keyboard_shortcuts ?? {}),
+        },
+      }
 
-      // Load available AI models and current selection
+      // One configured planner model (masterplan Q1) — reported by /api/config.
       modelsLoading = true
-      const modelsRes = await fetch('/api/models')
-      if (modelsRes.ok) {
-        const modelsData = await modelsRes.json()
-        availableModels = modelsData.available || []
-        // If server provides current model and config lacks it, set from server
-        if (!config.ai_model_default && modelsData.current) {
-          config.ai_model_default = modelsData.current
-        }
+      if (config.model) {
+        availableModels = [{ id: config.model, name: config.model }]
+        if (!config.ai_model_default) config.ai_model_default = config.model
       }
     } catch (e) {
       console.error('Error loading config:', e)
@@ -147,7 +163,7 @@
           on:click={closeAndRestoreFocus}
           aria-label="Close settings"
         >
-          ✕
+          <Icon name="close" label="Close settings" />
         </button>
       </div>
 
@@ -278,6 +294,50 @@
                 <code>{config.theme.error_color}</code>
               </div>
             </div>
+
+            <div class="settings-section">
+              <h3>Page appearance in dark mode</h3>
+              <p class="setting-note">
+                The compiled page is dimmed rather than inverted, so its colours
+                stay true &mdash; a red warning box is still red. Hold
+                <strong>Hold for true colours</strong> above the preview to see the
+                page exactly as it will print.
+              </p>
+
+              <div class="setting-group">
+                <label for="paper-lightness">Paper brightness</label>
+                <input
+                  id="paper-lightness"
+                  type="range"
+                  min="0.6"
+                  max="1"
+                  step="0.01"
+                  value={$paperStore.paper}
+                  on:input={(e) => paperStore.setPaper(e.currentTarget.value)}
+                />
+                <code>{Math.round($paperStore.paper * 100)}%</code>
+              </div>
+
+              <div class="setting-group">
+                <label for="paper-warmth">Warmth</label>
+                <input
+                  id="paper-warmth"
+                  type="range"
+                  min="0"
+                  max="40"
+                  step="1"
+                  value={$paperStore.warmth}
+                  on:input={(e) => paperStore.setWarmth(e.currentTarget.value)}
+                />
+                <code>{$paperStore.warmth}</code>
+              </div>
+
+              <div class="setting-group">
+                <button type="button" class="reset-tone" on:click={paperStore.reset}>
+                  Reset to defaults
+                </button>
+              </div>
+            </div>
           {/if}
 
           {#if selectedTab === 'shortcuts'}
@@ -332,12 +392,12 @@
                         {#if selected.supports}
                           {#if selected.supports.streaming}
                             <span class="cap-badge streaming" title="Supports real-time streaming">
-                              ⚡ Streaming
+                              <Icon name="bolt" /> Streaming
                             </span>
                           {/if}
                           {#if selected.supports.vision}
                             <span class="cap-badge vision" title="Can analyze images">
-                              👁️ Vision
+                              <Icon name="eye" /> Vision
                             </span>
                           {/if}
                           {#if selected.supports.code}
@@ -357,7 +417,7 @@
                           {/if}
                           {#if selected.supports.function_calling}
                             <span class="cap-badge tools" title="Tool/function calling">
-                              [TOOLS] Tools
+                              <Icon name="wrench" /> Tools
                             </span>
                           {/if}
                         {/if}
@@ -437,20 +497,20 @@
   .cap-pill {
     display: inline-block;
     padding: 0.2rem 0.5rem;
-    background: #eef2ff;
-    color: #3730a3;
-    border-radius: 999px;
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+    border-radius: var(--radius-pill);
     font-size: 12px;
   }
 
   .cap-pill.provider {
-    background: #f3f4f6;
-    color: #1f2937;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--foreground));
   }
 
   .settings-panel {
-    background: white;
-    border-radius: 8px;
+    background: hsl(var(--surface-1));
+    border-radius: var(--radius-s);
     width: 90%;
     max-width: 600px;
     max-height: 80vh;
@@ -464,13 +524,13 @@
     justify-content: space-between;
     align-items: center;
     padding: 1.5rem;
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .settings-header h2 {
     margin: 0;
     font-size: 1.25rem;
-    color: #333;
+    color: hsl(var(--foreground));
   }
 
   .close-btn {
@@ -478,25 +538,25 @@
     border: none;
     font-size: 1.5rem;
     cursor: pointer;
-    color: #999;
+    color: hsl(var(--text-faint));
     padding: 0;
     width: 32px;
     height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
 
   .close-btn:hover {
-    background: #f0f0f0;
-    color: #333;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--foreground));
   }
 
   .settings-tabs {
     display: flex;
-    border-bottom: 1px solid #e0e0e0;
-    background: #f9f9f9;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--surface-2));
   }
 
   .tab-btn {
@@ -504,21 +564,22 @@
     padding: 1rem;
     background: none;
     border: none;
+    color: hsl(var(--text-dim));
     border-bottom: 2px solid transparent;
     cursor: pointer;
-    color: #666;
+    color: hsl(var(--text-dim));
     font-weight: 500;
     transition: all 0.2s ease;
   }
 
   .tab-btn:hover {
-    color: #333;
-    background: #f0f0f0;
+    color: hsl(var(--foreground));
+    background: hsl(var(--surface-2));
   }
 
   .tab-btn.active {
-    color: #007bff;
-    border-bottom-color: #007bff;
+    color: hsl(var(--primary));
+    border-bottom-color: hsl(var(--primary));
   }
 
   .settings-content {
@@ -534,7 +595,7 @@
   .settings-section h3 {
     margin-top: 0;
     margin-bottom: 1rem;
-    color: #333;
+    color: hsl(var(--foreground));
     font-size: 1rem;
   }
 
@@ -550,7 +611,7 @@
     align-items: center;
     gap: 0.5rem;
     font-weight: 500;
-    color: #555;
+    color: hsl(var(--text-dim));
   }
 
   .setting-group label input[type='checkbox'] {
@@ -562,8 +623,8 @@
   .setting-group input[type='color'],
   .setting-group select {
     padding: 0.5rem;
-    border: 1px solid #ddd;
-    border-radius: 4px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-xs);
     font-size: 0.9rem;
     font-family: inherit;
   }
@@ -575,15 +636,15 @@
   }
 
   .setting-group code {
-    font-family: monospace;
-    color: #666;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    color: hsl(var(--text-dim));
     font-size: 0.85rem;
   }
 
   .help-text {
     margin: 0;
     font-size: 0.85rem;
-    color: #999;
+    color: hsl(var(--text-faint));
   }
 
   .capabilities {
@@ -594,83 +655,77 @@
     align-items: center;
   }
 
+  /* One chip for every capability, distinguished by its label.
+   *
+   * These were six pastel gradients — vision blue, code pink, context purple —
+   * where the hue encoded nothing: they are static facts about a model, not
+   * state to react to. Six competing colours also meant the three that do carry
+   * state (compile error, warning, success) had to shout to be noticed. Spending
+   * no colour here is what lets a failed compile read instantly.
+   *
+   * The scale-on-hover went with them: these are spans with a title, not
+   * controls, and movement promised an interaction that does not exist. */
+  .setting-note {
+    margin: 0 0 1rem 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: hsl(var(--text-dim));
+    max-width: 60ch;
+  }
+
+  .reset-tone {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.85rem;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: hsl(var(--foreground));
+    cursor: pointer;
+  }
+
+  .reset-tone:hover {
+    background: hsl(var(--accent));
+  }
+
   .cap-badge {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     padding: 0.35rem 0.75rem;
-    border-radius: 16px;
+    border-radius: var(--radius-pill);
     font-size: 0.8rem;
-    font-weight: 600;
+    font-weight: 500;
     white-space: nowrap;
-    transition: transform 0.1s ease;
-  }
-
-  .cap-badge:hover {
-    transform: scale(1.05);
-  }
-
-  .cap-badge.streaming {
-    background: linear-gradient(135deg, #c8e6c9 0%, #a5d6a7 100%);
-    color: #2e7d32;
-    box-shadow: 0 2px 4px rgba(46, 125, 50, 0.15);
-  }
-
-  .cap-badge.vision {
-    background: linear-gradient(135deg, #b3e5fc 0%, #81d4fa 100%);
-    color: #01579b;
-    box-shadow: 0 2px 4px rgba(1, 87, 155, 0.15);
-  }
-
-  .cap-badge.code {
-    background: linear-gradient(135deg, #f8bbd0 0%, #f48fb1 100%);
-    color: #c2185b;
-    box-shadow: 0 2px 4px rgba(194, 24, 91, 0.15);
-  }
-
-  .cap-badge.json {
-    background: linear-gradient(135deg, #ffe0b2 0%, #ffcc80 100%);
-    color: #e65100;
-    box-shadow: 0 2px 4px rgba(230, 81, 0, 0.15);
-  }
-
-  .cap-badge.context {
-    background: linear-gradient(135deg, #e1bee7 0%, #ce93d8 100%);
-    color: #6a1b9a;
-    box-shadow: 0 2px 4px rgba(106, 27, 154, 0.15);
-  }
-
-  .cap-badge.tools {
-    background: linear-gradient(135deg, #bbdefb 0%, #90caf9 100%);
-    color: #0d47a1;
-    box-shadow: 0 2px 4px rgba(13, 71, 161, 0.15);
+    background: hsl(var(--foreground) / 0.06);
+    border: 1px solid hsl(var(--border));
+    color: hsl(var(--foreground));
   }
 
   .cap-provider {
     display: inline-block;
     padding: 0.35rem 0.75rem;
-    background: #f5f5f5;
-    border: 1px solid #ddd;
-    border-radius: 4px;
+    background: hsl(var(--surface-2));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-xs);
     font-size: 0.8rem;
-    color: #666;
+    color: hsl(var(--text-dim));
   }
 
   .cap-info {
     display: inline-block;
     padding: 0.35rem 0.75rem;
-    background: #f5f5f5;
-    border: 1px solid #ddd;
-    border-radius: 4px;
+    background: hsl(var(--surface-2));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-xs);
     font-size: 0.8rem;
-    color: #999;
+    color: hsl(var(--text-faint));
   }
 
   .settings-footer {
     display: flex;
     gap: 1rem;
     padding: 1.5rem;
-    border-top: 1px solid #e0e0e0;
+    border-top: 1px solid hsl(var(--border));
     justify-content: flex-end;
   }
 
@@ -678,7 +733,7 @@
   .btn-save {
     padding: 0.5rem 1.5rem;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-weight: 500;
     font-size: 0.9rem;
@@ -686,49 +741,21 @@
   }
 
   .btn-cancel {
-    background: #f0f0f0;
-    color: #333;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--foreground));
   }
 
   .btn-cancel:hover {
-    background: #e0e0e0;
+    background: hsl(var(--muted));
   }
 
   .btn-save {
-    background: #007bff;
-    color: white;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
   }
 
   .btn-save:hover {
-    background: #0056b3;
+    background: hsl(var(--primary));
   }
 
-  :global(.dark-mode) .settings-panel {
-    background: #2d2d2d;
-    color: #e0e0e0;
-  }
-
-  :global(.dark-mode) .settings-header,
-  :global(.dark-mode) .settings-tabs,
-  :global(.dark-mode) .settings-footer {
-    border-bottom-color: #404040;
-  }
-
-  :global(.dark-mode) .settings-header h2,
-  :global(.dark-mode) .settings-section h3,
-  :global(.dark-mode) .setting-group label {
-    color: #e0e0e0;
-  }
-
-  :global(.dark-mode) .tab-btn {
-    color: #b0b0b0;
-  }
-
-  :global(.dark-mode) .tab-btn.active {
-    color: #4a9eff;
-  }
-
-  :global(.dark-mode) .tab-btn:hover {
-    background: #3a3a3a;
-  }
 </style>

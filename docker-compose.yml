@@ -2,13 +2,31 @@ services:
   latex-ai:
     build: .
     ports:
-      - "3000:3000"
+      # Loopback only: the daemon has no authentication by design
+      # (masterplan §11.1). Put a TLS terminator in front to expose it.
+      - "127.0.0.1:3000:3000"
     environment:
-      # - GEMINI_API_KEY=${GEMINI_API_KEY}   # needed from M2 (AI loop)
+      # Production mode makes ALLOWED_ORIGINS mandatory — the server refuses
+      # to start without it rather than falling back to the dev origins
+      # (masterplan §11.6, §12 M5).
+      - ENV=production
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      # Needed for the AI routes; compile and file APIs work without it.
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      # Optional: a vision-capable model enables the full visual-fix flow.
+      - LATEX_AI_VISION_MODEL=${LATEX_AI_VISION_MODEL:-}
       - RUST_LOG=info
     volumes:
+      # The workspace the API is sandboxed to; every path is resolved inside it.
+      - ./examples:/home/latexai/workspace
+      # ~1GB of LaTeX support files, fetched on first compile. Persisting this
+      # is the difference between a 2-second and a 2-minute first build.
       - latex-ai-cache:/home/latexai/.cache/Tectonic
+      # Scratchpads and the history database.
+      - latex-ai-state:/home/latexai/.latex-ai
+    working_dir: /home/latexai/workspace
     restart: unless-stopped
 
 volumes:
   latex-ai-cache:
+  latex-ai-state:

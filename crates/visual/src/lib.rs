@@ -1,4 +1,10 @@
+//! PDF rasterisation: full-page render and bbox crop via `pdfium`. Sole owner
+//! of the `pdfium-render` dependency (masterplan.md §5 rule 6).
+#![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 pub mod crop;
+pub mod paper;
 pub mod render;
 
 #[derive(Debug, thiserror::Error)]

@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { createEventDispatcher } from 'svelte'
 
@@ -127,7 +128,7 @@
               on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(path)}
             >
               <span>{path}</span>
-              <button class="pin" type="button" aria-label={`Unpin ${path}`} on:click|stopPropagation={() => onUnpin(path)}>★</button>
+              <button class="pin" type="button" aria-label={`Unpin ${path}`} on:click|stopPropagation={() => onUnpin(path)}><Icon name="star" /></button>
             </div>
           {/each}
         </div>
@@ -145,7 +146,7 @@
               on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(path)}
             >
               <span>{path}</span>
-              <button class="pin" type="button" aria-label={`Pin ${path}`} on:click|stopPropagation={() => onPin(path)}>☆</button>
+              <button class="pin" type="button" aria-label={`Pin ${path}`} on:click|stopPropagation={() => onPin(path)}><Icon name="star" /></button>
             </div>
           {/each}
         </div>
@@ -169,7 +170,7 @@
               on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(file.path)}
             >
               <span>{file.path}</span>
-              <button class="pin" type="button" aria-label={`Pin ${file.path}`} on:click|stopPropagation={() => onPin(file.path)}>☆</button>
+              <button class="pin" type="button" aria-label={`Pin ${file.path}`} on:click|stopPropagation={() => onPin(file.path)}><Icon name="star" /></button>
             </div>
           {/each}
         {/if}
@@ -206,9 +207,9 @@
     z-index: 1;
     width: 720px;
     max-height: 70vh;
-    background: #0b1623;
-    color: #e5e7eb;
-    border-radius: 12px;
+    background: hsl(var(--surface-1));
+    color: hsl(var(--foreground));
+    border-radius: var(--radius-m);
     box-shadow: 0 24px 60px rgba(0,0,0,0.35);
     overflow: auto;
     padding: 16px;
@@ -224,16 +225,16 @@
   .search {
     flex: 1;
     padding: 12px 14px;
-    border-radius: 10px;
-    border: 1px solid #1f2937;
-    background: #111827;
-    color: #e5e7eb;
+    border-radius: var(--radius-m);
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--surface-1));
+    color: hsl(var(--foreground));
     font-size: 14px;
   }
 
   .close {
     background: transparent;
-    color: #9ca3af;
+    color: hsl(var(--text-faint));
     border: none;
     font-size: 22px;
     cursor: pointer;
@@ -241,7 +242,7 @@
 
   .section {
     margin-top: 10px;
-    border-top: 1px solid #1f2937;
+    border-top: 1px solid hsl(var(--border));
     padding-top: 10px;
   }
 
@@ -249,7 +250,7 @@
     font-size: 12px;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: #9ca3af;
+    color: hsl(var(--text-faint));
     margin-bottom: 6px;
   }
 
@@ -259,32 +260,32 @@
     justify-content: space-between;
     align-items: center;
     padding: 10px 12px;
-    background: #0f172a;
-    border: 1px solid #1f2937;
-    border-radius: 8px;
-    color: #e5e7eb;
+    background: hsl(var(--surface-1));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-s);
+    color: hsl(var(--foreground));
     cursor: pointer;
     margin-bottom: 6px;
     text-align: left;
   }
 
   .file:hover {
-    border-color: #2563eb;
-    background: #111c2d;
+    border-color: hsl(var(--primary));
+    background: hsl(var(--surface-2));
   }
 
   .pin {
-    color: #fbbf24;
+    color: hsl(var(--warn));
     font-size: 14px;
     cursor: pointer;
   }
 
   .hint {
-    color: #9ca3af;
+    color: hsl(var(--text-faint));
     padding: 6px;
   }
 
   .hint.error {
-    color: #f87171;
+    color: hsl(var(--err));
   }
 </style>

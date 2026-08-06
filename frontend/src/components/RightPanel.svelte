@@ -1,4 +1,5 @@
 <script>
+  import Icon from './Icon.svelte'
   import DiffView from './DiffView.svelte'
   import PdfViewer from './PdfViewer.svelte'
   import { createEventDispatcher } from 'svelte'
@@ -159,7 +160,7 @@ Wrap up and future work.
       aria-controls="diff-panel"
       id="tab-diff"
     >
-      [NOTE] Diff
+      <Icon name="document" /> Diff
       {#if diff}
         <span class="badge" aria-label="Unseen diff changes">•</span>
       {/if}
@@ -173,7 +174,7 @@ Wrap up and future work.
       aria-controls="pdf-panel"
       id="tab-pdf"
     >
-      📄 PDF
+      <Icon name="document" /> PDF
       {#if pdfPages > 0}
         <span class="badge-text" aria-label={`PDF has ${pdfPages} pages`}>({pdfPages})</span>
       {/if}
@@ -188,11 +189,11 @@ Wrap up and future work.
       id="tab-errors"
     >
       {#if compileErrors.length > 0}
-        [ERROR] Errors ({compileErrors.length})
+        <Icon name="alert" /> Errors ({compileErrors.length})
       {:else if compileWarnings.length > 0}
         [WARNING] Warnings ({compileWarnings.length})
       {:else}
-        [OK] Issues
+        <Icon name="check-circle" /> Issues
       {/if}
     </button>
     <button
@@ -204,7 +205,7 @@ Wrap up and future work.
       aria-controls="ai-panel"
       id="tab-ai"
     >
-      🤖 AI Plan
+      <Icon name="sparkle" /> AI Plan
       {#if aiPlan}
         <span class="badge" aria-label="AI plan pending review">•</span>
       {/if}
@@ -219,7 +220,7 @@ Wrap up and future work.
       id="tab-suggestions"
       title="Get AI suggestions for improving your document"
     >
-      [SPARKLE] Suggestions
+      <Icon name="sparkle" /> Suggestions
     </button>
   </div>
 
@@ -227,11 +228,12 @@ Wrap up and future work.
   <div class="tab-content">
     {#if activeTab === 'diff'}
       <div id="diff-panel" role="tabpanel" aria-labelledby="tab-diff">
-        {#if diff}
-          <DiffView 
-            {diff}
-            on:apply-selected={(e) => dispatch('apply-selected', e.detail)}
-            on:reject-all={() => dispatch('reject-all')}
+        {#if aiPlan?.edits?.length}
+          <DiffView
+            edits={aiPlan.edits}
+            {filePath}
+            onapply={(payload) => dispatch('apply-selected', payload)}
+            onreject={() => dispatch('reject-all')}
           />
         {:else}
         <div class="empty-state">
@@ -255,7 +257,7 @@ Wrap up and future work.
       <div id="errors-panel" role="tabpanel" aria-labelledby="tab-errors" class="errors-panel">
         {#if compileErrors.length > 0}
           <div class="error-section" role="region" aria-label="Compilation errors">
-            <h3>[ERROR] Errors ({compileErrors.length})</h3>
+            <h3><Icon name="alert" /> Errors ({compileErrors.length})</h3>
             {#each compileErrors as error}
               <button
                 class="error-item error"
@@ -289,7 +291,7 @@ Wrap up and future work.
 
         {#if compileErrors.length === 0 && compileWarnings.length === 0}
           <div class="empty-state" role="status">
-            <p>[OK] No compilation issues</p>
+            <p><Icon name="check-circle" /> No compilation issues</p>
             <p class="hint">Your document compiled successfully</p>
           </div>
         {/if}
@@ -301,13 +303,13 @@ Wrap up and future work.
               on:click={() => dispatch('explain-errors', { errors: compileErrors, warnings: compileWarnings })}
               aria-label="Explain issues and suggest fixes with AI"
             >
-              🤖 Explain & Suggest Fixes
+              <Icon name="sparkle" /> Explain &amp; suggest fixes
             </button>
           </div>
 
           {#if suggestedFixes.length > 0}
             <div class="suggested-fixes" role="region" aria-label="AI-suggested fixes">
-              <h3>[TOOLS] Suggested Fixes</h3>
+              <h3><Icon name="wrench" /> Suggested fixes</h3>
               <div class="fixes-list">
                 {#each suggestedFixes as fix, i}
                   <div class="fix-item">
@@ -324,7 +326,7 @@ Wrap up and future work.
                       on:click={() => applyFix(fix)}
                       aria-label={`Apply fix: ${fix.description || fix.command}`}
                     >
-                      [OK] Apply
+                      <Icon name="check" /> Apply
                     </button>
                   </div>
                 {/each}
@@ -342,16 +344,17 @@ Wrap up and future work.
               <div class="ai-actions">
                 <button 
                   class="apply-all-btn" 
-                  on:click={() => dispatch('apply-selected', { hunks: aiPlan.edits, selected: aiPlan.edits.map(() => true) })} 
+                  on:click={() => dispatch('apply-selected', { edits: aiPlan.edits, selectedHunkIds: aiPlan.edits.map((e) => e.hunk_id).filter(Boolean) })} 
                   aria-label="Apply all AI edits"
                 >
                   Apply All Edits
                 </button>
               </div>
-              <DiffView 
+              <DiffView
                 edits={aiPlan.edits}
-                on:apply-selected={(e) => dispatch('apply-selected', e.detail)}
-                on:reject-all={() => dispatch('reject-all')}
+                {filePath}
+                onapply={(payload) => dispatch('apply-selected', payload)}
+                onreject={() => dispatch('reject-all')}
               />
             {:else if aiPlan.steps}
               <div class="ai-actions">
@@ -416,7 +419,7 @@ Wrap up and future work.
               on:click={() => dispatch('code-review')}
               aria-label="Get comprehensive code review"
             >
-              [SEARCH] Code Review
+              <Icon name="search" /> Code review
             </button>
           </div>
         </div>
@@ -442,13 +445,13 @@ Wrap up and future work.
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #fafafa;
+    background: hsl(var(--surface-2));
   }
 
   .tabs {
     display: flex;
-    background: #fff;
-    border-bottom: 2px solid #e0e0e0;
+    background: hsl(var(--surface-1));
+    border-bottom: 2px solid hsl(var(--border));
   }
 
   .tab {
@@ -460,7 +463,7 @@ Wrap up and future work.
     cursor: pointer;
     font-size: 13px;
     font-weight: 500;
-    color: #666;
+    color: hsl(var(--text-dim));
     transition: all 0.2s;
     display: flex;
     align-items: center;
@@ -469,24 +472,24 @@ Wrap up and future work.
   }
 
   .tab:hover {
-    background: #f5f5f5;
-    color: #333;
+    background: hsl(var(--surface-2));
+    color: hsl(var(--foreground));
   }
 
   .tab.active {
-    color: #007bff;
-    border-bottom-color: #007bff;
-    background: #fafafa;
+    color: hsl(var(--primary));
+    border-bottom-color: hsl(var(--primary));
+    background: hsl(var(--surface-2));
   }
 
   .badge {
-    color: #28a745;
+    color: hsl(var(--ok));
     font-size: 16px;
   }
 
   .badge-text {
     font-size: 11px;
-    color: #999;
+    color: hsl(var(--text-faint));
   }
 
   .tab-content {
@@ -500,7 +503,7 @@ Wrap up and future work.
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #999;
+    color: hsl(var(--text-faint));
     text-align: center;
     padding: 2rem;
   }
@@ -511,7 +514,7 @@ Wrap up and future work.
 
   .hint {
     font-size: 12px;
-    color: #bbb;
+    color: hsl(var(--text-dim));
   }
 
   .loading-state {
@@ -526,8 +529,9 @@ Wrap up and future work.
   .spinner {
     width: 40px;
     height: 40px;
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #007bff;
+    /* A rotating arc, not a side accent: the thick ring is the spinner. */
+    border: 4px solid hsl(var(--line-soft));
+    border-top: 4px solid hsl(var(--primary));
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -554,8 +558,7 @@ Wrap up and future work.
   .error-item {
     padding: 0.75rem;
     margin-bottom: 0.5rem;
-    border-radius: 4px;
-    border-left: 4px solid;
+    border-radius: var(--radius-xs);
     width: 100%;
     text-align: left;
     cursor: pointer;
@@ -563,26 +566,26 @@ Wrap up and future work.
   }
 
   .error-item.error {
-    background: #ffebee;
-    border-left-color: #c62828;
+    background: hsl(var(--err) / 0.1);
+    border-left-color: hsl(var(--err));
   }
 
   .error-item.warning {
-    background: #fff3e0;
-    border-left-color: #f57c00;
+    background: hsl(var(--warn) / 0.1);
+    border-left-color: hsl(var(--warn));
   }
 
   .error-line {
     font-weight: 600;
     font-size: 11px;
-    color: #666;
+    color: hsl(var(--text-dim));
     margin-bottom: 0.25rem;
     text-transform: uppercase;
   }
 
   .error-file {
     font-size: 12px;
-    color: #4b5563;
+    color: hsl(var(--text-dim));
     margin-bottom: 0.25rem;
     word-break: break-all;
   }
@@ -604,10 +607,10 @@ Wrap up and future work.
 
   .explain-btn {
     padding: 0.4rem 0.75rem;
-    background: #2563eb;
-    color: #fff;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 13px;
   }
@@ -616,9 +619,9 @@ Wrap up and future work.
     display: flex;
     gap: 0.75rem;
     padding: 0.75rem;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    background: #ffffff;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-s);
+    background: hsl(var(--surface-1));
     margin-bottom: 0.5rem;
   }
 
@@ -628,10 +631,10 @@ Wrap up and future work.
 
   .apply-all-btn {
     padding: 0.4rem 0.75rem;
-    background: #10b981;
-    color: #fff;
+    background: hsl(var(--ok));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 13px;
   }
@@ -642,10 +645,10 @@ Wrap up and future work.
 
   .apply-btn {
     padding: 0.3rem 0.6rem;
-    background: #3b82f6;
-    color: #fff;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
   }
@@ -654,8 +657,8 @@ Wrap up and future work.
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background: #eef2ff;
-    color: #3730a3;
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -668,24 +671,24 @@ Wrap up and future work.
   }
 
   .ai-step-desc {
-    color: #4b5563;
+    color: hsl(var(--text-dim));
     font-size: 13px;
     margin-bottom: 0.25rem;
   }
 
   .ai-step-command {
     font-size: 12px;
-    color: #374151;
-    background: #f3f4f6;
+    color: hsl(var(--foreground));
+    background: hsl(var(--surface-2));
     padding: 0.2rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
 
   .ai-json {
-    background: #111827;
-    color: #e5e7eb;
+    background: hsl(var(--surface-1));
+    color: hsl(var(--foreground));
     padding: 0.75rem;
-    border-radius: 6px;
+    border-radius: var(--radius-s);
     font-size: 12px;
   }
 
@@ -701,7 +704,7 @@ Wrap up and future work.
     justify-content: center;
     padding: 2rem;
     text-align: center;
-    color: #666;
+    color: hsl(var(--text-dim));
   }
 
   .suggestions-intro p {
@@ -711,46 +714,46 @@ Wrap up and future work.
 
   .get-suggestions-btn {
     padding: 0.5rem 1rem;
-    background: #a78bfa;
-    color: #fff;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
   }
 
   .get-suggestions-btn:hover {
-    background: #9369e0;
+    background: hsl(var(--primary));
   }
 
   .review-btn {
     padding: 0.5rem 1rem;
-    background: #10b981;
-    color: #fff;
+    background: hsl(var(--ok));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
   }
 
   .review-btn:hover {
-    background: #059669;
+    background: hsl(var(--ok));
   }
 
   .suggested-fixes {
     margin-top: 1rem;
     padding: 0.75rem;
-    background: #f0fdf4;
-    border-left: 4px solid #10b981;
-    border-radius: 6px;
+    background: hsl(var(--ok) / 0.08);
+    border: 1px solid hsl(var(--ok) / 0.35);
+    border-radius: var(--radius-s);
   }
 
   .suggested-fixes h3 {
     margin: 0 0 0.75rem 0;
     font-size: 14px;
-    color: #047857;
+    color: hsl(var(--ok));
     font-weight: 600;
   }
 
@@ -762,9 +765,9 @@ Wrap up and future work.
 
   .fix-item {
     padding: 0.5rem;
-    background: #ffffff;
-    border: 1px solid #d1fae5;
-    border-radius: 4px;
+    background: hsl(var(--surface-1));
+    border: 1px solid hsl(var(--ok));
+    border-radius: var(--radius-xs);
   }
 
   .fix-header {
@@ -780,15 +783,15 @@ Wrap up and future work.
     justify-content: center;
     width: 20px;
     height: 20px;
-    background-color: #10b981;
-    color: white;
+    background-color: hsl(var(--ok));
+    color: hsl(var(--primary-foreground));
     border-radius: 50%;
     font-size: 0.7rem;
     font-weight: 600;
   }
 
   .fix-desc {
-    color: #1f2937;
+    color: hsl(var(--foreground));
     font-weight: 500;
     font-size: 13px;
   }
@@ -796,7 +799,7 @@ Wrap up and future work.
   .fix-rationale {
     margin-bottom: 0.4rem;
     font-size: 12px;
-    color: #6b7280;
+    color: hsl(var(--text-dim));
     line-height: 1.3;
     padding-left: 24px;
   }
@@ -804,25 +807,25 @@ Wrap up and future work.
   .fix-command {
     margin-bottom: 0.4rem;
     padding: 0.3rem 0.4rem;
-    background: #f3f4f6;
-    border-radius: 3px;
+    background: hsl(var(--surface-2));
+    border-radius: var(--radius-xs);
     overflow-x: auto;
     margin-left: 24px;
   }
 
   .fix-command code {
-    font-family: 'Courier New', monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-size: 11px;
-    color: #d73a49;
+    color: hsl(var(--err));
     white-space: nowrap;
   }
 
   .apply-fix-btn {
     padding: 0.3rem 0.6rem;
-    background-color: #10b981;
-    color: white;
+    background-color: hsl(var(--ok));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -831,7 +834,7 @@ Wrap up and future work.
   }
 
   .apply-fix-btn:hover {
-    background-color: #059669;
+    background-color: hsl(var(--ok));
   }
 
   .apply-fix-btn:active {
@@ -841,15 +844,15 @@ Wrap up and future work.
   .templates-panel {
     margin-top: 1.5rem;
     padding: 1rem;
-    background: #f8fafc;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
+    background: hsl(var(--surface-2));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-s);
   }
 
   .templates-panel h4 {
     margin: 0 0 0.75rem 0;
     font-size: 14px;
-    color: #0f172a;
+    color: hsl(var(--foreground));
   }
 
   .templates-grid {
@@ -860,9 +863,9 @@ Wrap up and future work.
 
   .template-card {
     padding: 0.75rem;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    background: #fff;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-s);
+    background: hsl(var(--surface-1));
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
@@ -870,28 +873,28 @@ Wrap up and future work.
 
   .template-title {
     font-weight: 600;
-    color: #111827;
+    color: hsl(var(--foreground));
   }
 
   .template-desc {
     font-size: 12px;
-    color: #4b5563;
+    color: hsl(var(--text-dim));
   }
 
   .template-btn {
     margin-top: 0.25rem;
     align-self: flex-start;
     padding: 0.4rem 0.8rem;
-    background: #2563eb;
-    color: #fff;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     cursor: pointer;
     font-size: 12px;
     font-weight: 600;
   }
 
   .template-btn:hover {
-    background: #1d4ed8;
+    background: hsl(var(--primary));
   }
 </style>

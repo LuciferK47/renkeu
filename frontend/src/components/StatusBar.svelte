@@ -1,17 +1,18 @@
 <script>
+  import Icon from './Icon.svelte'
   import { compileStore } from '../stores/compileStore.js'
   import { fileStore } from '../stores/fileStore.js'
   
   export let status = ''
 
-  $: statusColor = status.startsWith('Error') ? 'text-red-600' : 'text-green-600'
+  $: statusColor = status.startsWith('Error') ? 'text-destructive' : 'text-foreground'
   
   // Auto-save indicator
   $: autoSaveStatus = $fileStore.saving ? 'Saving...' : 
                       $fileStore.lastSaved ? `Saved ${formatTime($fileStore.lastSaved)}` : ''
   
   // Pending compile indicator
-  $: pendingCompile = $compileStore.pendingAutoCompile ? '⏱ Compile pending' : ''
+  $: pendingCompile = $compileStore.pendingAutoCompile ? 'Compile pending' : ''
   
   function formatTime(date) {
     if (!date) return ''
@@ -33,7 +34,7 @@
       {#if $fileStore.saving}
         <span class="spinner"></span>
       {:else}
-        <span class="checkmark">[OK]</span>
+        <span class="checkmark"><Icon name="check" /></span>
       {/if}
       {autoSaveStatus}
     </span>
@@ -49,8 +50,8 @@
 <style>
   .status-bar {
     padding: 0.5rem 1rem;
-    background: #f0f0f0;
-    border-top: 1px solid #ddd;
+    background: hsl(var(--surface-2));
+    border-top: 1px solid hsl(var(--border));
     font-size: 13px;
     min-height: 24px;
     display: flex;
@@ -62,16 +63,16 @@
     display: flex;
     align-items: center;
     gap: 0.25rem;
-    color: #666;
+    color: hsl(var(--text-dim));
     font-size: 12px;
   }
   
   .auto-save-indicator.saving {
-    color: #007bff;
+    color: hsl(var(--primary));
   }
   
   .checkmark {
-    color: #28a745;
+    color: hsl(var(--ok));
     font-weight: bold;
   }
   
@@ -79,7 +80,7 @@
     display: inline-block;
     width: 12px;
     height: 12px;
-    border: 2px solid #007bff;
+    border: 2px solid hsl(var(--primary));
     border-top-color: transparent;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
@@ -90,7 +91,7 @@
   }
   
   .pending-compile {
-    color: #ff9800;
+    color: hsl(var(--warn));
     font-size: 12px;
   }
 </style>

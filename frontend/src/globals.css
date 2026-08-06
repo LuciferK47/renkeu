@@ -2,63 +2,187 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Self-hosted, not linked from a font CDN: the desktop shell runs offline and
+ * the container has no outbound network guarantee, so a remote face would fall
+ * back silently to whatever the platform ships.
+ *
+ * Outfit is the interface face -- geometric, tall x-height, and what gives the
+ * controls their friendly rather than corporate read. JetBrains Mono pairs with
+ * it because its skeleton is geometric too, so the editor does not look bolted
+ * on from a different product. Mono appears only where characters must align:
+ * source, diffs, logs. */
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./assets/fonts/outfit-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F,
+    U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+2122, U+2212;
+}
+
+/* Theming has exactly one hook: `data-theme` on <html>.
+ *
+ * It previously had four (`data-theme`, `.dark`, `.dark-mode`, `.light-mode`),
+ * two of which nothing ever read. They accumulated because most components
+ * hardcoded their colors, so each new hook was added to drag one more stubborn
+ * component along. Colors now resolve through the tokens below, which is what
+ * makes a single hook sufficient.
+ *
+ * Tailwind is pointed at the same selector in tailwind.config.js. Without that
+ * it falls back to `media`, and every `dark:` utility follows the OS while
+ * ignoring the in-app toggle. */
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Shadcn-compatible names, so existing utilities keep resolving. */
+    --background: 60 11.1% 98.2%;
+    --foreground: 240 6.1% 9.6%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 240 6.1% 9.6%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    --popover-foreground: 240 6.1% 9.6%;
+    --primary: 240 6.1% 9.6%;
+    --primary-foreground: 60 11.1% 98.2%;
+    --secondary: 60 8.3% 95.3%;
+    --secondary-foreground: 240 6.1% 9.6%;
+    --muted: 60 8.3% 95.3%;
+    --muted-foreground: 240 1.1% 36.5%;
+    --accent: 60 8.3% 95.3%;
+    --accent-foreground: 240 6.1% 9.6%;
+    --destructive: 355.8 70% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 60 5.3% 88.8%;
+    --input: 60 5.3% 88.8%;
+    --ring: 240 6.1% 9.6%;
+
+    /* Elevation. Surfaces step up, they do not lighten arbitrarily. */
+    --surface-0: 60 11.1% 98.2%;
+    --surface-1: 0 0% 100%;
+    --surface-2: 60 8.3% 95.3%;
+    --line-soft: 60 5.3% 92%;
+
+    /* Text ramp, so components stop reaching for #666 and #333. */
+    --text-dim: 240 1.1% 36.5%;
+    /* 4.8:1 on surface-0. The previous 54.5% measured 3.3:1, so anything set in
+     * it failed WCAG AA for body text. */
+    --text-faint: 240 0.9% 44%;
+
+    /* State. These three are the only hues in the system; everything else is
+     * neutral, which is what makes a compile error impossible to miss. */
+    --ok: 151.3 45% 38%;
+    --warn: 38.9 92% 42%;
+    --err: 355.8 70% 48%;
+
+    /* The compiled page. Light theme shows it untouched. */
+    --paper: 0 0% 100%;
+
+    color-scheme: light;
+
+    /* One radius ladder. Components had eight different values between 2px and
+     * 12px, which reads as inconsistency rather than as a system. Softer than
+     * the 2-4px it replaces, and tighter than Amicro's marketing-page scale,
+     * because this is a dense tool: a 24px corner on a list row looks bloated.
+     * Pills are reserved for toggles and status chips. */
     --radius: 0.5rem;
+    --radius-xs: 6px;
+    --radius-s: 10px;
+    --radius-m: 14px;
+    --radius-pill: 999px;
   }
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+  :root[data-theme='dark'] {
+    --background: 240 4.3% 4.5%;
+    --foreground: 60 7.1% 94.5%;
+    --card: 240 2.7% 7.3%;
+    --card-foreground: 60 7.1% 94.5%;
+    --popover: 0 0% 9.8%;
+    --popover-foreground: 60 7.1% 94.5%;
+    /* Monochrome: the primary action is white on near-black, not a brand hue. */
+    --primary: 60 7.1% 94.5%;
+    --primary-foreground: 240 4.3% 4.5%;
+    --secondary: 0 0% 9.8%;
+    --secondary-foreground: 60 7.1% 94.5%;
+    --muted: 0 0% 9.8%;
+    --muted-foreground: 60 1.5% 60.6%;
+    --accent: 0 0% 16.5%;
+    --accent-foreground: 60 7.1% 94.5%;
+    --destructive: 355.8 82.7% 66.1%;
+    --destructive-foreground: 240 4.3% 4.5%;
+    --border: 0 0% 16.5%;
+    --input: 0 0% 16.5%;
+    --ring: 60 7.1% 94.5%;
+
+    --surface-0: 240 4.3% 4.5%;
+    --surface-1: 240 2.7% 7.3%;
+    --surface-2: 0 0% 9.8%;
+    --line-soft: 240 1.6% 12.4%;
+
+    --text-dim: 60 1.5% 60.6%;
+    /* 5.4:1 on surface-0; was 3.9:1 at 42.5%. */
+    --text-faint: 60 1.4% 52%;
+
+    --ok: 151.3 49.8% 53.1%;
+    --warn: 38.9 100% 57.1%;
+    --err: 355.8 82.7% 66.1%;
+
+    /* Tone-mapped page: warm, because paper is warm and screens are not. This
+     * is the one place warmth appears in an otherwise neutral shell. */
+    --paper: 40 21.4% 89%;
+
+    color-scheme: dark;
   }
 }
 
-:global(body) {
+/* Plain CSS, not a Svelte <style> block. The `:global(sel)` wrapper is Svelte
+ * syntax and ships verbatim here, which browsers ignore. Every rule below was
+ * silently dead until these wrappers came off -- the body never took its
+ * background or text colour, `box-sizing` never applied, focus outlines never
+ * drew, and `.sr-only` never hid anything. That is a large part of why
+ * components ended up hardcoding colours: the foundation they should have
+ * inherited did nothing. */
+body {
   @apply m-0 p-0 bg-background text-foreground font-sans;
 }
 
-:global(*) {
+* {
   box-sizing: border-box;
 }
 
+/* Form controls keep the user agent's white field background unless told
+ * otherwise. Once body text became light, that meant near-white text on a white
+ * box -- invisible. Monaco is excluded: it manages its own hidden input, and
+ * giving that one a background paints over the editor.
+ *
+ * :where() keeps specificity at zero so any component style still wins. */
+:where(input:not([type='checkbox']):not([type='radio']):not([type='range'])),
+:where(textarea),
+:where(select) {
+  background-color: hsl(var(--surface-1));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+
+:where(.monaco-editor) :where(input, textarea) {
+  background-color: transparent;
+}
+
+:where(input, textarea)::placeholder {
+  color: hsl(var(--text-faint));
+  opacity: 1;
+}
+
 /* Screen reader only text for accessibility */
-:global(.sr-only) {
+.sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -70,29 +194,37 @@
   border-width: 0;
 }
 
-/* Focus styles for keyboard navigation */
-:global(button:focus),
-:global(a:focus),
-:global(input:focus),
-:global(select:focus),
-:global(textarea:focus) {
-  outline: 2px solid #0066cc;
+/* Focus styles for keyboard navigation. Uses the ring token so the indicator
+ * stays visible on both grounds; the old hardcoded #0066cc disappeared into a
+ * dark panel. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
 
 /* Skip to main content link for keyboard users */
-:global(.skip-to-main) {
+.skip-to-main {
   position: absolute;
   top: -40px;
   left: 0;
-  background: #0066cc;
-  color: white;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
   padding: 8px;
   text-decoration: none;
   z-index: 100;
 }
 
-:global(.skip-to-main:focus) {
+.skip-to-main:focus {
   top: 0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

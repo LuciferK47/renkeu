@@ -2,32 +2,307 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
+  # Use the checked-in .sqlx/ data so query! macros compile without a live DB.
+  SQLX_OFFLINE: "true"
 
 jobs:
-  build-and-test:
+  rust:
+    name: Rust (fmt, clippy, tests)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy, rustfmt
-        
-    - name: Cache dependencies
-      uses: Swatinem/rust-cache@v2
-        
-    - name: Check formatting
-      run: cargo fmt --all -- --check
-      
-    - name: Run clippy
-      run: cargo clippy --workspace --exclude latex-ai-tauri -- -D warnings
-      
-    - name: Run tests
-      run: cargo test --workspace --exclude latex-ai-tauri
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Tectonic links these at build time (README "Build & run").
+      - name: Install Tectonic build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libgraphite2-dev libharfbuzz-dev \
+            libicu-dev libfreetype-dev libssl-dev zlib1g-dev
+
+      # Compile tests download the LaTeX support bundle on first run; cache it
+      # so CI does not refetch ~40 MB per job.
+      - name: Cache Tectonic bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-bundle-${{ runner.os }}-v1
+
+      # No distro ships libpdfium, so the README tells humans to fetch a
+      # prebuilt binary. CI never did, which made the three visual-fix tests
+      # return 500 and fail here while passing on any machine that had followed
+      # the README. Pinned rather than `latest` so the suite cannot break on a
+      # day nobody changed anything — but the version is not arbitrary: older
+      # builds are ABI-incompatible with pdfium-render 0.9.2 and fail the same
+      # way. chromium/7961 is verified against the test suite; bump it only
+      # after re-running the m3 visual tests.
+      - name: Install libpdfium
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/pdfium.tgz \
+            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7961/pdfium-linux-x64.tgz
+          mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
+          sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/
+          sudo ldconfig
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      # The tauri crate is M5 scope and needs the full webkit2gtk stack; it is
+      # built in the `desktop` job below, not here.
+      - name: Clippy (workspace lints are deny-level)
+        run: cargo clippy --workspace --exclude latex-ai-tauri --all-targets -- -D warnings
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      # The `ci` profile in .config/nextest.toml keeps LaTeX-compiling tests
+      # serial; GitHub runners have 4 cores / 16 GB and several tests each
+      # start a full Tectonic engine.
+      - name: Run tests
+        run: cargo nextest run --profile ci --workspace --exclude latex-ai-tauri
+
+  supply-chain:
+    name: Licenses, advisories, unused deps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deny and cargo-machete
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-machete
+
+      - name: cargo deny (advisories, licenses, bans, sources)
+        run: cargo deny check
+
+      - name: cargo machete (unused dependencies)
+        run: cargo machete
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Tectonic build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libgraphite2-dev libharfbuzz-dev \
+            libicu-dev libfreetype-dev libssl-dev zlib1g-dev
+
+      - name: Cache Tectonic bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-bundle-${{ runner.os }}-v1
+
+      # No distro ships libpdfium, so the README tells humans to fetch a
+      # prebuilt binary. CI never did, which made the three visual-fix tests
+      # return 500 and fail here while passing on any machine that had followed
+      # the README. Pinned rather than `latest` so the suite cannot break on a
+      # day nobody changed anything — but the version is not arbitrary: older
+      # builds are ABI-incompatible with pdfium-render 0.9.2 and fail the same
+      # way. chromium/7961 is verified against the test suite; bump it only
+      # after re-running the m3 visual tests.
+      - name: Install libpdfium
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/pdfium.tgz \
+            https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7961/pdfium-linux-x64.tgz
+          mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
+          sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/
+          sudo ldconfig
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+
+      # tarpaulin rebuilds the workspace instrumented and re-runs every test
+      # under ptrace; one test thread keeps only one Tectonic engine resident.
+      - name: Measure coverage
+        run: |
+          cargo tarpaulin --workspace --exclude latex-ai-tauri \
+            --out Xml --timeout 400 --jobs 2 -- --test-threads=1
+
+  desktop-deps:
+    name: Desktop link check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The workspace links the SYSTEM harfbuzz (Tectonic's
+      # `external-harfbuzz`) so it does not collide with webkit2gtk's copy.
+      # Assert the manifest keeps that feature: dropping it reintroduces a
+      # segfault that only appears when the desktop bundle is *run*.
+      - name: external-harfbuzz is still enabled
+        run: |
+          grep -q 'features = \["external-harfbuzz"\]' Cargo.toml \
+            || { echo "tectonic must keep external-harfbuzz — see masterplan §15.1"; exit 1; }
+          echo "external-harfbuzz OK"
+
+  container:
+    name: Image builds and boots healthy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pulls the buildkit image from Docker Hub, which times out often enough
+      # to red a run that has nothing wrong with it. Retry rather than let
+      # someone learn to ignore this job.
+      - uses: docker/setup-buildx-action@v3
+        id: buildx
+        continue-on-error: true
+      - uses: docker/setup-buildx-action@v3
+        if: steps.buildx.outcome == 'failure'
+
+      # The image had shipped for four milestones without ever building: the
+      # slim rust base has no C++ compiler and tectonic_engine_xetex needs one.
+      # Nothing in CI compiled it, so nothing noticed. Cache the cargo registry
+      # and target dir through the GitHub Actions cache so this costs minutes,
+      # not the full cold build.
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: latex-ai:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The runtime is `scratch` holding only the binary's ldd closure. Adding
+      # a package or switching back to a distro base would undo that quietly,
+      # so assert it. Measured by flattening the filesystem rather than reading
+      # `docker images`, whose SIZE column double-counts compressed and
+      # uncompressed blobs on the containerd store and so differs by Docker
+      # version — a guard has to mean the same thing everywhere.
+      - name: Image stays minimal
+        run: |
+          set -euo pipefail
+          cid=$(docker create latex-ai:ci)
+          bytes=$(docker export "$cid" | wc -c)
+          docker rm -f "$cid" >/dev/null
+          mb=$((bytes / 1048576))
+          echo "flattened image: ${mb} MB"
+          # ~60 MB today, over half of it libicudata. 90 leaves room for
+          # dependency drift without letting a distro base back in.
+          [ "$mb" -lt 90 ] || { echo "image grew to ${mb} MB (limit 90)"; exit 1; }
+
+      # Building is not enough: the daemon bound loopback only, which Docker
+      # cannot route a published port to, while the in-container healthcheck
+      # still passed. Assert reachability from *outside* the container.
+      - name: Boot it and check health from the host
+        run: |
+          set -euo pipefail
+          docker run -d --name latexai -p 127.0.0.1:3000:3000 \
+            -e ENV=production -e ALLOWED_ORIGINS=http://localhost:3000 \
+            latex-ai:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then
+              echo "healthy after ${i}s"
+              curl -fsS http://127.0.0.1:3000/health
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server never became reachable from the host:"
+          docker logs latexai
+          exit 1
+
+  contracts:
+    name: SSE taxonomy lock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # masterplan.md §8.2 hard rule: endpoints may only emit events from the
+      # locked taxonomy. Every emission goes through sse::send/sse::event, so
+      # checking their first argument covers the whole surface.
+      - name: Assert only locked SSE events are emitted
+        run: |
+          set -euo pipefail
+          ALLOWED='progress|step|proposal|applying|compiled|thinking|done|error|awaiting_approval|keepalive'
+          # rustfmt splits these calls across lines, so flatten whitespace
+          # before matching — a line-oriented grep misses most emissions.
+          emitted=$(find crates/latex_ai_server/src -name '*.rs' -exec cat {} + \
+            | tr '\n' ' ' \
+            | grep -oE 'sse::(send|event)\( *(&tx, *)?"[a-z_]+"' \
+            | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u)
+          echo "emitted: $(echo "$emitted" | tr '\n' ' ')"
+          violations=$(echo "$emitted" | grep -vE "^($ALLOWED)$" || true)
+          if [ -n "$violations" ]; then
+            echo "Off-taxonomy SSE events emitted (masterplan.md §8.2):"
+            echo "$violations"
+            exit 1
+          fi
+          echo "SSE taxonomy OK"
+
+  frontend:
+    name: Frontend (tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+  desktop:
+    name: Tauri shell builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Tauri + Tectonic system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            pkg-config libfontconfig1-dev libgraphite2-dev libharfbuzz-dev \
+            libicu-dev libfreetype-dev libssl-dev zlib1g-dev
+
+      # The SPA build is the Tauri frontendDist; the crate expects it to exist.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: frontend
+
+      - name: Check the desktop crate compiles
+        run: cargo check -p latex-ai-tauri

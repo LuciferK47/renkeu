@@ -1,167 +1,133 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onMount, onDestroy } from 'svelte'
+  import Icon from './Icon.svelte'
 
   export let currentTheme = 'light' // 'light', 'dark', 'auto'
   export let onThemeChange = async (theme) => {}
 
   let mounted = false
   let systemPrefersDark = false
+  let mediaQuery = null
+
+  const MODES = [
+    { id: 'light', label: 'Light', icon: 'sun' },
+    { id: 'dark', label: 'Dark', icon: 'moon' },
+    { id: 'auto', label: 'Match system', icon: 'monitor' },
+  ]
 
   /**
-   * Apply theme to the document
+   * Apply theme to the document.
+   *
+   * One hook, `data-theme` on <html>. This used to set four (`data-theme`,
+   * `.dark`, `.dark-mode`, `.light-mode`), two of which nothing read. They
+   * existed because components hardcoded their colors; now that colors resolve
+   * through tokens, the attribute alone is enough — and Tailwind's darkMode
+   * selector points at it too.
    */
   function applyTheme(theme) {
-    const html = document.documentElement
     const isDark = theme === 'dark' || (theme === 'auto' && systemPrefersDark)
-
-    if (isDark) {
-      html.setAttribute('data-theme', 'dark')
-      html.classList.add('dark')
-      document.body.classList.add('dark-mode')
-      document.body.classList.remove('light-mode')
-    } else {
-      html.setAttribute('data-theme', 'light')
-      html.classList.remove('dark')
-      document.body.classList.add('light-mode')
-      document.body.classList.remove('dark-mode')
-    }
-
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
     currentTheme = theme
   }
 
-  /**
-   * Handle theme change
-   */
   async function handleThemeChange(newTheme) {
     applyTheme(newTheme)
     await onThemeChange(newTheme)
   }
 
-  /**
-   * Check system preference for dark mode
-   */
-  function checkSystemPreference() {
-    systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    if (currentTheme === 'auto') {
-      applyTheme('auto')
-    }
+  function onSystemChange(e) {
+    systemPrefersDark = e.matches
+    if (currentTheme === 'auto') applyTheme('auto')
   }
 
-  /**
-   * Load theme from server configuration
-   */
   async function loadTheme() {
     try {
       const res = await fetch('/api/config')
       if (!res.ok) throw new Error('Failed to load config')
       const config = await res.json()
-      if (config.theme?.mode) {
-        applyTheme(config.theme.mode)
-      }
+      if (config.theme?.mode) applyTheme(config.theme.mode)
     } catch (e) {
       console.error('Error loading theme:', e)
     }
   }
 
-  /**
-   * Save theme to server configuration
-   */
-  async function saveTheme(theme) {
-    try {
-      const res = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 'theme.mode': theme })
-      })
-      if (!res.ok) throw new Error('Failed to save config')
-      return true
-    } catch (e) {
-      console.error('Error saving theme:', e)
-      return false
-    }
-  }
-
   onMount(async () => {
-    checkSystemPreference()
+    mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    systemPrefersDark = mediaQuery.matches
+    if (currentTheme === 'auto') applyTheme('auto')
+    mediaQuery.addEventListener('change', onSystemChange)
 
-    // Listen to system preference changes
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    mediaQuery.addEventListener('change', (e) => {
-      systemPrefersDark = e.matches
-      if (currentTheme === 'auto') {
-        applyTheme('auto')
-      }
-    })
-
-    // Load persisted theme
     await loadTheme()
     mounted = true
   })
+
+  onDestroy(() => {
+    mediaQuery?.removeEventListener('change', onSystemChange)
+  })
 </script>
 
-<div class="theme-toggle-container">
-  <button
-    class="theme-btn"
-    on:click={() => handleThemeChange('light')}
-    class:active={currentTheme === 'light'}
-    title="Light mode"
-  >
-    [SUN]
-  </button>
-
-  <button
-    class="theme-btn"
-    on:click={() => handleThemeChange('dark')}
-    class:active={currentTheme === 'dark'}
-    title="Dark mode"
-  >
-    [MOON]
-  </button>
-
-  <button
-    class="theme-btn"
-    on:click={() => handleThemeChange('auto')}
-    class:active={currentTheme === 'auto'}
-    title="Auto (system preference)"
-  >
-    ⚙️
-  </button>
+<div class="theme-toggle" role="radiogroup" aria-label="Colour theme">
+  {#each MODES as mode (mode.id)}
+    <button
+      type="button"
+      class="mode"
+      role="radio"
+      aria-checked={currentTheme === mode.id}
+      class:active={currentTheme === mode.id}
+      on:click={() => handleThemeChange(mode.id)}
+      title={mode.label}
+    >
+      <span class="sr-only">{mode.label}</span>
+      <Icon name={mode.icon} size={15} />
+    </button>
+  {/each}
 </div>
 
 <style>
-  .theme-toggle-container {
+  .theme-toggle {
     display: flex;
-    gap: 0.25rem;
+    gap: 2px;
     align-items: center;
-    background: var(--bg-secondary, #f5f5f5);
-    padding: 0.25rem;
-    border-radius: 0.375rem;
-    border: 1px solid var(--border-color, #e0e0e0);
+    background: hsl(var(--surface-2));
+    padding: 3px;
+    border-radius: var(--radius-pill);
+    border: 1px solid hsl(var(--border));
   }
 
-  .theme-btn {
-    padding: 0.375rem 0.5rem;
+  .mode {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: 0.25rem;
+    border: 0;
+    border-radius: var(--radius-pill);
     cursor: pointer;
-    font-size: 0.9rem;
-    transition: all 0.2s ease;
-    color: hsl(var(--muted-foreground));
+    color: hsl(var(--text-dim));
+    transition:
+      background-color 0.16s ease,
+      color 0.16s ease;
   }
 
-  .theme-btn:hover {
-    background: hsl(var(--secondary));
+  .mode:hover {
+    background: hsl(var(--accent));
     color: hsl(var(--foreground));
   }
 
-  .theme-btn.active {
+  .mode.active {
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
   }
 
-  :global(.dark-mode) .theme-toggle-container {
-    background: hsl(var(--secondary));
-    border-color: hsl(var(--border));
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 </style>
