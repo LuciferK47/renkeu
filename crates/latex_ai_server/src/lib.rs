@@ -14,9 +14,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
+pub(crate) mod agent;
 pub mod bootstrap;
 pub mod error;
 pub mod jobs;
+pub mod proposals;
 pub mod routes;
 pub(crate) mod sse;
 
@@ -27,6 +29,8 @@ pub struct AppState {
     pub compiler: Arc<latex_ai_compiler::Compiler>,
     pub store: Arc<latex_ai_core::storage::Store>,
     pub jobs: Arc<jobs::JobRegistry>,
+    /// Verified proposals held for review, with the base they were made on.
+    pub proposals: Arc<proposals::ProposalRegistry>,
     /// Canonicalized workspace root every user-supplied path is sandboxed to.
     pub workspace_root: PathBuf,
     /// Hot-swappable configuration; routes call `snapshot()` once per request.
@@ -286,7 +290,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use latex_ai_core::ai::{AiError, PlanFuture};
+    use latex_ai_core::ai::{AiError, PlanFuture, PlanRequest};
     use latex_ai_core::compile::AgentEdit;
     use tokio_util::sync::CancellationToken;
     use tower::ServiceExt;
@@ -294,12 +298,7 @@ mod tests {
     /// Planner that always errors — router tests never reach the LLM.
     struct NoPlanner;
     impl EditPlanner for NoPlanner {
-        fn plan_edits<'a>(
-            &'a self,
-            _instruction: &'a str,
-            _file_content: &'a str,
-            _cancel: CancellationToken,
-        ) -> PlanFuture<'a> {
+        fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _cancel: CancellationToken) -> PlanFuture<'a> {
             Box::pin(async { Err::<Vec<AgentEdit>, _>(AiError::EmptyResponse) })
         }
         fn visual_fix<'a>(
@@ -345,6 +344,7 @@ mod tests {
             )),
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(jobs::JobRegistry::default()),
+            proposals: Arc::new(proposals::ProposalRegistry::default()),
             workspace_root: root,
             settings: Arc::new(
                 latex_ai_core::config::Settings::open(

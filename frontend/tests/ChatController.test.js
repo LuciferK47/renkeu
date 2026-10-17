@@ -216,6 +216,7 @@ describe('ChatController', () => {
         proposal.edits,
         ['h1'],
         'v1',
+        { proposalId: null },
       )
     })
 

@@ -9,7 +9,7 @@ use super::{
     ApiKey, Config, ConfigError, EnvOverrides, KeySource, Overridden, SECRETS_FILE, CONFIG_FILE,
     apply_env, config_toml, load, secrets_toml,
 };
-use crate::ai::{AiError, EditPlanner, LlmPlanner, PlanFuture, VisualFixRequest};
+use crate::ai::{AiError, EditPlanner, LlmPlanner, PlanFuture, PlanRequest, VisualFixRequest};
 use arc_swap::ArcSwap;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -257,18 +257,13 @@ impl EditPlanner for ConfiguredPlanner {
 
     fn plan_edits<'a>(
         &'a self,
-        instruction: &'a str,
-        file_content: &'a str,
+        req: PlanRequest<'a>,
         cancel: CancellationToken,
     ) -> PlanFuture<'a> {
         Box::pin(async move {
             let snap = self.settings.snapshot();
             let planner = snap.planner.as_ref().ok_or(AiError::Disabled)?;
-            within(
-                snap.config.ai.timeout_secs,
-                planner.plan_edits(instruction, file_content, cancel),
-            )
-            .await
+            within(snap.config.ai.timeout_secs, planner.plan_edits(req, cancel)).await
         })
     }
 
@@ -301,8 +296,9 @@ mod tests {
         assert!(!s.snapshot().ai_enabled());
         let planner = ConfiguredPlanner::new(Arc::new(s));
         assert!(!planner.is_available());
+        let req = PlanRequest { instruction: "x", files: &[], other_files: &[], feedback: "" };
         let err = planner
-            .plan_edits("x", "y", CancellationToken::new())
+            .plan_edits(req, CancellationToken::new())
             .await
             .unwrap_err();
         assert!(matches!(err, AiError::Disabled), "{err:?}");

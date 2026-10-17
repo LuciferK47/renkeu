@@ -91,6 +91,7 @@ pub async fn build_state(opts: BootOptions) -> anyhow::Result<AppState> {
         compiler,
         store,
         jobs: Arc::new(JobRegistry::default()),
+        proposals: Arc::new(crate::proposals::ProposalRegistry::default()),
         workspace_root,
         settings,
         metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),

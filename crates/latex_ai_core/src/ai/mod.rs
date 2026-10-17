@@ -51,11 +51,10 @@ pub trait EditPlanner: Send + Sync {
         true
     }
 
-    /// Propose edits fulfilling `instruction` against `file_content`.
+    /// Propose edits fulfilling the request against the files it shows.
     fn plan_edits<'a>(
         &'a self,
-        instruction: &'a str,
-        file_content: &'a str,
+        req: PlanRequest<'a>,
         cancel: CancellationToken,
     ) -> PlanFuture<'a>;
 
@@ -65,6 +64,86 @@ pub trait EditPlanner: Send + Sync {
         req: VisualFixRequest<'a>,
         cancel: CancellationToken,
     ) -> PlanFuture<'a>;
+}
+
+/// One file as the planner sees it.
+#[derive(Debug, Clone, Copy)]
+pub struct PlanFile<'a> {
+    /// Project-relative path; edits must use exactly this as `file_path`.
+    pub path: &'a str,
+    pub content: &'a str,
+}
+
+/// Everything the planner is told for one attempt.
+#[derive(Debug, Clone, Copy)]
+pub struct PlanRequest<'a> {
+    pub instruction: &'a str,
+    /// Files the planner may edit. The first is the one the user is in.
+    pub files: &'a [PlanFile<'a>],
+    /// The rest of the project, by name only, so it knows the layout.
+    pub other_files: &'a [String],
+    /// What the previous attempt got wrong (compiler errors, a refused edit).
+    /// Empty on the first attempt.
+    pub feedback: &'a str,
+}
+
+/// Per-file cap on what is sent, in bytes. A thesis chapter fits; a pasted
+/// data file does not get to eat the whole context window.
+const MAX_FILE_BYTES: usize = 60_000;
+
+impl PlanRequest<'_> {
+    /// The user message: instruction, project layout, every file with line
+    /// numbers, and the last attempt's feedback.
+    ///
+    /// Line numbers let the model say "replace lines 12-14" instead of
+    /// reproducing text it might misquote. They are a view only: they are not
+    /// part of the file, and the system prompt says so.
+    #[must_use]
+    pub fn render_prompt(&self) -> String {
+        let mut out = format!("Instruction: {}\n", self.instruction);
+
+        if !self.other_files.is_empty() {
+            out.push_str("\nOther project files (not shown): ");
+            out.push_str(&self.other_files.join(", "));
+            out.push('\n');
+        }
+        for file in self.files {
+            out.push_str(&format!("\nFile: {}\n```latex\n", file.path));
+            out.push_str(&number_lines(file.content));
+            out.push_str("```\n");
+        }
+        if !self.feedback.trim().is_empty() {
+            out.push_str("\nYour previous attempt did not work:\n");
+            out.push_str(self.feedback.trim());
+            out.push('\n');
+        }
+        out
+    }
+}
+
+/// `content` with a right-aligned line number and ` | ` before every line,
+/// cut off (with a note) after [`MAX_FILE_BYTES`].
+fn number_lines(content: &str) -> String {
+    let shown = if content.len() > MAX_FILE_BYTES {
+        let mut cut = MAX_FILE_BYTES;
+        while !content.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        &content[..cut]
+    } else {
+        content
+    };
+    let total = shown.lines().count().max(1);
+    let width = total.to_string().len();
+
+    let mut out = String::with_capacity(shown.len() + total * (width + 3));
+    for (i, line) in shown.lines().enumerate() {
+        out.push_str(&format!("{:>width$} | {line}\n", i + 1));
+    }
+    if shown.len() < content.len() {
+        out.push_str("[... the rest of this file is not shown ...]\n");
+    }
+    out
 }
 
 /// Everything the planner needs to reason about a visual defect: what the user
@@ -83,17 +162,17 @@ pub struct VisualFixRequest<'a> {
 }
 
 const SYSTEM_PROMPT: &str = r#"You are a LaTeX expert. You must output ONLY a JSON array of AgentEdit objects. Do not include markdown codeblocks or any other text.
-Each AgentEdit looks like:
-{
-  "file_path": "main.tex",
-  "op": "replace_range",
-  "text": "exact text currently in the file",
-  "insert_text": "replacement text"
-}
+Each file is shown with line numbers in the form `  12 | text`. The number and the ` | ` are NOT part of the file; they only tell you where you are.
+Each AgentEdit looks like one of:
+{ "file_path": "main.tex", "op": "replace_range", "text": "exact text currently in the file", "insert_text": "replacement text" }
+{ "file_path": "main.tex", "op": "replace_range", "start_line": 12, "end_line": 14, "insert_text": "replacement lines" }
+{ "file_path": "main.tex", "op": "insert", "line": 5, "insert_text": "new lines" }
 Rules:
-- "text" must be copied verbatim from the file content you were given.
-- Use op "rewrite_file" with "payload" holding the full new file only when a
-  targeted replacement is impossible.
+- "file_path" must be one of the files shown, spelled exactly as shown.
+- Line numbers always refer to the files as shown to you, even when several edits are in one answer.
+- "text" must be copied verbatim from the file WITHOUT the line numbers or the ` | `.
+- Use op "rewrite_file" with "payload" holding the full new file only when a targeted replacement is impossible.
+- Do not add \input or \include of files outside the project, and never use \openout, \write18 or \catcode.
 - Propose the smallest edits that satisfy the instruction.
 "#;
 
@@ -253,16 +332,10 @@ fn extract_json(text: &str) -> &str {
 impl EditPlanner for LlmPlanner {
     fn plan_edits<'a>(
         &'a self,
-        instruction: &'a str,
-        file_content: &'a str,
+        req: PlanRequest<'a>,
         cancel: CancellationToken,
     ) -> PlanFuture<'a> {
-        Box::pin(async move {
-            let user_prompt = format!(
-                "Instruction: {instruction}\n\nFile Content:\n```latex\n{file_content}\n```"
-            );
-            self.request_edits(user_prompt, cancel).await
-        })
+        Box::pin(async move { self.request_edits(req.render_prompt(), cancel).await })
     }
 
     fn visual_fix<'a>(
@@ -370,5 +443,58 @@ mod tests {
         let edits: Vec<AgentEdit> = serde_json::from_str(extract_json(text)).unwrap();
         assert_eq!(edits.len(), 1);
         assert_eq!(edits[0].file_path, "main.tex");
+    }
+
+    fn request<'a>(files: &'a [PlanFile<'a>], other: &'a [String], feedback: &'a str) -> PlanRequest<'a> {
+        PlanRequest { instruction: "fix the table", files, other_files: other, feedback }
+    }
+
+    #[test]
+    fn the_prompt_numbers_every_line_of_every_file() {
+        let files = [
+            PlanFile { path: "main.tex", content: "a\nb\n" },
+            PlanFile { path: "chapters/one.tex", content: "x\n" },
+        ];
+        let other = vec!["refs.bib".to_owned()];
+        let prompt = request(&files, &other, "").render_prompt();
+
+        assert!(prompt.starts_with("Instruction: fix the table\n"), "{prompt}");
+        assert!(prompt.contains("Other project files (not shown): refs.bib"), "{prompt}");
+        assert!(prompt.contains("File: main.tex\n```latex\n1 | a\n2 | b\n```"), "{prompt}");
+        assert!(prompt.contains("File: chapters/one.tex\n```latex\n1 | x\n```"), "{prompt}");
+        assert!(!prompt.contains("previous attempt"), "no feedback on the first try");
+    }
+
+    #[test]
+    fn line_numbers_are_right_aligned_to_the_widest() {
+        let content: String = (1..=12).map(|i| format!("l{i}\n")).collect();
+        let numbered = number_lines(&content);
+        assert!(numbered.starts_with(" 1 | l1\n"), "{numbered}");
+        assert!(numbered.contains("\n12 | l12\n"), "{numbered}");
+    }
+
+    #[test]
+    fn feedback_is_included_only_when_there_is_some() {
+        let files = [PlanFile { path: "main.tex", content: "x\n" }];
+        let prompt = request(&files, &[], "main.tex:3: Undefined control sequence.").render_prompt();
+        assert!(
+            prompt.contains("Your previous attempt did not work:\nmain.tex:3: Undefined control sequence."),
+            "{prompt}"
+        );
+        assert!(!request(&files, &[], "   ").render_prompt().contains("previous attempt"));
+    }
+
+    #[test]
+    fn huge_files_are_cut_with_a_note_and_never_mid_character() {
+        let content = "é".repeat(MAX_FILE_BYTES);
+        let numbered = number_lines(&content);
+        assert!(numbered.contains("the rest of this file is not shown"));
+        assert!(numbered.len() < MAX_FILE_BYTES + 200);
+    }
+
+    #[test]
+    fn the_system_prompt_explains_the_numbering_and_forbids_the_unsafe_forms() {
+        assert!(SYSTEM_PROMPT.contains("NOT part of the file"));
+        assert!(SYSTEM_PROMPT.contains("\\openout"));
     }
 }

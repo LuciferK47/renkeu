@@ -33,6 +33,14 @@ pub enum AccessKind {
 /// can never produce an executable, dotenv, or key file.
 const ALLOWED_WRITE_EXTENSIONS: &[&str] = &["tex", "bib", "sty", "cls", "tikz"];
 
+/// Whether `path` has an extension the engine may write.
+#[must_use]
+pub fn has_writable_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ALLOWED_WRITE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+}
+
 /// Secrets and VCS internals that must never be read through the API, sent
 /// to a model, or exposed to the TeX engine, whatever their extension.
 ///

@@ -282,6 +282,15 @@ impl Compiler {
             diagnostics.extend(bib);
         }
 
+        // An error TeX raised after the last file closed (a runaway argument
+        // at end of input) has no file; the document it happened in is the
+        // one we compiled.
+        for d in &mut diagnostics {
+            if d.severity == Severity::Error && d.file.is_none() {
+                d.file = Some(job.main.clone());
+            }
+        }
+
         let failed = !(result.tex_ok && result.has_pdf);
         if failed && !diagnostics.iter().any(|d| d.severity == Severity::Error) {
             // No parsable error (the engine could not even start, or died

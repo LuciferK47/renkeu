@@ -149,8 +149,17 @@ export class APIClient {
 
   // `expectedEtag` is required: it makes the write conditional on the file not
   // having moved while the user reviewed; a 409 carries the winning etag.
-  // `instruction` is stored in the history row.
-  applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag, instruction = null) {
+  // `instruction` is stored in the history row. `proposalId` (from the
+  // proposal event) lets the server check files other than `filePath` and
+  // lets `rebase` move the hunks onto a file that changed during review.
+  applySelectedHunks(
+    filePath,
+    edits,
+    selectedHunkIds,
+    expectedEtag,
+    instruction = null,
+    { proposalId = null, rebase = false } = {}
+  ) {
     if (!expectedEtag) {
       return Promise.reject(
         new APIError('Cannot apply edits without the ETag of the file they were proposed for.', 428, null)
@@ -162,7 +171,9 @@ export class APIClient {
         edits,
         selected_hunk_ids: selectedHunkIds,
         expected_etag: expectedEtag,
-        ...(instruction ? { instruction } : {})
+        ...(instruction ? { instruction } : {}),
+        ...(proposalId ? { proposal_id: proposalId } : {}),
+        ...(rebase ? { rebase: true } : {})
       }
     });
   }

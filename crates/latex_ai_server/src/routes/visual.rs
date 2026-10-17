@@ -71,6 +71,11 @@ pub struct VisualFixResponse {
     /// The source lines sent to the model as context.
     pub snippet: String,
     pub snippet_start_line: u32,
+    /// `ETag` of `file` as the proposal saw it: send it back as
+    /// `expected_etag` when applying.
+    pub etag: String,
+    /// The build the box was drawn on.
+    pub build: String,
     /// Base64 PNG of the crop, so the UI can show exactly what was analysed.
     pub base64_crop: String,
     pub edits: Vec<latex_ai_core::compile::AgentEdit>,
@@ -87,6 +92,7 @@ pub async fn visual_fix(
     let dpi = validate_bbox(&req)?;
 
     let build = resolve_build(&state, req.build.as_deref(), Some(&req.file_path)).await?;
+    ensure_build_is_current(&state, &build).await?;
     let pdf_path = build.pdf_path();
     let synctex_path = build.synctex_path();
     if !build.manifest.has_synctex || !synctex_path.exists() {
@@ -170,7 +176,7 @@ pub async fn visual_fix(
 
     // Same stamping the agent routes do, so the proposal is applicable through
     // POST /api/agent/apply-selected (masterplan §12 M3 audit: integration).
-    super::agent::stamp_hunk_ids(&mut edits);
+    crate::agent::stamp_hunk_ids(&mut edits);
 
     Ok(Json(VisualFixResponse {
         file: rel_path,
@@ -178,6 +184,8 @@ pub async fn visual_fix(
         exact: hit.exact,
         snippet,
         snippet_start_line,
+        etag: latex_ai_core::storage::etag_of(&source),
+        build: build.id().to_owned(),
         base64_crop,
         edits,
     }))
@@ -277,6 +285,31 @@ fn resolve_hit_path(
         .map_or_else(|| main.to_owned(), |p| p.to_string_lossy().into_owned());
     let abs = validate_path(&state.workspace_root, &rel, AccessKind::Read)?;
     Ok((rel, abs))
+}
+
+/// A box drawn on a PDF means something only for the source it was compiled
+/// from. If the project has changed since (the build id is a fingerprint of
+/// every input), SyncTeX would map the box to the wrong line and the model
+/// would be asked to "fix" the wrong text: refuse, and say to recompile.
+async fn ensure_build_is_current(
+    state: &AppState,
+    build: &latex_ai_compiler::builds::Build,
+) -> Result<(), ApiError> {
+    let (root, main) = (state.workspace_root.clone(), build.manifest.main.clone());
+    let current = tokio::task::spawn_blocking(move || {
+        latex_ai_compiler::project::fingerprint(&root, &main, true)
+    })
+    .await
+    .map_err(|e| ApiError::Internal { message: e.to_string() })?
+    .map_err(|e| ApiError::Internal { message: format!("reading the project: {e}") })?;
+    if current == build.id() {
+        Ok(())
+    } else {
+        Err(ApiError::Conflict {
+            message: "the document changed since this PDF was compiled; compile again, then select the region"
+                .to_owned(),
+        })
+    }
 }
 
 /// Find the build a request is about: the one it names, else the newest

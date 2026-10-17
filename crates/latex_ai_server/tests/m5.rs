@@ -10,7 +10,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest, PlanRequest};
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -49,12 +49,7 @@ fn with_cors_env(
 
 struct FailingPlanner;
 impl EditPlanner for FailingPlanner {
-    fn plan_edits<'a>(
-        &'a self,
-        _instruction: &'a str,
-        _file_content: &'a str,
-        _cancel: CancellationToken,
-    ) -> PlanFuture<'a> {
+    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _cancel: CancellationToken) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::Request("provider unavailable".into())) })
     }
     fn visual_fix<'a>(
@@ -117,6 +112,7 @@ async fn test_app() -> TestApp {
                 root.clone(),
             )),
             jobs: Arc::new(JobRegistry::default()),
+            proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
             workspace_root: root,
             settings: Arc::new(
                 latex_ai_core::config::Settings::open(

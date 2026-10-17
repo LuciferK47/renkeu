@@ -5,6 +5,12 @@ import { uiStore, pushToast } from '../stores/uiStore.js';
 import { fileStore } from '../stores/fileStore.js';
 import { compileDocument } from './CompileController.js';
 
+function getProposalId() {
+  let id = null;
+  aiStore.subscribe((a) => (id = a.currentProposal?.proposal_id ?? null))();
+  return id;
+}
+
 function getFileStoreValue() {
   let value;
   const unsubscribe = fileStore.subscribe((v) => (value = v));
@@ -160,13 +166,24 @@ export async function handleApplyHunks({ edits, selectedHunkIds, expectedEtag } 
   }
 
   uiStore.update((ui) => ({ ...ui, status: 'Applying selected edits...' }));
+  const proposalId = getProposalId();
   try {
-    const res = await aiService.applySelectedHunks(
-      filePath,
-      edits,
-      selectedHunkIds,
-      expectedEtag
-    );
+    let res;
+    try {
+      res = await aiService.applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag, {
+        proposalId
+      });
+    } catch (err) {
+      // The file moved while the user was reviewing. If the server still has
+      // the proposal, ask it to move the hunks onto the new text; it does so
+      // only when every hunk still fits, else it answers 409 again.
+      if (err.status !== 409 || !proposalId) throw err;
+      res = await aiService.applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag, {
+        proposalId,
+        rebase: true
+      });
+      pushToast('The file changed while you reviewed; your changes were moved onto it', 'info');
+    }
     if (!res?.success) throw new Error(res?.error || 'Unknown error');
 
     const reloaded = await fileService.loadFile(filePath);

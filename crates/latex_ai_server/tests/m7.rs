@@ -11,7 +11,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest, PlanRequest};
 use latex_ai_core::storage::etag_of;
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
@@ -21,12 +21,7 @@ use tower::ServiceExt;
 
 struct NoPlanner;
 impl EditPlanner for NoPlanner {
-    fn plan_edits<'a>(
-        &'a self,
-        _i: &'a str,
-        _c: &'a str,
-        _t: CancellationToken,
-    ) -> PlanFuture<'a> {
+    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _t: CancellationToken) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::EmptyResponse) })
     }
     fn visual_fix<'a>(&'a self, _r: VisualFixRequest<'a>, _t: CancellationToken) -> PlanFuture<'a> {
@@ -70,6 +65,7 @@ async fn app() -> App {
             ))),
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(JobRegistry::default()),
+            proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
             workspace_root: root.clone(),
             settings: Arc::new(
                 latex_ai_core::config::Settings::open(

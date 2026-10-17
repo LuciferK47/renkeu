@@ -66,8 +66,14 @@ export async function previewHunks(filePath, edits) {
   return api.previewHunks(filePath, edits);
 }
 
-export async function applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag = null) {
-  return api.applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag);
+export async function applySelectedHunks(
+  filePath,
+  edits,
+  selectedHunkIds,
+  expectedEtag = null,
+  options = {}
+) {
+  return api.applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag, null, options);
 }
 
 export async function requestVisualFix(region) {

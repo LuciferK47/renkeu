@@ -142,6 +142,203 @@ pub fn apply_to_files(
     Ok(out)
 }
 
+/// The edits that turn `original` into `modified`: one per contiguous region
+/// that changed, expressed in **original** line numbers.
+///
+/// This is how an agent run that took several iterations is shown for
+/// review. The iterations' own edits build on each other (the second one's
+/// line numbers refer to the text after the first), so they cannot be
+/// applied one by one to the user's file; the net change can, as independent
+/// hunks that never overlap, so the user can accept some and not others.
+///
+/// Applying the result to `original` gives `modified`, provided both end
+/// with a newline (or both do not) — a change to only the final newline is
+/// not representable as a line edit.
+#[must_use]
+pub fn edits_from_diff(file_path: &str, original: &str, modified: &str) -> Vec<AgentEdit> {
+    use similar::TextDiff;
+
+    let blank = |op: AgentOp| AgentEdit {
+        file_path: file_path.to_owned(),
+        op,
+        payload: None,
+        text: None,
+        start_line: None,
+        end_line: None,
+        line: None,
+        insert_text: None,
+        expected_etag: None,
+        hunk_id: None,
+    };
+
+    if original == modified {
+        return Vec::new();
+    }
+    if original.is_empty() {
+        let mut edit = blank(AgentOp::RewriteFile);
+        edit.payload = Some(modified.to_owned());
+        return vec![edit];
+    }
+
+    let new_lines: Vec<&str> = modified.split_inclusive('\n').collect();
+    let diff = TextDiff::from_lines(original, modified);
+
+    // Walk the script by lengths alone. The `*_index` fields `similar`
+    // reports on some ops are hints that are not always consistent with the
+    // script order (a property test caught a deletion "at" new line 4), so
+    // positions are tracked here instead.
+    struct Region {
+        old_start: usize,
+        old_len: usize,
+        new_start: usize,
+        new_len: usize,
+    }
+    let mut regions: Vec<Region> = Vec::new();
+    let (mut old_pos, mut new_pos) = (0usize, 0usize);
+    let mut open: Option<Region> = None;
+    for op in diff.ops() {
+        let (old_len, new_len, equal) = match *op {
+            similar::DiffOp::Equal { len, .. } => (len, len, true),
+            similar::DiffOp::Delete { old_len, .. } => (old_len, 0, false),
+            similar::DiffOp::Insert { new_len, .. } => (0, new_len, false),
+            similar::DiffOp::Replace { old_len, new_len, .. } => (old_len, new_len, false),
+        };
+        if equal {
+            regions.extend(open.take());
+        } else {
+            let region = open.get_or_insert(Region {
+                old_start: old_pos,
+                old_len: 0,
+                new_start: new_pos,
+                new_len: 0,
+            });
+            region.old_len += old_len;
+            region.new_len += new_len;
+        }
+        old_pos += old_len;
+        new_pos += new_len;
+    }
+    regions.extend(open);
+
+    let mut edits = Vec::new();
+    for region in regions {
+        let (old_start, old_end) = (region.old_start, region.old_start + region.old_len);
+        let new_range = region.new_start..region.new_start + region.new_len;
+
+        // The block keeps its own final line ending: `lines_of` drops exactly
+        // one, so a block that ends in a blank line (`"c\n\n"`) still has it.
+        let text: String = new_lines[new_range].concat();
+
+        let edit = if old_start == old_end {
+            let mut e = blank(AgentOp::Insert);
+            e.line = std::num::NonZeroU64::new(old_start as u64 + 1);
+            e.insert_text = Some(text);
+            e
+        } else {
+            let mut e = blank(AgentOp::ReplaceRange);
+            e.start_line = std::num::NonZeroU64::new(old_start as u64 + 1);
+            e.end_line = std::num::NonZeroU64::new(old_end as u64);
+            e.insert_text = Some(text);
+            e
+        };
+        edits.push(edit);
+    }
+    edits
+}
+
+/// An edit that cannot be moved onto the file as it is now.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum RebaseError {
+    /// Edit `edit` (1-based) touches lines that changed since the proposal.
+    #[error("edit {edit} touches lines that have changed since the proposal was made")]
+    Conflict { edit: usize },
+}
+
+/// Move `edits`, written against `base`, onto `current`.
+///
+/// Line-numbered edits are re-pointed using a line diff of `base` -> `current`:
+/// an edit moves only if every line it replaces — or the line it inserts
+/// before — is unchanged in `current`. Anything else is a [`RebaseError`]
+/// rather than a guess. Text-anchored edits need no change (they search
+/// `current` anyway); whole-file edits move only if the file is untouched.
+///
+/// # Errors
+/// The first edit that cannot be moved.
+pub fn rebase_edits(
+    base: &str,
+    current: &str,
+    edits: &[AgentEdit],
+) -> Result<Vec<AgentEdit>, RebaseError> {
+    use similar::{DiffOp, TextDiff};
+
+    let base_len = base.split_inclusive('\n').count();
+    let current_len = current.split_inclusive('\n').count();
+    let mut map: Vec<Option<usize>> = vec![None; base_len];
+    // Positions are tracked by walking the script, not read from the ops'
+    // index fields (see `edits_from_diff`).
+    let (mut old_pos, mut new_pos) = (0usize, 0usize);
+    for op in TextDiff::from_lines(base, current).ops() {
+        match *op {
+            DiffOp::Equal { len, .. } => {
+                for k in 0..len {
+                    map[old_pos + k] = Some(new_pos + k);
+                }
+                old_pos += len;
+                new_pos += len;
+            }
+            DiffOp::Delete { old_len, .. } => old_pos += old_len,
+            DiffOp::Insert { new_len, .. } => new_pos += new_len,
+            DiffOp::Replace { old_len, new_len, .. } => {
+                old_pos += old_len;
+                new_pos += new_len;
+            }
+        }
+    }
+
+    let mut out = Vec::with_capacity(edits.len());
+    for (i, edit) in edits.iter().enumerate() {
+        let conflict = || RebaseError::Conflict { edit: i + 1 };
+        let mut moved = edit.clone();
+        moved.expected_etag = None;
+        moved.hunk_id = None;
+
+        match edit.op {
+            AgentOp::ReplaceRange if edit.start_line.is_some() && edit.end_line.is_some() => {
+                let (Some(start), Some(end)) = (edit.start_line, edit.end_line) else {
+                    return Err(conflict());
+                };
+                let (s, e) = (start.get() as usize, end.get() as usize);
+                let first = map.get(s - 1).copied().flatten().ok_or_else(conflict)?;
+                for k in s..=e {
+                    if map.get(k - 1).copied().flatten() != Some(first + (k - s)) {
+                        return Err(conflict());
+                    }
+                }
+                moved.start_line = std::num::NonZeroU64::new(first as u64 + 1);
+                moved.end_line = std::num::NonZeroU64::new((first + (e - s)) as u64 + 1);
+            }
+            AgentOp::Insert if edit.line.is_some() => {
+                let line = edit.line.map_or(1, |l| l.get() as usize);
+                let target = if line - 1 >= base_len {
+                    current_len
+                } else {
+                    map.get(line - 1).copied().flatten().ok_or_else(conflict)?
+                };
+                moved.line = std::num::NonZeroU64::new(target as u64 + 1);
+            }
+            AgentOp::RewriteFile | AgentOp::ApplyUnifiedDiff => {
+                if base != current {
+                    return Err(conflict());
+                }
+            }
+            _ => {}
+        }
+        out.push(moved);
+    }
+    Ok(out)
+}
+
 /// One resolved change: bytes `start..end` of the original become `text`.
 struct Splice {
     start: usize,
@@ -950,3 +1147,190 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    fn refs(edits: &[AgentEdit]) -> Vec<&AgentEdit> {
+        edits.iter().collect()
+    }
+
+    fn roundtrip(original: &str, modified: &str) {
+        let edits = edits_from_diff("a.tex", original, modified);
+        assert_eq!(
+            apply_edits(original, &refs(&edits)).unwrap(),
+            modified,
+            "edits: {edits:#?}"
+        );
+    }
+
+    #[test]
+    fn a_net_change_becomes_independent_original_numbered_hunks() {
+        let original = "one\ntwo\nthree\nfour\nfive\n";
+        let modified = "one\nTWO\nthree\nfour\nfive\nsix\n";
+        let edits = edits_from_diff("a.tex", original, modified);
+
+        assert_eq!(edits.len(), 2, "{edits:#?}");
+        assert_eq!(edits[0].op, AgentOp::ReplaceRange);
+        assert_eq!((edits[0].start_line.map(|n| n.get()), edits[0].end_line.map(|n| n.get())), (Some(2), Some(2)));
+        assert_eq!(edits[0].insert_text.as_deref(), Some("TWO\n"));
+        assert_eq!(edits[1].op, AgentOp::Insert);
+        assert_eq!(edits[1].line.map(|n| n.get()), Some(6), "append after the last line");
+
+        // Each hunk applies on its own, which is what per-hunk review needs.
+        assert_eq!(apply_edits(original, &[&edits[0]]).unwrap(), "one\nTWO\nthree\nfour\nfive\n");
+        assert_eq!(apply_edits(original, &[&edits[1]]).unwrap(), "one\ntwo\nthree\nfour\nfive\nsix\n");
+        roundtrip(original, modified);
+    }
+
+    #[test]
+    fn deletions_insertions_and_replacements_round_trip() {
+        roundtrip("a\nb\nc\n", "a\nc\n"); // delete
+        roundtrip("a\nc\n", "a\nb\nc\n"); // insert
+        roundtrip("a\nb\nc\n", "x\ny\nz\nw\n"); // replace everything
+        roundtrip("a\nb\nc\n", "a\n\n\nc\n"); // blank lines
+        roundtrip("a\nb", "a\nB"); // both without a final newline
+        roundtrip("a\r\nb\r\nc\r\n", "a\r\nB1\r\nB2\r\nc\r\n"); // CRLF
+    }
+
+    #[test]
+    fn identical_text_has_no_edits_and_an_empty_original_is_a_rewrite() {
+        assert!(edits_from_diff("a.tex", "same\n", "same\n").is_empty());
+        let edits = edits_from_diff("a.tex", "", "new\n");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].op, AgentOp::RewriteFile);
+        assert_eq!(apply_edits("", &refs(&edits)).unwrap(), "new\n");
+    }
+
+    mod props {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn text() -> impl Strategy<Value = String> {
+            // Few distinct lines, so edits really do overlap and repeat.
+            proptest::collection::vec(prop::sample::select(vec!["a", "b", "c", "", "d d"]), 1..14)
+                .prop_map(|lines| lines.iter().map(|l| format!("{l}\n")).collect())
+        }
+
+        proptest! {
+            #[test]
+            fn applying_the_diff_edits_reproduces_the_new_text(a in text(), b in text()) {
+                let edits = edits_from_diff("a.tex", &a, &b);
+                prop_assert_eq!(apply_edits(&a, &refs(&edits)).unwrap(), b);
+            }
+
+            /// Whenever a line edit is moved, it lands on the same text.
+            #[test]
+            fn a_rebased_range_points_at_the_lines_it_pointed_at(
+                base in text(),
+                current in text(),
+                pick in 0usize..100,
+                width in 1usize..4,
+            ) {
+                let n = base.lines().count();
+                let start = pick % n;
+                let end = (start + width).min(n);
+                let edit = {
+                    let mut e = edits_from_diff("a.tex", "x\n", "y\n").remove(0);
+                    e.start_line = std::num::NonZeroU64::new(start as u64 + 1);
+                    e.end_line = std::num::NonZeroU64::new(end as u64);
+                    e
+                };
+                if let Ok(moved) = rebase_edits(&base, &current, &[edit]) {
+                    let s = moved[0].start_line.unwrap().get() as usize - 1;
+                    let e = moved[0].end_line.unwrap().get() as usize;
+                    let before: Vec<&str> = base.lines().collect();
+                    let after: Vec<&str> = current.lines().collect();
+                    prop_assert_eq!(&before[start..end], &after[s..e]);
+                }
+            }
+        }
+    }
+
+    fn line_edit(start: u64, end: u64, with: &str) -> AgentEdit {
+        let mut e = edits_from_diff("a.tex", "x\n", "y\n").remove(0);
+        e.start_line = std::num::NonZeroU64::new(start);
+        e.end_line = std::num::NonZeroU64::new(end);
+        e.insert_text = Some(with.to_owned());
+        e
+    }
+
+    #[test]
+    fn rebase_moves_line_edits_past_unrelated_changes() {
+        let base = "1\n2\n3\n4\n5\n";
+        // Someone added two lines at the top and changed line 5.
+        let current = "new a\nnew b\n1\n2\n3\n4\nFIVE\n";
+
+        let moved = rebase_edits(base, current, &[line_edit(2, 3, "X")]).unwrap();
+        assert_eq!(moved[0].start_line.map(|n| n.get()), Some(4));
+        assert_eq!(moved[0].end_line.map(|n| n.get()), Some(5));
+        assert_eq!(
+            apply_edits(current, &refs(&moved)).unwrap(),
+            "new a\nnew b\n1\nX\n4\nFIVE\n"
+        );
+    }
+
+    #[test]
+    fn rebase_refuses_edits_on_lines_that_changed() {
+        let base = "1\n2\n3\n";
+        let current = "1\nTWO\n3\n";
+        assert_eq!(
+            rebase_edits(base, current, &[line_edit(3, 3, "ok"), line_edit(2, 3, "clash")]),
+            Err(RebaseError::Conflict { edit: 2 })
+        );
+        // A range that the intervening edit split in two is also a conflict.
+        let split = "1\n2\nINSERTED\n3\n";
+        assert!(rebase_edits(base, split, &[line_edit(2, 3, "x")]).is_err());
+    }
+
+    #[test]
+    fn rebase_handles_insertions_and_leaves_text_anchors_alone() {
+        let base = "a\nb\n";
+        let current = "z\na\nb\n";
+        let mut insert = line_edit(1, 1, "");
+        insert.op = AgentOp::Insert;
+        insert.start_line = None;
+        insert.end_line = None;
+        insert.line = std::num::NonZeroU64::new(2);
+        insert.insert_text = Some("mid".to_owned());
+        let append = {
+            let mut e = insert.clone();
+            e.line = std::num::NonZeroU64::new(3); // after the last base line
+            e
+        };
+        let anchored = {
+            let mut e = line_edit(1, 1, "B");
+            e.start_line = None;
+            e.end_line = None;
+            e.text = Some("b".to_owned());
+            e
+        };
+
+        let moved = rebase_edits(base, current, &[insert, append, anchored]).unwrap();
+        assert_eq!(moved[0].line.map(|n| n.get()), Some(3));
+        assert_eq!(moved[1].line.map(|n| n.get()), Some(4), "still an append");
+        assert_eq!(moved[2].text.as_deref(), Some("b"));
+        assert_eq!(apply_edits(current, &refs(&moved)).unwrap(), "z\na\nmid\nB\nmid\n");
+    }
+
+    #[test]
+    fn rebase_moves_whole_file_edits_only_if_the_file_is_untouched() {
+        let mut rewrite = line_edit(1, 1, "");
+        rewrite.op = AgentOp::RewriteFile;
+        rewrite.payload = Some("all new\n".to_owned());
+        assert!(rebase_edits("same\n", "same\n", &[rewrite.clone()]).is_ok());
+        assert!(rebase_edits("same\n", "different\n", &[rewrite]).is_err());
+    }
+
+    #[test]
+    fn rebase_clears_request_metadata_so_ids_are_recomputed() {
+        let mut e = line_edit(1, 1, "z");
+        e.expected_etag = Some("old".to_owned());
+        e.hunk_id = Some("stale".to_owned());
+        let moved = rebase_edits("a\n", "a\n", &[e]).unwrap();
+        assert!(moved[0].expected_etag.is_none() && moved[0].hunk_id.is_none());
+    }
+}
+
+

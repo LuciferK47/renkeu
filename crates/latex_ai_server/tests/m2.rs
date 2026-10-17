@@ -11,7 +11,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, PlanRequest};
 use latex_ai_core::compile::{AgentEdit, AgentOp};
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
@@ -58,12 +58,7 @@ impl ScriptedPlanner {
 }
 
 impl EditPlanner for ScriptedPlanner {
-    fn plan_edits<'a>(
-        &'a self,
-        _instruction: &'a str,
-        _file_content: &'a str,
-        _cancel: CancellationToken,
-    ) -> PlanFuture<'a> {
+    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _cancel: CancellationToken) -> PlanFuture<'a> {
         *self.calls.lock().unwrap() += 1;
         let next = {
             let mut script = self.script.lock().unwrap();
@@ -92,12 +87,7 @@ struct HangingPlanner {
 }
 
 impl EditPlanner for HangingPlanner {
-    fn plan_edits<'a>(
-        &'a self,
-        _instruction: &'a str,
-        _file_content: &'a str,
-        cancel: CancellationToken,
-    ) -> PlanFuture<'a> {
+    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, cancel: CancellationToken) -> PlanFuture<'a> {
         let notify = self.cancelled_at.clone();
         Box::pin(async move {
             cancel.cancelled().await;
@@ -158,6 +148,7 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
                 root.clone(),
             )),
             jobs: Arc::new(JobRegistry::default()),
+            proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
             workspace_root: root.clone(),
             settings: Arc::new(
                 latex_ai_core::config::Settings::open(
@@ -371,15 +362,18 @@ async fn trivial_typo_heals_and_saves_with_acceptance_sequence() {
     );
 }
 
-/// Review-first default (§6.3): without `auto_apply` the loop stops at
-/// `awaiting_approval` and writes nothing.
+/// Review-first default (§6.3), now verify-first: the loop applies the edits
+/// to a working copy and compiles it, then offers the result for review and
+/// stops at `awaiting_approval`. The user's file is not written.
 #[tokio::test]
-async fn without_auto_apply_loop_pauses_at_awaiting_approval() {
+async fn without_auto_apply_loop_verifies_then_pauses_at_awaiting_approval() {
     let mut edit = agent_edit(AgentOp::Insert);
-    edit.insert_text = Some("% suggestion\n".into());
+    edit.line = std::num::NonZeroU64::new(3);
+    edit.insert_text = Some("% suggestion".into());
     let (planner, _calls) = ScriptedPlanner::new(vec![Ok(vec![edit])]);
     let app = test_app(Arc::new(planner)).await;
-    std::fs::write(app.root.join("main.tex"), "\\documentclass{article}\n").unwrap();
+    let original = "\\documentclass{article}\n\\begin{document}\nhello\n\\end{document}\n";
+    std::fs::write(app.root.join("main.tex"), original).unwrap();
 
     let res = build_router(app.state.clone())
         .unwrap()
@@ -394,17 +388,20 @@ async fn without_auto_apply_loop_pauses_at_awaiting_approval() {
     assert_taxonomy(&events);
     assert_eq!(
         names(&events),
-        vec!["thinking", "proposal", "awaiting_approval"]
+        vec!["thinking", "step", "applying", "compiled", "proposal", "awaiting_approval", "done"]
     );
+    assert_eq!(events[3].1["success"], true, "the proposal is verified to compile");
 
-    let proposal = &events[1].1;
-    assert!(
-        proposal["edits"][0]["hunk_id"].as_str().is_some(),
-        "hunk ids stamped"
-    );
+    let proposal = &events[4].1;
+    assert_eq!(proposal["verified"], true);
+    assert!(proposal["edits"][0]["hunk_id"].as_str().is_some(), "hunk ids stamped");
+    assert!(proposal["proposal_id"].as_str().is_some());
+    assert_eq!(events[6].1["awaiting_approval"], true);
+
     assert_eq!(
         std::fs::read_to_string(app.root.join("main.tex")).unwrap(),
-        "\\documentclass{article}\n"
+        original,
+        "review mode never writes the file"
     );
 }
 

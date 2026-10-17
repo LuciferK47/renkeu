@@ -12,7 +12,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest, PlanRequest};
 use latex_ai_core::compile::{AgentEdit, AgentOp};
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
@@ -74,12 +74,7 @@ impl RecordingPlanner {
 }
 
 impl EditPlanner for RecordingPlanner {
-    fn plan_edits<'a>(
-        &'a self,
-        _instruction: &'a str,
-        _file_content: &'a str,
-        _cancel: CancellationToken,
-    ) -> PlanFuture<'a> {
+    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _cancel: CancellationToken) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::EmptyResponse) })
     }
 
@@ -139,6 +134,7 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
             ))),
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(JobRegistry::default()),
+            proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
             workspace_root: root.clone(),
             settings: Arc::new(
                 latex_ai_core::config::Settings::open(
@@ -258,6 +254,9 @@ async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line(
         body["line"]
     );
     assert_eq!(body["exact"], true);
+    // What the client needs to apply the proposal safely.
+    assert_eq!(body["build"], build.id());
+    assert_eq!(body["etag"], latex_ai_core::storage::etag_of(FIGURE_DOC));
 
     // Exactly one edit, confined to line 7.
     let edits = body["edits"].as_array().unwrap();
@@ -568,4 +567,29 @@ async fn pdf_pages_are_addressed_by_build_and_cached_only_when_they_cannot_chang
         router.oneshot(get("/api/pdf/page?n=1".to_owned())).await.unwrap().status(),
         StatusCode::BAD_REQUEST
     );
+}
+
+#[tokio::test]
+async fn a_box_drawn_on_an_out_of_date_pdf_is_refused_without_calling_the_model() {
+    let (planner, seen) = RecordingPlanner::new(Ok(vec![]));
+    let app = test_app(Arc::new(planner)).await;
+    let build = compile_fixture(&app, FIGURE_DOC).await;
+
+    // The user edits the source after the PDF was made: the box no longer
+    // corresponds to these lines.
+    std::fs::write(app.root.join("main.tex"), format!("% a new first line\n{FIGURE_DOC}")).unwrap();
+
+    let res = build_router(app.state.clone())
+        .unwrap()
+        .oneshot(post(
+            "/api/visual-fix",
+            &json!({"file_path": "main.tex", "build": build.id(), "page": 1, "x": 100, "y": 100, "w": 50, "h": 50}),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let body = body_json(res).await;
+    assert!(body["message"].as_str().unwrap().contains("compile again"), "{body}");
+    assert!(seen.lock().unwrap().is_none(), "the model must not be asked about stale geometry");
 }

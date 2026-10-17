@@ -101,6 +101,23 @@ pub fn etag_of(content: &str) -> String {
     hex::encode(blake3::hash(content.as_bytes()).as_bytes())
 }
 
+/// One file's part of a multi-file change.
+#[derive(Debug, Clone)]
+pub struct FileChange<'a> {
+    pub path: &'a Path,
+    /// What the file must still contain for the change to be valid.
+    pub expected_etag: &'a str,
+    pub new_content: &'a str,
+}
+
+/// What [`Store::apply_file_set`] did to one file.
+#[derive(Debug, Clone)]
+pub struct FileOutcome {
+    pub path: PathBuf,
+    pub history_id: i64,
+    pub new_etag: String,
+}
+
 pub struct Store {
     pool: SqlitePool,
     workspace_root: PathBuf,
@@ -225,6 +242,95 @@ impl Store {
             history_tag,
         )
         .await
+    }
+
+    /// Write several files as one all-or-nothing change.
+    ///
+    /// Every file's `ETag` is checked before anything is written. Then, in
+    /// one database transaction, a history row per file is inserted and the
+    /// files are replaced; if any step fails, the files already written are
+    /// put back and the transaction rolls back, so the project is either
+    /// fully changed or exactly as it was. (A multi-file agent change that
+    /// half-applied would leave a project that does not compile.)
+    ///
+    /// Files whose new content equals the old are skipped, not recorded.
+    ///
+    /// # Errors
+    /// [`StorageError::EtagConflict`] naming the first stale file;
+    /// [`StorageError::NotFound`] if a file is missing; IO/DB errors, after
+    /// restoring what was written.
+    pub async fn apply_file_set(
+        &self,
+        changes: &[FileChange<'_>],
+        command: &str,
+        edit_type: &str,
+    ) -> Result<Vec<FileOutcome>, StorageError> {
+        let _guard = self.write_lock.lock().await;
+
+        // Phase 1: read and check everything; nothing is written yet.
+        let mut staged = Vec::with_capacity(changes.len());
+        for change in changes {
+            let full_path = self.workspace_root.join(change.path);
+            let old = read_existing(&full_path).await?;
+            check_precondition(Precondition::Etag(change.expected_etag), old.as_deref())?;
+            let old = old.unwrap_or_default();
+            if old != change.new_content {
+                staged.push((change, full_path, old));
+            }
+        }
+
+        // Phase 2: rows and files together, restoring on any failure.
+        let mut tx = self.pool.begin().await?;
+        let mut written: Vec<(PathBuf, String)> = Vec::new();
+        let mut outcomes = Vec::with_capacity(staged.len());
+
+        let result: Result<(), StorageError> = async {
+            for (change, full_path, old) in &staged {
+                let header = change.path.to_string_lossy();
+                let diff = similar::TextDiff::from_lines(old.as_str(), change.new_content)
+                    .unified_diff()
+                    .header(&header, &header)
+                    .to_string();
+                let history_id: i64 = sqlx::query_scalar!(
+                    "INSERT INTO history (file_path, command, new_text, diff, edit_type) VALUES (?, ?, ?, ?, ?) RETURNING id",
+                    header,
+                    command,
+                    change.new_content,
+                    diff,
+                    edit_type
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+
+                crate::fsutil::atomic_write(full_path, change.new_content.as_bytes()).await?;
+                written.push((full_path.clone(), old.clone()));
+                outcomes.push(FileOutcome {
+                    path: change.path.to_path_buf(),
+                    history_id,
+                    new_etag: etag_of(change.new_content),
+                });
+            }
+            Ok(())
+        }
+        .await;
+
+        let result = match result {
+            Ok(()) => tx.commit().await.map_err(StorageError::from),
+            Err(e) => {
+                // Dropping `tx` rolls the rows back; the files are on us.
+                drop(tx);
+                Err(e)
+            }
+        };
+        if let Err(e) = result {
+            for (path, old) in written.iter().rev() {
+                if let Err(restore) = crate::fsutil::atomic_write(path, old.as_bytes()).await {
+                    tracing::error!(error = %restore, path = %path.display(), "could not restore a file after a failed multi-file change");
+                }
+            }
+            return Err(e);
+        }
+        Ok(outcomes)
     }
 
     /// Recent history rows, newest first, optionally scoped to one file
@@ -627,5 +733,96 @@ mod tests {
         let agent = store.recent_history(None, true, 10).await.unwrap();
         assert_eq!(agent.len(), 1);
         assert_eq!(agent[0].command, "make it beta");
+    }
+
+    #[tokio::test]
+    async fn file_set_writes_every_file_with_its_own_history_row() {
+        let (store, dir) = test_store().await;
+        std::fs::write(dir.path().join("a.tex"), "a1\n").unwrap();
+        std::fs::write(dir.path().join("b.tex"), "b1\n").unwrap();
+
+        let out = store
+            .apply_file_set(
+                &[
+                    FileChange { path: Path::new("a.tex"), expected_etag: &etag_of("a1\n"), new_content: "a2\n" },
+                    FileChange { path: Path::new("b.tex"), expected_etag: &etag_of("b1\n"), new_content: "b2\n" },
+                ],
+                "fix both",
+                "agent-apply",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(out.len(), 2);
+        assert_ne!(out[0].history_id, out[1].history_id);
+        assert_eq!(out[1].new_etag, etag_of("b2\n"));
+        assert_eq!(std::fs::read_to_string(dir.path().join("a.tex")).unwrap(), "a2\n");
+        assert_eq!(std::fs::read_to_string(dir.path().join("b.tex")).unwrap(), "b2\n");
+        let rows = store.recent_history(None, true, 10).await.unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn one_stale_file_stops_the_whole_set_before_any_write() {
+        let (store, dir) = test_store().await;
+        std::fs::write(dir.path().join("a.tex"), "a1\n").unwrap();
+        std::fs::write(dir.path().join("b.tex"), "b-changed-meanwhile\n").unwrap();
+
+        let err = store
+            .apply_file_set(
+                &[
+                    FileChange { path: Path::new("a.tex"), expected_etag: &etag_of("a1\n"), new_content: "a2\n" },
+                    FileChange { path: Path::new("b.tex"), expected_etag: &etag_of("b1\n"), new_content: "b2\n" },
+                ],
+                "x",
+                "agent-apply",
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, StorageError::EtagConflict { .. }), "{err:?}");
+        assert_eq!(std::fs::read_to_string(dir.path().join("a.tex")).unwrap(), "a1\n", "a.tex must not change");
+        assert!(store.recent_history(None, false, 10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_failure_midway_restores_the_files_already_written_and_the_rows() {
+        let (store, dir) = test_store().await;
+        std::fs::write(dir.path().join("a.tex"), "a1\n").unwrap();
+        // b.tex is a directory when the write is attempted, so replacing it
+        // fails after a.tex has already been replaced.
+        std::fs::create_dir(dir.path().join("b.tex")).unwrap();
+
+        let err = store
+            .apply_file_set(
+                &[
+                    FileChange { path: Path::new("a.tex"), expected_etag: &etag_of("a1\n"), new_content: "a2\n" },
+                    FileChange { path: Path::new("b.tex"), expected_etag: &etag_of(""), new_content: "b2\n" },
+                ],
+                "x",
+                "agent-apply",
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, StorageError::Io(_) | StorageError::NotFound), "{err:?}");
+        assert_eq!(std::fs::read_to_string(dir.path().join("a.tex")).unwrap(), "a1\n", "a.tex must be put back");
+        assert!(store.recent_history(None, false, 10).await.unwrap().is_empty(), "rows must roll back");
+    }
+
+    #[tokio::test]
+    async fn unchanged_files_are_skipped_and_leave_no_history() {
+        let (store, dir) = test_store().await;
+        std::fs::write(dir.path().join("a.tex"), "same\n").unwrap();
+        let out = store
+            .apply_file_set(
+                &[FileChange { path: Path::new("a.tex"), expected_etag: &etag_of("same\n"), new_content: "same\n" }],
+                "x",
+                "agent-apply",
+            )
+            .await
+            .unwrap();
+        assert!(out.is_empty());
+        assert!(store.recent_history(None, false, 10).await.unwrap().is_empty());
     }
 }

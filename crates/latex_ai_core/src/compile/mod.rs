@@ -35,7 +35,7 @@ impl AgentOp {
 /// client echoes edits back verbatim on apply-selected — a
 /// `skip_deserializing` attribute here would make `deny_unknown_fields`
 /// reject that round-trip.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentEdit {
     pub file_path: String,
