@@ -107,6 +107,9 @@ impl From<StorageError> for ApiError {
             StorageError::Apply(apply_err) => Self::Unprocessable {
                 message: apply_err.to_string(),
             },
+            StorageError::Policy(violation) => Self::Unprocessable {
+                message: violation.to_string(),
+            },
             StorageError::Io(io) => Self::Internal {
                 message: io.to_string(),
             },

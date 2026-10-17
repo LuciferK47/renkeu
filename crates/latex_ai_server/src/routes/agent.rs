@@ -157,6 +157,15 @@ pub async fn plan_stream(
             .await
         {
             Ok(mut edits) => {
+                if let Err(violation) = latex_ai_core::policy::lint_edits(&edits, &content) {
+                    sse::send(
+                        &tx,
+                        "error",
+                        &json!({ "message": format!("The AI proposed an unsafe edit: {violation}") }),
+                    )
+                    .await;
+                    return;
+                }
                 stamp_hunk_ids(&mut edits);
                 sse::send(
                     &tx,
@@ -280,6 +289,15 @@ async fn run_agent_loop(
         };
         if edits.is_empty() {
             sse::send(&tx, "error", &json!({ "message": "no edits proposed" })).await;
+            return;
+        }
+        if let Err(violation) = latex_ai_core::policy::lint_edits(&edits, &content) {
+            sse::send(
+                &tx,
+                "error",
+                &json!({ "message": format!("The AI proposed an unsafe edit: {violation}") }),
+            )
+            .await;
             return;
         }
         stamp_hunk_ids(&mut edits);
@@ -559,8 +577,13 @@ pub async fn preview(
     let header = req.file_path.as_str();
     let hunks = latex_ai_core::compile::dedupe_hunks(&req.edits.iter().collect::<Vec<_>>())
         .into_iter()
-        .map(
-            |edit| match latex_ai_core::apply::apply_edit(&content, edit) {
+        .map(|edit| {
+            let applied = latex_ai_core::policy::lint_edit(edit, &content)
+                .map_err(|v| v.to_string())
+                .and_then(|()| {
+                    latex_ai_core::apply::apply_edit(&content, edit).map_err(|e| e.to_string())
+                });
+            match applied {
                 Ok(updated) => HunkPreview {
                     hunk_id: edit.hunk_id().0,
                     diff: similar::TextDiff::from_lines(&content, &updated)
@@ -570,14 +593,14 @@ pub async fn preview(
                     applies: true,
                     error: None,
                 },
-                Err(e) => HunkPreview {
+                Err(error) => HunkPreview {
                     hunk_id: edit.hunk_id().0,
                     diff: String::new(),
                     applies: false,
-                    error: Some(e.to_string()),
+                    error: Some(error),
                 },
-            },
-        )
+            }
+        })
         .collect();
 
     Ok(Json(PreviewResponse { etag, hunks }))

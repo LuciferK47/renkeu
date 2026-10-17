@@ -1344,6 +1344,10 @@ drift.
 | Reversible migrations (M8) | up-only `*.sql` | `*.up.sql` (byte-identical to the originals, so applied databases still validate) + `*.down.sql`; `tests/migrations.rs` proves up/down/up and pins the original checksums | CONTEXT.md §3. |
 | `foreign_keys` pragma (M8) | one `PRAGMA` after pool creation | set in the connect options | The pragma is per-connection; the one-off form enabled it on a single pooled connection only. |
 | AI unavailable (M8) | stream opens, then an `error` event | `503 unavailable` before any stream opens when no key is configured | Clients should not have to scan a 200 stream for a configuration problem. |
+| Hunk identity (M9) | blake3 of the search text only | blake3 over file path, op, `text`, `payload`, `insert_text` and the line numbers, length-prefixed | The old id was `hash("")` for every insertion and line-range edit, so all of them shared one id, and two different replacements of one anchor were indistinguishable: selecting one hunk selected them all. `expected_etag` and the echoed `hunk_id` are excluded. |
+| Batch semantics (M9) | edits applied one after another | all edits resolved to byte ranges against the original text, overlaps rejected, then spliced | Line numbers now always mean "the file the planner saw", and a batch gives one result in any order. Several edits with the same `text` take successive occurrences. `rewrite_file` must be alone for its file. |
+| File format (M9) | `lines()` + join with `\n` | BOM, CRLF/LF and trailing newline preserved | The old split/join rewrote every line ending of a CRLF file and dropped a BOM when line 1 was replaced. |
+| Policy lint (M9) | not specified | `core::policy`: text an AI edit *adds* may not name files outside the project from input-family commands, and may not use `\openout`, `\write18`, `\catcode`; lines already in the file are exempt | Tectonic cannot be sandboxed from inside (absolute reads are by design), so the model is stopped from writing the dangerous forms. Enforced in the plan/agent/visual-fix/preview routes and in `Store::atomic_apply_selected`. A guard against a model going wrong, not a sandbox against a hostile project author. |
 
 ## 16. Open Questions
 
@@ -1352,7 +1356,7 @@ drift.
 | Q1 | VLM model pin | `gemini-2.5-flash-image` | M3 start |
 | Q2 | LuaLaTeX | n/a — Tectonic is XeTeX only | locked V1 |
 | Q3 | Scratchpad lifecycle | persist at `~/.latex-ai/scratch/<session>/`; cleanup on session-close event + LRU-10 cap | M2 |
-| Q4 | Hunk identity | blake3 search-text prefix16 | locked M4 |
+| Q4 | Hunk identity | blake3 prefix16 over file, op, anchor, replacement and payload (was: search text only — changed in M9, see §15.1) | locked M9 |
 | Q5 | Tectonic bundle strategy | default `cosmic` bundle at first run; investigate `Tectonic.toml` minimal bundle for Tauri shipping | M5 |
 | Q6 | Tauri SSE costream | TCP loopback for SSE; custom protocol for everything else | locked M2 |
 | Q7 | `latex-ai-synctex` crate publish | publish to crates.io at M3 end | locked |
@@ -1366,5 +1370,5 @@ drift.
 *Document version: 2.0 (Rust Edition)*
 *Date: 2026-06-24*
 *Authors: synthesized from `idea.md`, `CONTEXT.md`, `rust.md`, existing repo audit, and peer-state-of-practice scan (TexGuardian, PaperFit, scholia, ferroleaf, XandSuite, r/tauri 2026-03 thread, genai-rs 0.7 docs, tectonic docs).*
-*Status: M1–M5 complete; M6 (paper tone-map) shipped; M7 (data-integrity and access-control hotfixes) and M8 (config, bootstrap, per-project data, reversible migrations) implemented — see §15.1 for recorded deviations and §12 for the milestone record.*
+*Status: M1–M5 complete; M6 (paper tone-map) shipped; M7 (data-integrity and access-control hotfixes) and M8 (config, bootstrap, per-project data, reversible migrations) and M9 (edit engine) implemented — see §15.1 for recorded deviations and §12 for the milestone record.*
 *Re-read this doc + `CONTEXT.md` + `idea.md` + `rust.md` at the start of every implementation session.*

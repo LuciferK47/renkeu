@@ -25,6 +25,8 @@ pub enum StorageError {
     NotFound,
     #[error("edit failed to apply: {0}")]
     Apply(#[from] apply::ApplyError),
+    #[error("edit rejected: {0}")]
+    Policy(#[from] crate::policy::PolicyViolation),
 }
 
 /// One row of the `history` table.
@@ -205,6 +207,10 @@ impl Store {
                 }
             }
         }
+
+        // The edits come back from the client, so they are as untrusted as the
+        // model's output: the lint runs here, at the one place that writes.
+        crate::policy::lint_edits(edits.iter().copied(), &old_content)?;
 
         // Identical hunks from two prompts collapse to one application.
         let unique = crate::compile::dedupe_hunks(edits);

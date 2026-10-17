@@ -162,6 +162,10 @@ pub async fn visual_fix(
             },
         })?;
 
+    latex_ai_core::policy::lint_edits(&edits, &source).map_err(|v| ApiError::Unprocessable {
+        message: format!("The AI proposed an unsafe edit: {v}"),
+    })?;
+
     // Same stamping the agent routes do, so the proposal is applicable through
     // POST /api/agent/apply-selected (masterplan §12 M3 audit: integration).
     super::agent::stamp_hunk_ids(&mut edits);
