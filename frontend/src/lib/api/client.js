@@ -68,15 +68,29 @@ export class APIClient {
   }
 
   // If-Match drives optimistic concurrency; a 409 carries { current_etag }.
+  // The server refuses a save with no etag (428), so fail here with a clear
+  // message instead of sending a request that is certain to be rejected.
   saveFile(path, content, etag) {
+    if (!etag) {
+      return Promise.reject(
+        new APIError('Cannot save before the file has been loaded (no ETag).', 428, null)
+      );
+    }
     return this.request('POST', '/file', {
       body: { path, content },
-      headers: etag ? { 'If-Match': etag } : {}
+      headers: { 'If-Match': etag }
     });
   }
 
-  listFiles() {
-    return this.request('GET', '/files');
+  // The server currently returns the whole list and ignores paging/search
+  // parameters; they are forwarded so the contract is in one place.
+  listFiles(params) {
+    return this.request('GET', '/files', { params });
+  }
+
+  // -> [{ id, file_path, command, diff, edit_type, created_at }]
+  getHistory(params) {
+    return this.request('GET', '/history', { params });
   }
 
   // --- search ------------------------------------------------------------
@@ -127,14 +141,23 @@ export class APIClient {
     });
   }
 
-  // `expectedEtag` makes the write conditional on the file not having moved
-  // while the user reviewed; a 409 carries the winning etag.
-  applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag = null) {
-    const payload = expectedEtag
-      ? edits.map((e) => ({ ...e, expected_etag: expectedEtag }))
-      : edits;
+  // `expectedEtag` is required: it makes the write conditional on the file not
+  // having moved while the user reviewed; a 409 carries the winning etag.
+  // `instruction` is stored in the history row.
+  applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag, instruction = null) {
+    if (!expectedEtag) {
+      return Promise.reject(
+        new APIError('Cannot apply edits without the ETag of the file they were proposed for.', 428, null)
+      );
+    }
     return this.request('POST', '/agent/apply-selected', {
-      body: { file_path: filePath, edits: payload, selected_hunk_ids: selectedHunkIds }
+      body: {
+        file_path: filePath,
+        edits,
+        selected_hunk_ids: selectedHunkIds,
+        expected_etag: expectedEtag,
+        ...(instruction ? { instruction } : {})
+      }
     });
   }
 
@@ -156,6 +179,22 @@ export class APIClient {
 
   getConfig() {
     return this.request('GET', '/config');
+  }
+
+  // Partial update of the server-side settings (model, vision_model,
+  // timeout_secs). Unknown fields are rejected with 422, and fields pinned by
+  // an environment variable with 409.
+  saveConfig(patch) {
+    return this.request('PATCH', '/config', { body: patch });
+  }
+
+  // The key is write-only: no response ever contains it.
+  setApiKey(key) {
+    return this.request('PUT', '/config/api-key', { body: { key } });
+  }
+
+  clearApiKey() {
+    return this.request('DELETE', '/config/api-key');
   }
 }
 

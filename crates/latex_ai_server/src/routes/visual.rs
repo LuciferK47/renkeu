@@ -76,6 +76,7 @@ pub async fn visual_fix(
     State(state): State<AppState>,
     Json(req): Json<VisualFixPayload>,
 ) -> Result<Json<VisualFixResponse>, ApiError> {
+    super::agent::ensure_ai_available(&state)?;
     let abs_source = validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?;
     let dpi = validate_bbox(&req)?;
 
@@ -231,6 +232,9 @@ async fn render_crop(
         },
         // A box outside the page is the caller's mistake, not a server fault.
         ::visual::VisualError::Image(message) => ApiError::Unprocessable { message },
+        e @ ::visual::VisualError::TooLarge { .. } => ApiError::Unprocessable {
+            message: e.to_string(),
+        },
         other => ApiError::Internal {
             message: other.to_string(),
         },
@@ -355,6 +359,9 @@ pub async fn get_pdf_page(
     .map_err(|e| match e {
         ::visual::VisualError::PageNotFound => ApiError::NotFound {
             message: format!("page {} is out of range", query.n),
+        },
+        e @ ::visual::VisualError::TooLarge { .. } => ApiError::Unprocessable {
+            message: e.to_string(),
         },
         other => ApiError::Internal {
             message: other.to_string(),

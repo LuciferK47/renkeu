@@ -31,8 +31,16 @@ pub enum ApiError {
     BadRequest { message: String },
     #[error("not found: {message}")]
     NotFound { message: String },
+    #[error("forbidden: {message}")]
+    Forbidden { message: String },
+    #[error("precondition required: {message}")]
+    PreconditionRequired { message: String },
+    #[error("conflict: {message}")]
+    Conflict { message: String },
     #[error("unprocessable: {message}")]
     Unprocessable { message: String },
+    #[error("unavailable: {message}")]
+    Unavailable { message: String },
     #[error("internal error")]
     Internal { message: String },
 }
@@ -43,10 +51,12 @@ impl ApiError {
         // 404 not found; 409 EtagConflict; 422 validation; 429 RateLimited;
         // 500 uncaught; 503 unavailable.
         match self {
-            Self::EtagConflict { .. } => StatusCode::CONFLICT,
+            Self::EtagConflict { .. } | Self::Conflict { .. } => StatusCode::CONFLICT,
+            Self::Forbidden { .. } => StatusCode::FORBIDDEN,
+            Self::PreconditionRequired { .. } => StatusCode::PRECONDITION_REQUIRED,
             Self::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::InvalidPath { .. } | Self::BadRequest { .. } => StatusCode::BAD_REQUEST,
-            Self::CompileTimeout => StatusCode::SERVICE_UNAVAILABLE,
+            Self::CompileTimeout | Self::Unavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::VlmParseError { .. } | Self::Unprocessable { .. } => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
@@ -72,6 +82,9 @@ impl From<SecurityError> for ApiError {
             SecurityError::NotFound => Self::NotFound {
                 message: "file not found".to_owned(),
             },
+            SecurityError::Denied => Self::Forbidden {
+                message: "access to this file is denied".to_owned(),
+            },
             other => Self::InvalidPath {
                 message: other.to_string(),
             },
@@ -84,6 +97,12 @@ impl From<StorageError> for ApiError {
         match e {
             StorageError::EtagConflict { actual, .. } => Self::EtagConflict {
                 current_etag: actual,
+            },
+            StorageError::AlreadyExists => Self::Conflict {
+                message: "file already exists".to_owned(),
+            },
+            StorageError::NotFound => Self::NotFound {
+                message: "file not found".to_owned(),
             },
             StorageError::Apply(apply_err) => Self::Unprocessable {
                 message: apply_err.to_string(),
@@ -131,6 +150,18 @@ mod tests {
                 StatusCode::BAD_REQUEST,
             ),
             (
+                ApiError::Forbidden {
+                    message: String::new(),
+                },
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                ApiError::PreconditionRequired {
+                    message: String::new(),
+                },
+                StatusCode::PRECONDITION_REQUIRED,
+            ),
+            (
                 ApiError::NotFound {
                     message: String::new(),
                 },
@@ -141,6 +172,12 @@ mod tests {
                     message: String::new(),
                 },
                 StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                ApiError::Unavailable {
+                    message: String::new(),
+                },
+                StatusCode::SERVICE_UNAVAILABLE,
             ),
             (
                 ApiError::Internal {

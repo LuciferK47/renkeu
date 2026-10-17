@@ -19,6 +19,10 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
     #[error("etag conflict: expected {expected}, found {actual}")]
     EtagConflict { expected: String, actual: String },
+    #[error("file already exists")]
+    AlreadyExists,
+    #[error("file not found")]
+    NotFound,
     #[error("edit failed to apply: {0}")]
     Apply(#[from] apply::ApplyError),
 }
@@ -34,6 +38,22 @@ pub struct HistoryRow {
     pub created_at: Option<String>,
 }
 
+/// What the caller knows about the file it is about to overwrite. There is
+/// deliberately no "don't care" variant: a blind overwrite is how concurrent
+/// edits were silently lost.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub enum Precondition<'a> {
+    /// The file must exist and still hash to this `ETag`.
+    Etag(&'a str),
+    /// The file must not exist yet.
+    CreateNew,
+}
+
+/// `edit_type` values written by AI-driven mutations; the history panel's
+/// "agent only" filter matches exactly these.
+pub const AGENT_EDIT_TYPES: &[&str] = &["agent-apply", "apply-selected"];
+
 /// Result of a successful save.
 #[derive(Debug)]
 pub struct SaveOutcome {
@@ -41,6 +61,36 @@ pub struct SaveOutcome {
     pub history_id: i64,
     /// Unified diff old -> new, as stored in history.
     pub diff: String,
+}
+
+async fn read_existing(full_path: &Path) -> Result<Option<String>, StorageError> {
+    match tokio::fs::read_to_string(full_path).await {
+        Ok(content) => Ok(Some(content)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn check_precondition(
+    precondition: Precondition<'_>,
+    current: Option<&str>,
+) -> Result<(), StorageError> {
+    match (precondition, current) {
+        (Precondition::CreateNew, None) => Ok(()),
+        (Precondition::CreateNew, Some(_)) => Err(StorageError::AlreadyExists),
+        (Precondition::Etag(_), None) => Err(StorageError::NotFound),
+        (Precondition::Etag(expected), Some(content)) => {
+            let actual = etag_of(content);
+            if expected == actual {
+                Ok(())
+            } else {
+                Err(StorageError::EtagConflict {
+                    expected: expected.to_owned(),
+                    actual,
+                })
+            }
+        }
+    }
 }
 
 /// blake3 content hash in hex — the `ETag` format used across the API.
@@ -85,72 +135,66 @@ impl Store {
         Ok((content, etag))
     }
 
-    /// Overwrite `path` with `content` if `expected_etag` still matches,
-    /// recording a history row. `expected_etag == None` skips the check
-    /// (first save / caller opted out).
+    /// Overwrite `path` with `content` if `precondition` holds, recording a
+    /// history row.
     ///
     /// # Errors
-    /// [`StorageError::EtagConflict`] when the file changed under the caller;
-    /// otherwise IO/DB errors.
+    /// [`StorageError::EtagConflict`] when the file changed under the caller,
+    /// [`StorageError::AlreadyExists`] / [`StorageError::NotFound`] when the
+    /// precondition names the wrong existence state; otherwise IO/DB errors.
     pub async fn save_with_etag_history(
         &self,
         path: &Path,
         content: &str,
-        expected_etag: Option<&str>,
+        precondition: Precondition<'_>,
         command: &str,
         edit_type: &str,
     ) -> Result<SaveOutcome, StorageError> {
         let _guard = self.write_lock.lock().await;
         let full_path = self.workspace_root.join(path);
+        let old_content = read_existing(&full_path).await?;
+        check_precondition(precondition, old_content.as_deref())?;
 
-        let old_content = if full_path.exists() {
-            tokio::fs::read_to_string(&full_path).await?
-        } else {
-            String::new()
-        };
-
-        if full_path.exists() {
-            if let Some(expected) = expected_etag {
-                let actual = etag_of(&old_content);
-                if expected != actual {
-                    return Err(StorageError::EtagConflict {
-                        expected: expected.to_owned(),
-                        actual,
-                    });
-                }
-            }
-        }
-
-        self.write_and_record(path, &full_path, &old_content, content, command, edit_type)
-            .await
+        self.write_and_record(
+            path,
+            &full_path,
+            old_content.as_deref().unwrap_or_default(),
+            content,
+            command,
+            edit_type,
+        )
+        .await
     }
 
     /// Apply the pre-selected `edits` to `path` atomically (all-or-nothing),
     /// with a single `ETag` check up front and a single history row tagged
     /// `history_tag` regardless of edit count (masterplan §12 M4).
     ///
+    /// `expected_etag` is the file version the edits were proposed against.
+    /// It is required at request level: checking only per-edit etags let a
+    /// `rewrite_file` without one clobber concurrent changes.
+    ///
     /// # Errors
-    /// [`StorageError::EtagConflict`] if any edit carries a stale
-    /// `expected_etag`; [`StorageError::Apply`] if an edit does not apply —
-    /// nothing is written in either case.
+    /// [`StorageError::EtagConflict`] if the file (or any edit carrying its
+    /// own `expected_etag`) is stale; [`StorageError::Apply`] if an edit does
+    /// not apply — nothing is written in either case.
     pub async fn atomic_apply_selected(
         &self,
         path: &Path,
         edits: &[&AgentEdit],
+        expected_etag: &str,
+        command: &str,
         history_tag: &str,
     ) -> Result<SaveOutcome, StorageError> {
         let _guard = self.write_lock.lock().await;
         let full_path = self.workspace_root.join(path);
-
-        let old_content = if full_path.exists() {
-            tokio::fs::read_to_string(&full_path).await?
-        } else {
-            String::new()
-        };
-        let current_etag = etag_of(&old_content);
+        let old_content = read_existing(&full_path).await?;
+        check_precondition(Precondition::Etag(expected_etag), old_content.as_deref())?;
+        let old_content = old_content.unwrap_or_default();
 
         // Every etag is checked BEFORE anything is applied, so a stale
         // selection cannot half-write (masterplan §12 M4 audit: security).
+        let current_etag = etag_of(&old_content);
         for edit in edits {
             if let Some(expected) = &edit.expected_etag {
                 if expected != &current_etag {
@@ -171,7 +215,7 @@ impl Store {
             &full_path,
             &old_content,
             &new_content,
-            "apply-selected",
+            command,
             history_tag,
         )
         .await
@@ -193,7 +237,7 @@ impl Store {
                     CAST(created_at AS TEXT) AS created_at
              FROM history
              WHERE (?1 IS NULL OR file_path = ?1)
-               AND (?2 = 0 OR edit_type = 'agent-apply')
+               AND (?2 = 0 OR edit_type IN ('agent-apply', 'apply-selected'))
              ORDER BY id DESC
              LIMIT ?3",
         )
@@ -222,12 +266,15 @@ impl Store {
             .header(&header, &header)
             .to_string();
 
-        let tmp = full_path.with_extension("tmp");
-        tokio::fs::write(&tmp, new_content).await?;
-        tokio::fs::rename(&tmp, &full_path).await?;
         let new_etag = etag_of(new_content);
-
         let path_str = rel_path.to_string_lossy();
+
+        // History row first, inside a transaction, then the file, then
+        // commit. A failed write rolls the row back, and a failed commit
+        // restores the old bytes, so the row and the file never disagree
+        // (previously the rename happened first: a DB error returned 500
+        // for a file that had in fact changed, and the next save 409'd).
+        let mut tx = self.pool.begin().await?;
         let history_id: i64 = sqlx::query_scalar!(
             "INSERT INTO history (file_path, command, new_text, diff, edit_type) VALUES (?, ?, ?, ?, ?) RETURNING id",
             path_str,
@@ -236,8 +283,19 @@ impl Store {
             diff,
             edit_type
         )
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+
+        crate::fsutil::atomic_write(full_path, new_content.as_bytes()).await?;
+
+        if let Err(e) = tx.commit().await {
+            if let Err(restore) =
+                crate::fsutil::atomic_write(full_path, old_content.as_bytes()).await
+            {
+                tracing::error!(error = %restore, path = %full_path.display(), "could not restore file after failed history commit");
+            }
+            return Err(e.into());
+        }
 
         Ok(SaveOutcome {
             new_etag,
@@ -282,7 +340,13 @@ mod tests {
         std::fs::write(dir.path().join("a.tex"), "old\n").unwrap();
 
         let outcome = store
-            .save_with_etag_history(Path::new("a.tex"), "new\n", None, "save", "manual-save")
+            .save_with_etag_history(
+                Path::new("a.tex"),
+                "new\n",
+                Precondition::Etag(&etag_of("old\n")),
+                "save",
+                "manual-save",
+            )
             .await
             .unwrap();
 
@@ -312,7 +376,7 @@ mod tests {
             .save_with_etag_history(
                 Path::new("a.tex"),
                 "clobber\n",
-                Some("not-the-etag"),
+                Precondition::Etag("not-the-etag"),
                 "save",
                 "manual-save",
             )
@@ -347,7 +411,13 @@ mod tests {
         bad.text = Some("no-such-text".into());
 
         let err = store
-            .atomic_apply_selected(Path::new("a.tex"), &[&good, &bad], "apply-selected")
+            .atomic_apply_selected(
+                Path::new("a.tex"),
+                &[&good, &bad],
+                &etag_of("alpha beta\n"),
+                "cmd",
+                "apply-selected",
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, StorageError::Apply(_)));
@@ -358,7 +428,13 @@ mod tests {
         );
 
         let outcome = store
-            .atomic_apply_selected(Path::new("a.tex"), &[&good], "apply-selected")
+            .atomic_apply_selected(
+                Path::new("a.tex"),
+                &[&good],
+                &etag_of("alpha beta\n"),
+                "cmd",
+                "apply-selected",
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -385,20 +461,165 @@ mod tests {
             expected_etag: Some("stale".into()),
             hunk_id: None,
         };
+        let current = etag_of("content\n");
         let err = store
-            .atomic_apply_selected(Path::new("a.tex"), &[&edit], "apply-selected")
+            .atomic_apply_selected(Path::new("a.tex"), &[&edit], &current, "cmd", "apply-selected")
             .await
             .unwrap_err();
         assert!(matches!(err, StorageError::EtagConflict { .. }));
 
-        edit.expected_etag = Some(etag_of("content\n"));
+        edit.expected_etag = Some(current.clone());
         store
-            .atomic_apply_selected(Path::new("a.tex"), &[&edit], "apply-selected")
+            .atomic_apply_selected(Path::new("a.tex"), &[&edit], &current, "cmd", "apply-selected")
             .await
             .unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.path().join("a.tex")).unwrap(),
             "replaced\n"
         );
+    }
+
+    #[tokio::test]
+    async fn request_level_etag_guards_a_rewrite_without_per_edit_etag() {
+        let (store, dir) = test_store().await;
+        std::fs::write(dir.path().join("a.tex"), "theirs\n").unwrap();
+        let rewrite = AgentEdit {
+            file_path: "a.tex".into(),
+            op: AgentOp::RewriteFile,
+            payload: Some("mine\n".into()),
+            text: None,
+            start_line: None,
+            end_line: None,
+            line: None,
+            insert_text: None,
+            expected_etag: None,
+            hunk_id: None,
+        };
+        let err = store
+            .atomic_apply_selected(
+                Path::new("a.tex"),
+                &[&rewrite],
+                &etag_of("what-i-saw\n"),
+                "cmd",
+                "apply-selected",
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, StorageError::EtagConflict { .. }));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.tex")).unwrap(),
+            "theirs\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_new_refuses_to_overwrite_and_etag_refuses_a_missing_file() {
+        let (store, dir) = test_store().await;
+        std::fs::write(dir.path().join("a.tex"), "x\n").unwrap();
+
+        let exists = store
+            .save_with_etag_history(
+                Path::new("a.tex"),
+                "y\n",
+                Precondition::CreateNew,
+                "save",
+                "manual-save",
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(exists, StorageError::AlreadyExists));
+
+        let missing = store
+            .save_with_etag_history(
+                Path::new("ghost.tex"),
+                "y\n",
+                Precondition::Etag("whatever"),
+                "save",
+                "manual-save",
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(missing, StorageError::NotFound));
+
+        store
+            .save_with_etag_history(
+                Path::new("fresh.tex"),
+                "y\n",
+                Precondition::CreateNew,
+                "save",
+                "manual-save",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("fresh.tex")).unwrap(),
+            "y\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_write_leaves_no_history_row() {
+        let (store, dir) = test_store().await;
+        std::fs::write(dir.path().join("a.tex"), "old\n").unwrap();
+        // Make the target unreplaceable: a directory sits where the temp
+        // rename must land after we swap the file for a directory.
+        std::fs::remove_file(dir.path().join("a.tex")).unwrap();
+        std::fs::create_dir(dir.path().join("a.tex")).unwrap();
+
+        let result = store
+            .save_with_etag_history(
+                Path::new("a.tex"),
+                "new\n",
+                Precondition::CreateNew,
+                "save",
+                "manual-save",
+            )
+            .await;
+        assert!(result.is_err());
+
+        let rows = store.recent_history(None, false, 10).await.unwrap();
+        assert!(rows.is_empty(), "history row survived a failed write: {rows:?}");
+    }
+
+    #[tokio::test]
+    async fn agent_filter_matches_apply_selected_and_keeps_the_instruction() {
+        let (store, dir) = test_store().await;
+        std::fs::write(dir.path().join("a.tex"), "alpha\n").unwrap();
+        let edit = AgentEdit {
+            file_path: "a.tex".into(),
+            op: AgentOp::ReplaceRange,
+            payload: None,
+            text: Some("alpha".into()),
+            start_line: None,
+            end_line: None,
+            line: None,
+            insert_text: Some("beta".into()),
+            expected_etag: None,
+            hunk_id: None,
+        };
+        store
+            .atomic_apply_selected(
+                Path::new("a.tex"),
+                &[&edit],
+                &etag_of("alpha\n"),
+                "make it beta",
+                "apply-selected",
+            )
+            .await
+            .unwrap();
+        store
+            .save_with_etag_history(
+                Path::new("a.tex"),
+                "gamma\n",
+                Precondition::Etag(&etag_of("beta\n")),
+                "save",
+                "manual-save",
+            )
+            .await
+            .unwrap();
+
+        let agent = store.recent_history(None, true, 10).await.unwrap();
+        assert_eq!(agent.len(), 1);
+        assert_eq!(agent[0].command, "make it beta");
     }
 }

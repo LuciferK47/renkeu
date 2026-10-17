@@ -7,8 +7,8 @@ use crate::error::ApiError;
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
-use latex_ai_core::security::{AccessKind, validate_path};
-use latex_ai_core::storage::etag_of;
+use latex_ai_core::security::{AccessKind, is_denied, validate_path};
+use latex_ai_core::storage::{Precondition, etag_of};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -31,18 +31,28 @@ pub(crate) fn list_workspace_files(root: &Path) -> Vec<String> {
             continue;
         };
         for entry in entries.flatten() {
+            // `DirEntry::file_type` does not follow symlinks, so a link back
+            // up the tree is skipped instead of looped on forever, and a link
+            // pointing outside the workspace is never listed.
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
             let path = entry.path();
-            if path.is_dir() {
+            if file_type.is_dir() {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
                 if !name_str.starts_with('.') && name_str != "target" && name_str != "node_modules"
                 {
                     dirs.push(path);
                 }
-            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                if matches!(ext, "tex" | "bib" | "sty" | "cls" | "tikz") {
-                    if let Ok(rel) = path.strip_prefix(root) {
-                        result.push(rel.to_string_lossy().into_owned());
+            } else if file_type.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if matches!(ext, "tex" | "bib" | "sty" | "cls" | "tikz") {
+                        if let Ok(rel) = path.strip_prefix(root) {
+                            if !is_denied(rel) {
+                                result.push(rel.to_string_lossy().into_owned());
+                            }
+                        }
                     }
                 }
             }
@@ -120,8 +130,9 @@ pub struct WriteFileResponse {
     pub history_id: i64,
 }
 
-/// `POST /api/file` — save with optional `If-Match` `ETag` (409 on drift) and
-/// a history row.
+/// `POST /api/file` — save with a required `If-Match` `ETag` (409 on drift,
+/// 428 when absent) and a history row. A blind overwrite is never accepted:
+/// it is how concurrent edits used to be lost.
 #[instrument(skip(state, req))]
 pub async fn write_file(
     State(state): State<AppState>,
@@ -133,14 +144,17 @@ pub async fn write_file(
     let if_match = headers
         .get("if-match")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim_matches('"').to_owned());
+        .map(|s| s.trim_matches('"').to_owned())
+        .ok_or_else(|| ApiError::PreconditionRequired {
+            message: "saving requires an If-Match header carrying the file's ETag".to_owned(),
+        })?;
 
     let outcome = state
         .store
         .save_with_etag_history(
             &PathBuf::from(&req.path),
             &req.content,
-            if_match.as_deref(),
+            Precondition::Etag(&if_match),
             "save",
             "manual-save",
         )

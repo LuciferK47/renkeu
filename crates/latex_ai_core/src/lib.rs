@@ -6,7 +6,10 @@
 pub mod ai;
 pub mod apply;
 pub mod compile;
+pub mod config;
+pub mod fsutil;
 pub mod metrics;
+pub mod project;
 pub mod prompt_safety;
 pub mod search;
 pub mod security;

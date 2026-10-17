@@ -6,7 +6,10 @@
 //! into the instruction by the agent loop, so no chat history lives here.
 
 use crate::compile::AgentEdit;
-use genai::Client;
+use crate::config::ApiKey;
+use genai::adapter::AdapterKind;
+use genai::resolver::AuthData;
+use genai::{Client, ModelIden};
 use genai::chat::{
     ChatMessage, ChatOptions, ChatRequest, ChatResponseFormat, ContentPart, MessageContent,
 };
@@ -26,6 +29,11 @@ pub enum AiError {
     Cancelled,
     #[error("no content in AI response")]
     EmptyResponse,
+    /// No API key is configured, so there is no model to ask.
+    #[error("AI is not configured: add an API key in Settings")]
+    Disabled,
+    #[error("AI request timed out after {secs}s")]
+    Timeout { secs: u64 },
 }
 
 /// Boxed future so [`EditPlanner`] stays object-safe: routes hold an
@@ -36,6 +44,13 @@ pub type PlanFuture<'a> =
 
 /// Something that can turn an instruction into a batch of [`AgentEdit`]s.
 pub trait EditPlanner: Send + Sync {
+    /// Whether this planner can currently serve requests. Routes check it
+    /// before opening a stream so a missing API key is a clean 503, not a
+    /// 200 stream that ends in an error event.
+    fn is_available(&self) -> bool {
+        true
+    }
+
     /// Propose edits fulfilling `instruction` against `file_content`.
     fn plan_edits<'a>(
         &'a self,
@@ -101,6 +116,27 @@ impl LlmPlanner {
     pub fn new(model: impl Into<String>) -> Self {
         Self {
             client: Arc::new(Client::builder().build()),
+            model: model.into(),
+            vision_model: None,
+        }
+    }
+
+    /// Planner that authenticates with `key` instead of reading the
+    /// environment, which is what lets the key be changed at runtime.
+    ///
+    /// The key is offered only to Groq models: a vision model on another
+    /// provider must not receive a credential issued for Groq.
+    #[must_use]
+    pub fn with_api_key(model: impl Into<String>, key: &ApiKey) -> Self {
+        let secret = key.expose().to_owned();
+        let client = Client::builder()
+            .with_auth_resolver_fn(move |model_iden: ModelIden| {
+                Ok((model_iden.adapter_kind == AdapterKind::Groq)
+                    .then(|| AuthData::from_single(secret)))
+            })
+            .build();
+        Self {
+            client: Arc::new(client),
             model: model.into(),
             vision_model: None,
         }
@@ -268,7 +304,7 @@ impl EditPlanner for LlmPlanner {
             } else {
                 {
                     tracing::info!(
-                        "no vision model configured (LATEX_AI_VISION_MODEL); \
+                        "no vision model configured (ai.vision_model / LATEX_AI_VISION_MODEL); \
                          falling back to a text-only visual fix"
                     );
                     let prompt = format!(

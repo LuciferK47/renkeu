@@ -116,7 +116,13 @@ async fn test_app() -> TestApp {
             )),
             jobs: Arc::new(JobRegistry::default()),
             workspace_root: root,
-            model: "test-model".to_owned(),
+            settings: Arc::new(
+                latex_ai_core::config::Settings::open(
+                    tempfile::tempdir().unwrap().keep(),
+                    latex_ai_core::config::EnvOverrides::default(),
+                )
+                .unwrap(),
+            ),
             metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,

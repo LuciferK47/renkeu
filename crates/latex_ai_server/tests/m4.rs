@@ -85,7 +85,13 @@ async fn test_app() -> TestApp {
             )),
             jobs: Arc::new(JobRegistry::default()),
             workspace_root: root.clone(),
-            model: "test-model".to_owned(),
+            settings: Arc::new(
+                latex_ai_core::config::Settings::open(
+                    tempfile::tempdir().unwrap().keep(),
+                    latex_ai_core::config::EnvOverrides::default(),
+                )
+                .unwrap(),
+            ),
             metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,
@@ -160,7 +166,12 @@ async fn apply(
             &json!({
                 "file_path": "main.tex",
                 "edits": edits,
-                "selected_hunk_ids": selected
+                "selected_hunk_ids": selected,
+                // The version the proposal was made against: the file as it
+                // stands when the user clicks apply.
+                "expected_etag": latex_ai_core::storage::etag_of(
+                    &std::fs::read_to_string(app.root.join("main.tex")).unwrap()
+                )
             }),
         ))
         .await

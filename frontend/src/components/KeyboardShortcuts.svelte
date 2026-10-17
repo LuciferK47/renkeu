@@ -1,4 +1,5 @@
 <script>
+  import { api } from '../lib/api/client.js'
   import { onMount, onDestroy } from 'svelte'
   import { createEventDispatcher } from 'svelte'
 
@@ -106,9 +107,7 @@
    */
   export async function loadShortcuts() {
     try {
-      const res = await fetch('/api/config')
-      if (!res.ok) throw new Error('Failed to load config')
-      const config = await res.json()
+      const config = await api.getConfig()
       if (config.keyboard_shortcuts) {
         shortcuts = config.keyboard_shortcuts
         // Re-parse shortcuts
@@ -126,12 +125,7 @@
    */
   export async function saveShortcuts(newShortcuts) {
     try {
-      const res = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newShortcuts)
-      })
-      if (!res.ok) throw new Error('Failed to save config')
+      await api.saveConfig(newShortcuts)
       shortcuts = { ...shortcuts, ...newShortcuts }
       // Re-parse shortcuts
       for (const [action, shortcutString] of Object.entries(shortcuts)) {

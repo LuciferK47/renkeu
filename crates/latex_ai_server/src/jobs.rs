@@ -74,8 +74,19 @@ impl JobRegistry {
             Err(poisoned) => poisoned.into_inner(),
         };
         if inner.order.len() >= MAX_JOBS {
-            if let Some(oldest) = inner.order.pop_front() {
-                inner.jobs.remove(&oldest);
+            // Evict the oldest FINISHED job. Evicting a running one made its
+            // stream endpoint 404 mid-compile; better to exceed the cap
+            // briefly than to lose a live job.
+            let evictable = inner.order.iter().position(|id| {
+                inner
+                    .jobs
+                    .get(id)
+                    .is_none_or(|rx| rx.borrow().phase.is_terminal())
+            });
+            if let Some(index) = evictable {
+                if let Some(oldest) = inner.order.remove(index) {
+                    inner.jobs.remove(&oldest);
+                }
             }
         }
         inner.jobs.insert(job_id.to_owned(), rx);
@@ -116,10 +127,37 @@ mod tests {
     }
 
     #[test]
+    fn eviction_never_drops_a_running_job() {
+        let registry = JobRegistry::default();
+        let running = registry.create("running");
+        let mut finished = Vec::new();
+        for i in 0..MAX_JOBS {
+            let tx = registry.create(&format!("done-{i}"));
+            tx.send_replace(JobState {
+                phase: JobPhase::Done,
+                ..JobState::queued()
+            });
+            finished.push(tx);
+        }
+        assert!(
+            registry.subscribe("running").is_some(),
+            "a running job was evicted"
+        );
+        assert!(registry.subscribe("done-0").is_none(), "oldest finished evicted");
+        drop(running);
+    }
+
+    #[test]
     fn eviction_keeps_at_most_max_jobs() {
         let registry = JobRegistry::default();
+        let mut senders = Vec::new();
         for i in 0..(MAX_JOBS + 5) {
-            let _tx = registry.create(&format!("job-{i}"));
+            let tx = registry.create(&format!("job-{i}"));
+            tx.send_replace(JobState {
+                phase: JobPhase::Done,
+                ..JobState::queued()
+            });
+            senders.push(tx);
         }
         assert!(registry.subscribe("job-0").is_none(), "oldest evicted");
         assert!(

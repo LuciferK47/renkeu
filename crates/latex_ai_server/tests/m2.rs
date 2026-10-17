@@ -157,7 +157,13 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
             )),
             jobs: Arc::new(JobRegistry::default()),
             workspace_root: root.clone(),
-            model: "test-model".to_owned(),
+            settings: Arc::new(
+                latex_ai_core::config::Settings::open(
+                    tempfile::tempdir().unwrap().keep(),
+                    latex_ai_core::config::EnvOverrides::default(),
+                )
+                .unwrap(),
+            ),
             metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,
@@ -643,7 +649,8 @@ async fn apply_selected_applies_only_selected_hunks() {
             &json!({
                 "file_path": "main.tex",
                 "edits": [keep, reject],
-                "selected_hunk_ids": [selected_id]
+                "selected_hunk_ids": [selected_id],
+                "expected_etag": latex_ai_core::storage::etag_of("alpha\nbeta\n")
             }),
         ))
         .await

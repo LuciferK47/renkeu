@@ -13,7 +13,6 @@ axum = { workspace = true }
 latex-ai-server = { path = "../latex_ai_server" }
 latex-ai-core = { path = "../latex_ai_core" }
 latex-ai-compiler = { path = "../compiler" }
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate"] }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

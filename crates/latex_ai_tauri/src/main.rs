@@ -15,7 +15,6 @@
 )]
 
 use anyhow::Context;
-use std::sync::Arc;
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -60,63 +59,10 @@ fn main() -> anyhow::Result<()> {
 /// Build the app state, bind the loopback listener, and start serving on
 /// Tauri's runtime. Returns the port the OS chose.
 async fn start_api() -> anyhow::Result<u16> {
-    let workspace_root =
-        std::fs::canonicalize(std::env::current_dir()?).context("canonicalizing workspace root")?;
-
-    let db_path = workspace_root.join(".latex-ai.db");
-    let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&db_url)
+    let opts = latex_ai_server::bootstrap::BootOptions::from_process()?;
+    let state = latex_ai_server::bootstrap::build_state(opts)
         .await
-        .context("connecting to the history database")?;
-
-    // Same migration set the daemon runs — no hand-rolled CREATE TABLE.
-    sqlx::migrate!("../latex_ai_server/migrations")
-        .run(&pool)
-        .await
-        .context("running migrations")?;
-
-    // SQLite leaves foreign keys off unless asked; compile_errors relies on
-    // its FK and cascade (masterplan §12 M5 audit: data integrity).
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&pool)
-        .await?;
-
-    // A job still marked running belongs to a process that died. Close those
-    // out so the queue does not show phantom work forever.
-    match latex_ai_core::storage::jobs::recover_abandoned(&pool).await {
-        Ok(0) => {}
-        Ok(n) => tracing::warn!(
-            count = n,
-            "recovered abandoned compile jobs from a previous run"
-        ),
-        Err(e) => tracing::warn!(error = %e, "compile-job recovery failed"),
-    }
-
-    let store = Arc::new(latex_ai_core::storage::Store::new(
-        pool,
-        workspace_root.clone(),
-    ));
-
-    let model =
-        std::env::var("LATEX_AI_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
-    let planner: Arc<dyn latex_ai_core::ai::EditPlanner> = Arc::new(
-        latex_ai_core::ai::LlmPlanner::new(model.clone())
-            .with_vision_model(std::env::var("LATEX_AI_VISION_MODEL").ok()),
-    );
-    let engine = Arc::new(latex_ai_compiler::Engine::new(10));
-    let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine));
-
-    let state = latex_ai_server::AppState {
-        planner,
-        queue,
-        store,
-        jobs: Arc::new(latex_ai_server::jobs::JobRegistry::default()),
-        workspace_root,
-        model,
-        metrics: std::sync::Arc::new(latex_ai_core::metrics::Metrics::new()),
-    };
+        .context("starting up")?;
 
     let app = latex_ai_server::build_router(state).context("building the router")?;
 

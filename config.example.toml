@@ -1,0 +1,15 @@
+# LaTeX-AI configuration. Copy to ~/.latex-ai/config.toml (or $LATEX_AI_HOME).
+# Precedence: built-in defaults < this file < environment variables.
+# Unknown keys are rejected at startup.
+#
+# The API key is NOT set here. Use the Settings dialog (stored in the 0600
+# file ~/.latex-ai/secrets.toml) or the GROQ_API_KEY environment variable.
+
+[ai]
+# Text planner model. Overridden by LATEX_AI_MODEL.
+model = "llama-3.3-70b-versatile"
+# Optional vision model for visual fixes; omit for text-only fallback.
+# Overridden by LATEX_AI_VISION_MODEL.
+# vision_model = "meta-llama/llama-4-scout-17b-16e-instruct"
+# Upper bound on one LLM call, in seconds (5-600).
+timeout_secs = 120

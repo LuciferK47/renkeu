@@ -1,4 +1,5 @@
 <script>
+  import { api } from '../lib/api/client.js'
   import Icon from './Icon.svelte'
   import { onMount, onDestroy } from 'svelte'
   import { createEventDispatcher } from 'svelte'
@@ -82,11 +83,9 @@
     loading = true
     error = ''
     try {
-      const params = new URLSearchParams({ limit: '40', offset: '0' })
-      if (query.trim()) params.set('search', query.trim())
-      const res = await fetch(`/api/files?${params.toString()}`)
-      if (!res.ok) throw new Error('Failed to load files')
-      const data = await res.json()
+      const params = { limit: '40', offset: '0' }
+      if (query.trim()) params.search = query.trim()
+      const data = await api.listFiles(params)
       results = data.files || []
     } catch (e) {
       error = e.message

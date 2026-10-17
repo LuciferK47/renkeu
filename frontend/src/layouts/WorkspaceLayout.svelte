@@ -8,6 +8,7 @@
   const dispatch = createEventDispatcher();
 
   export let filePath = ''
+  export let etag = null
   export let editorContent = ''
   export let editorRef = null
   export let autoSave = true
@@ -35,6 +36,7 @@
   export let activeRightTab = 'diff'
   export let chatMessages = []
   export let chatLoading = false
+  export let aiEnabled = true
   export let chatStreamingMessage = ''
 
   function handleDividerMouseDown(e) { dispatch('divider-mousedown', e); }
@@ -56,6 +58,7 @@
         bind:this={editorRef}
         bind:content={editorContent}
         {filePath}
+        {etag}
         {autoSave}
         {autoSaveDelay}
         {editorSettings}
@@ -108,7 +111,7 @@
         <button on:click={() => showChatPanel = false} title="Hide chat panel" class="control-btn"><Icon name="chevron-down" /></button>
       </div>
     </div>
-    <ChatPanel messages={chatMessages} loading={chatLoading} streamingMessage={chatStreamingMessage} on:message-sent />
+    <ChatPanel messages={chatMessages} loading={chatLoading} {aiEnabled} streamingMessage={chatStreamingMessage} on:message-sent />
   </div>
 {/if}
 

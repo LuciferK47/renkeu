@@ -131,7 +131,7 @@ async fn run_compile_job(
 
     // Persist next to the source so GET /api/pdf/page can rasterize it.
     let pdf_path = abs_path.with_extension("pdf");
-    if let Err(e) = tokio::fs::write(&pdf_path, result.pdf_bytes.as_ref()).await {
+    if let Err(e) = latex_ai_core::fsutil::atomic_write(&pdf_path, result.pdf_bytes.as_ref()).await {
         let summary = format!("could not write PDF: {e}");
         close_job_record(&pool, &job_id, JobStatus::Failed, Some(&summary)).await;
         return fail(&job_tx, summary);
@@ -140,13 +140,17 @@ async fn run_compile_job(
     // …and the source map beside it, for POST /api/visual-fix.
     let synctex_path = abs_path.with_extension("synctex.gz");
     if let Some(gz) = &result.synctex_gz {
-        if let Err(e) = tokio::fs::write(&synctex_path, gz.as_ref()).await {
+        if let Err(e) = latex_ai_core::fsutil::atomic_write(&synctex_path, gz.as_ref()).await {
             // Not fatal: the PDF is still usable, only click-to-source is.
             tracing::warn!(error = %e, "could not write the SyncTeX map");
         }
     } else {
         // A stale map would silently point at the wrong lines.
-        let _ = tokio::fs::remove_file(&synctex_path).await;
+        if let Err(e) = tokio::fs::remove_file(&synctex_path).await {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(error = %e, "could not remove the stale SyncTeX map");
+            }
+        }
         tracing::warn!("compile produced no SyncTeX map");
     }
 

@@ -105,9 +105,15 @@ impl PdfRenderer {
             }
         };
 
+        let (target_w, target_h) = (px(page.width().value), px(page.height().value));
+        // A document can declare any \paperwidth, so dpi alone does not bound
+        // the bitmap: one hostile page at 300 dpi would otherwise ask pdfium
+        // for gigabytes.
+        check_pixel_budget(target_w, target_h)?;
+
         let render_config = PdfRenderConfig::new()
-            .set_target_width(px(page.width().value))
-            .set_maximum_height(px(page.height().value));
+            .set_target_width(target_w)
+            .set_maximum_height(target_h);
 
         let bitmap = page
             .render_with_config(&render_config)
@@ -119,9 +125,46 @@ impl PdfRenderer {
     }
 }
 
+/// Upper bound on one rendered page. A4 at the 300 dpi ceiling is ~8.7 M
+/// pixels; 64 M leaves room for large posters while capping the RGBA bitmap
+/// at 256 MB.
+pub const MAX_RENDER_PIXELS: u32 = 64_000_000;
+
+fn check_pixel_budget(width: i32, height: i32) -> Result<(), VisualError> {
+    let w = u32::try_from(width).unwrap_or(u32::MAX);
+    let h = u32::try_from(height).unwrap_or(u32::MAX);
+    match w.checked_mul(h) {
+        Some(total) if total <= MAX_RENDER_PIXELS => Ok(()),
+        _ => Err(VisualError::TooLarge {
+            width: w,
+            height: h,
+            max_pixels: MAX_RENDER_PIXELS,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a4_at_the_dpi_ceiling_fits_the_budget() {
+        // 595x842 pt at 300 dpi.
+        assert!(check_pixel_budget(2480, 3508).is_ok());
+    }
+
+    #[test]
+    fn an_enormous_page_is_refused_instead_of_allocated() {
+        assert!(matches!(
+            check_pixel_budget(200_000, 200_000),
+            Err(VisualError::TooLarge { .. })
+        ));
+        // The i32::MAX clamp used for absurd page sizes must not overflow.
+        assert!(matches!(
+            check_pixel_budget(i32::MAX, i32::MAX),
+            Err(VisualError::TooLarge { .. })
+        ));
+    }
 
     /// Regression: binding twice used to fail with
     /// `PdfiumLibraryBindingsAlreadyInitialized`, breaking every render after

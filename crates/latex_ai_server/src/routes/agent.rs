@@ -15,7 +15,7 @@ use latex_ai_compiler::CompileError;
 use latex_ai_compiler::scratchpad::ScratchPad;
 use latex_ai_core::compile::AgentEdit;
 use latex_ai_core::security::{AccessKind, validate_path};
-use latex_ai_core::storage::etag_of;
+use latex_ai_core::storage::{Precondition, etag_of};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::convert::Infallible;
@@ -59,6 +59,12 @@ pub struct ApplySelectedRequest {
     pub file_path: String,
     pub edits: Vec<AgentEdit>,
     pub selected_hunk_ids: Vec<String>,
+    /// `ETag` of the file the proposal was made against. Required: without it
+    /// an edit such as `rewrite_file` would overwrite concurrent changes.
+    pub expected_etag: String,
+    /// The instruction that produced the proposal, kept in the history row.
+    #[serde(default)]
+    pub instruction: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,13 +75,27 @@ pub struct ApplySelectedResponse {
     pub diff: String,
 }
 
+/// A missing API key is a 503 up front, not a 200 stream that ends in an
+/// error event the client has to know to look for.
+pub(crate) fn ensure_ai_available(state: &AppState) -> Result<(), ApiError> {
+    if state.planner.is_available() {
+        Ok(())
+    } else {
+        Err(ApiError::Unavailable {
+            message: "AI is not configured: add an API key in Settings".to_owned(),
+        })
+    }
+}
+
 /// Validate + sanitize the shared preamble of both streaming endpoints.
 fn prepare(
     state: &AppState,
     file_path: &str,
     instruction: &str,
+    access: AccessKind,
 ) -> Result<(PathBuf, String), ApiError> {
-    let abs = validate_path(&state.workspace_root, file_path, AccessKind::Read)?;
+    ensure_ai_available(state)?;
+    let abs = validate_path(&state.workspace_root, file_path, access)?;
     let safe_instruction = latex_ai_core::prompt_safety::sanitize(instruction, MAX_INSTRUCTION_LEN)
         .map_err(|e| ApiError::Unprocessable {
             message: e.to_string(),
@@ -98,7 +118,7 @@ pub async fn plan_stream(
     State(state): State<AppState>,
     Json(req): Json<PlanRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let (abs_path, instruction) = prepare(&state, &req.file_path, &req.instruction)?;
+    let (abs_path, instruction) = prepare(&state, &req.file_path, &req.instruction, AccessKind::Read)?;
 
     let cancel = CancellationToken::new();
     let (tx, rx) = tokio::sync::mpsc::channel(32);
@@ -172,7 +192,15 @@ pub async fn agent_loop_stream(
     State(state): State<AppState>,
     Json(req): Json<AgentLoopRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let (abs_path, instruction) = prepare(&state, &req.file_path, &req.instruction)?;
+    // Auto-apply writes the file, so it is validated as a write up front
+    // (it used to be checked as a read, letting a compiling `rewrite_file`
+    // overwrite any readable file).
+    let access = if req.auto_apply {
+        AccessKind::Write
+    } else {
+        AccessKind::Read
+    };
+    let (abs_path, instruction) = prepare(&state, &req.file_path, &req.instruction, access)?;
     let max_iterations = req.max_iterations.clamp(1, 5);
 
     let cancel = CancellationToken::new();
@@ -330,7 +358,7 @@ async fn run_agent_loop(
                     .save_with_etag_history(
                         &rel_path,
                         &healed,
-                        Some(&initial_etag),
+                        Precondition::Etag(&initial_etag),
                         &original_instruction,
                         "agent-apply",
                     )
@@ -465,6 +493,8 @@ pub async fn apply_selected(
         .atomic_apply_selected(
             std::path::Path::new(&req.file_path),
             &selected,
+            &req.expected_etag,
+            req.instruction.as_deref().unwrap_or("apply-selected"),
             "apply-selected",
         )
         .await?;

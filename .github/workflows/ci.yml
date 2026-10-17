@@ -139,10 +139,12 @@ jobs:
 
       # tarpaulin rebuilds the workspace instrumented and re-runs every test
       # under ptrace; one test thread keeps only one Tectonic engine resident.
+      # --fail-under makes the 80% bar in rust.md I.5 an actual gate; the job
+      # used to measure and report, which gates nothing.
       - name: Measure coverage
         run: |
           cargo tarpaulin --workspace --exclude latex-ai-tauri \
-            --out Xml --timeout 400 --jobs 2 -- --test-threads=1
+            --fail-under 80 --out Xml --timeout 400 --jobs 2 -- --test-threads=1
 
   desktop-deps:
     name: Desktop link check
@@ -304,5 +306,8 @@ jobs:
       - run: npm ci && npm run build
         working-directory: frontend
 
-      - name: Check the desktop crate compiles
-        run: cargo check -p latex-ai-tauri
+      # Clippy rather than `cargo check`: the desktop crate is the one
+      # shipped artefact the workspace lint job excludes, so its code was
+      # never held to the deny-level lints everything else is.
+      - name: Lint the desktop crate
+        run: cargo clippy -p latex-ai-tauri --all-targets -- -D warnings

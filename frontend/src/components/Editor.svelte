@@ -1,10 +1,16 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from 'svelte'
+  import { api } from '../lib/api/client.js'
   // Lazy-load Monaco to reduce initial bundle size and parsing cost
   let monacoApi
   
   export let content = ''
   export let filePath = ''
+  // ETag of `content` as loaded/saved. Owned by fileStore; the editor only
+  // follows it. Without this the first save of every file was unconditional
+  // and, after a file switch or an applied AI edit, every save carried the
+  // previous file's ETag and was rejected with 409 forever.
+  export let etag = null
   export let autoSave = true
   export let autoSaveDelay = 2000
   export let editorSettings = {}
@@ -26,6 +32,11 @@
   let saveStatus = ''  // Current save status for screen readers
   let saveStatusElement  // Reference for aria-live announcements
   let currentETag = null  // ETag for conflict detection
+  // The path the buffer's text belongs to. `filePath` changes before the new
+  // file has loaded, so saving to `filePath` could write file A's text into
+  // file B's path. Saves always target this instead.
+  let bufferPath = ''
+  let lastPropKey = null
   let lastKeystroke = 0  // Timestamp of last keystroke for typing detection
   let saveRetries = 0  // Track save retry attempts
   const MAX_SAVE_RETRIES = 3
@@ -39,11 +50,6 @@
   let currentFilePath = ''
   let completionProviderDisposable
   let hoverProviderDisposable
-  
-  // Background sync state
-  let backgroundSyncInterval = null
-  const BACKGROUND_SYNC_DELAY = 5000  // 5 seconds
-  let lastSyncedETag = null
   
   onMount(async () => {
     
@@ -100,9 +106,6 @@
     await connectLsp()
     registerLspProviders()
     
-    // Start background sync to detect external file changes
-    startBackgroundSync()
-    
     // Listen for content changes from editor
     editor.onDidChangeModelContent(() => {
       if (!isUpdatingFromProp) {
@@ -127,7 +130,7 @@
         // 2. File has unsaved changes
         // 3. File path is set
         // 4. Not currently saving
-        if (autoSave && hasUnsavedChanges && filePath) {
+        if (autoSave && hasUnsavedChanges && bufferPath) {
           // Use longer delay to avoid saving while user is actively typing
           const delay = Math.max(autoSaveDelay, TYPING_PAUSE_MS)
           autoSaveTimer = setTimeout(() => {
@@ -163,7 +166,6 @@
   
   onDestroy(() => {
     if (autoSaveTimer) clearTimeout(autoSaveTimer)
-    if (backgroundSyncInterval) clearInterval(backgroundSyncInterval)
     if (editor) {
       editor.dispose()
     }
@@ -179,59 +181,6 @@
     }
   })
   
-  /**
-   * Start background sync to detect external file changes
-   */
-  function startBackgroundSync() {
-    if (backgroundSyncInterval) return
-    
-    backgroundSyncInterval = setInterval(async () => {
-      await checkForExternalChanges()
-    }, BACKGROUND_SYNC_DELAY)
-  }
-  
-  /**
-   * Check if file was modified externally and merge changes
-   */
-  async function checkForExternalChanges() {
-    if (!filePath || hasUnsavedChanges || isSaving) {
-      // Don't sync if user has local unsaved changes or is currently saving
-      return
-    }
-    
-    try {
-      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`)
-
-      if (res.ok) {
-        const data = await res.json()
-        // The server has no conditional-GET support; compare the body etag.
-        const newETag = data.etag
-        
-        // File was modified externally
-        if (newETag && newETag !== lastSyncedETag && newETag !== currentETag) {
-          // Update editor content
-          isUpdatingFromProp = true
-          editor.setValue(data.content || '')
-          isUpdatingFromProp = false
-          
-          content = data.content || ''
-          originalContent = content
-          lastSyncedETag = newETag
-          currentETag = newETag
-          isDirty = false
-          hasUnsavedChanges = false
-          
-          updateDirtyIndicator(false)
-          dispatch('external-change-detected', { content, etag: newETag })
-          console.debug('external change merged into the buffer:', filePath)
-        }
-      }
-    } catch (error) {
-      // Silently fail - don't interrupt user if network is down
-      console.debug('Background sync check failed:', error)
-    }
-  }
-  
   function updateDirtyIndicator(dirty) {
     // Visual feedback for unsaved changes
     if (editor && editorContainer) {
@@ -240,58 +189,48 @@
   }
   
   async function doSave(contentToSave) {
-    if (!filePath) return
+    // Snapshot the target now: the user can switch files while the request is
+    // in flight, and the response must be applied to the file it was sent for.
+    const targetPath = bufferPath
+    const targetETag = currentETag
+    if (!targetPath) return
     isSaving = true
     const saveStartTime = performance.now()
     try {
-      const headers = { 'Content-Type': 'application/json' }
-      if (currentETag) headers['If-Match'] = currentETag
-      const response = await fetch('/api/file', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ path: filePath, content: contentToSave })
-      })
-      if (response.ok) {
-        const duration = performance.now() - saveStartTime
-        const saved = await response.json().catch(() => null)
-        if (saved?.etag) currentETag = saved.etag
-        if (content === contentToSave) {
-          originalContent = content
-          isDirty = false
-          hasUnsavedChanges = false
-          lastSaveTime = Date.now()
-          saveRetries = 0
-          updateDirtyIndicator(false)
-          saveStatus = `File saved successfully. ${duration.toFixed(0)}ms`
-        }
-        dispatch('saved', { filePath, duration })
-      } else if (response.status === 409) {
-        const conflict = await response.json()
+      const saved = await api.saveFile(targetPath, contentToSave, targetETag)
+      const duration = performance.now() - saveStartTime
+      if (targetPath !== bufferPath) return
+      if (saved?.etag) currentETag = saved.etag
+      if (content === contentToSave) {
+        originalContent = content
+        isDirty = false
+        hasUnsavedChanges = false
+        lastSaveTime = Date.now()
+        saveRetries = 0
+        updateDirtyIndicator(false)
+        saveStatus = `File saved successfully. ${duration.toFixed(0)}ms`
+      }
+      dispatch('saved', { filePath: targetPath, duration, etag: saved?.etag ?? null })
+    } catch (err) {
+      if (err.status === 409) {
         saveStatus = 'Conflict: File was modified externally'
         dispatch('save-conflict', {
-          filePath,
+          filePath: targetPath,
           currentContent: contentToSave,
-          serverContent: conflict.current_content,
-          serverETag: conflict.current_etag
+          serverETag: err.payload?.current_etag ?? null
         })
-      } else {
-        const error = await response.json()
-        saveStatus = `Save failed: ${error.detail || 'Unknown error'}`
-        dispatch('save-error', { error: error.detail || 'Save failed' })
-      }
-    } catch (err) {
-      saveStatus = `Save error: ${err.message}`
-      dispatch('save-error', { error: err.message })
-      if (saveRetries < MAX_SAVE_RETRIES && hasUnsavedChanges) {
+      } else if (err.status === 0 && saveRetries < MAX_SAVE_RETRIES && hasUnsavedChanges) {
+        // Network failure only: a 4xx/5xx will not fix itself by retrying.
         saveRetries++
         const backoffDelay = Math.min(5000 * Math.pow(2, saveRetries - 1), 30000)
         saveStatus = `Save failed. Retrying in ${(backoffDelay / 1000).toFixed(0)}s... (${saveRetries}/${MAX_SAVE_RETRIES})`
+        dispatch('save-error', { error: err.message })
         await new Promise(resolve => setTimeout(resolve, backoffDelay))
         // Queue another save after backoff to pick up latest content
         saveQueuedContent = content
-      } else if (saveRetries >= MAX_SAVE_RETRIES) {
-        saveStatus = 'Save failed after multiple retries. Please save manually.'
-        dispatch('save-error', { error: 'Max retries exceeded', fatal: true })
+      } else {
+        saveStatus = `Save failed: ${err.message}`
+        dispatch('save-error', { error: err.message, fatal: err.status === 0 })
       }
     } finally {
       isSaving = false
@@ -299,7 +238,7 @@
   }
 
   async function saveFile() {
-    if (!filePath || (!hasUnsavedChanges && !isSaving)) return
+    if (!bufferPath || (!hasUnsavedChanges && !isSaving)) return
     // Always capture the latest content to be saved
     saveQueuedContent = content
     // Chain saves to ensure serialization and coalescing to latest
@@ -314,52 +253,57 @@
     return savePromise
   }
   
+  // A new ETag from the store means a fresh load (or a save acknowledged by
+  // the parent): adopt it, and bind the buffer to the path it belongs to.
+  // filePath, content and etag are written to the store in one update by
+  // FileController.loadFile, so they always arrive together. The key includes
+  // the path because two different files can hash to the same ETag.
+  $: if (etag) {
+    const key = `${filePath}\0${etag}`
+    if (key !== lastPropKey) {
+      lastPropKey = key
+      currentETag = etag
+      bufferPath = filePath
+    }
+  }
+
   // Update editor when content prop changes externally
   $: if (editor && content !== editor.getValue()) {
+    // A switch is reaching here with unsaved text only if the caller skipped
+    // `flush()`; the autosave timer must not outlive the buffer it was for.
+    if (autoSaveTimer) clearTimeout(autoSaveTimer)
     isUpdatingFromProp = true
     const position = editor.getPosition()
     editor.setValue(content)
     originalContent = content
     isDirty = false
+    hasUnsavedChanges = false
     if (position) {
       editor.setPosition(position)
     }
     isUpdatingFromProp = false
   }
-  
+
   // Export save function for parent components
   export function save() {
     return saveFile()
   }
-  
-  // Load file content with ETag
-  export async function loadFile(path) {
-    try {
-      const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`)
-      if (response.ok) {
-        const data = await response.json()
 
-        // Backend returns the blake3 etag in the body (routes/files.rs)
-        if (data.etag) {
-          currentETag = data.etag
-        }
-        
-        // Update content
-        if (editor) {
-          isUpdatingFromProp = true
-          editor.setValue(data.content || '')
-          originalContent = data.content || ''
-          isDirty = false
-          hasUnsavedChanges = false
-          isUpdatingFromProp = false
-        }
-        
-        return data
-      }
-    } catch (err) {
-      console.error('Failed to load file with ETag:', err)
-      throw err
-    }
+  /**
+   * Save any pending edits and report whether the buffer is clean afterwards.
+   * Callers invoke this before anything that reads the file from disk
+   * (switching files, compile, AI runs): those paths see only the last
+   * autosave, so unsaved text would be silently ignored or discarded.
+   */
+  export async function flush() {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer)
+    if (hasUnsavedChanges || isSaving) await saveFile()
+    return !hasUnsavedChanges
+  }
+
+  /** Overwrite after a conflict: keep the local text, take the server's ETag. */
+  export function adoptETag(newETag) {
+    if (newETag) currentETag = newETag
   }
 
   // Jump to a specific line in the current file

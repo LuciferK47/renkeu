@@ -114,12 +114,24 @@ The very first compile downloads the LaTeX support files into
 `~/.cache/Tectonic/`; after that it's offline.
 
 **The directory you launch from is the workspace** — every API path is sandboxed
-to it, and the history database lands there as `.latex-ai.db`.
+to it. App data (settings, API key, edit history) is kept under `~/.latex-ai`
+(`$LATEX_AI_HOME`), not inside your project: history is in
+`~/.latex-ai/projects/<id>/history.db`. A `.latex-ai.db` left in the workspace by
+an older version is imported automatically on first start and otherwise ignored;
+you can delete it afterwards.
 
 ### AI configuration
 
 The planner talks to **Groq** through the [`genai`](https://docs.rs/genai) crate.
-Put your key in a gitignored `.env` and source it:
+The easiest way to set it up is **Settings → AI** in the app: paste your key
+there and it takes effect immediately, no restart. It is stored in
+`~/.latex-ai/secrets.toml` (mode `0600`) and is never shown again. Model and
+timeout are saved to `~/.latex-ai/config.toml`; see
+[`config.example.toml`](config.example.toml).
+
+Or use the environment instead. Environment variables win over the files, and
+anything they set is shown as locked in the Settings dialog. For example, put
+your key in a gitignored `.env` and source it:
 
 ```sh
 echo 'export GROQ_API_KEY="gsk_..."' > .env && chmod 600 .env
@@ -128,11 +140,11 @@ source .env
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GROQ_API_KEY` | *(required for AI routes)* | Groq API key |
+| `GROQ_API_KEY` | *(or set it in Settings)* | Groq API key. Without any key the AI routes answer 503 and the chat says AI is off. |
 | `LATEX_AI_MODEL` | `llama-3.3-70b-versatile` | Planner model. Must be a name `genai` recognizes, or it silently falls back to Ollama. |
 | `LATEX_AI_VISION_MODEL` | *(unset)* | Model used for visual fix. **Groq currently serves no vision model**, so leave it unset for Groq and visual-fix degrades to a source-only fix (see below). Set it to any vision model `genai` can route — e.g. an OpenAI or Gemini one, with that provider's key exported — to have the PDF crop actually analysed. |
 | `ALLOWED_ORIGINS` | Vite dev origins | Comma-separated CORS allowlist |
-| `LATEX_AI_HOME` | `~/.latex-ai` | Scratchpad root |
+| `LATEX_AI_HOME` | `~/.latex-ai` | App data: `config.toml`, `secrets.toml`, per-project history, scratchpad |
 | `ENV` | *(unset)* | Set to `production` to require an explicit `ALLOWED_ORIGINS` |
 | `LATEX_AI_HOST` | `127.0.0.1` | Bind address (`--host`). The daemon has no authentication, so leave it on loopback unless something in front restricts access; the container sets `0.0.0.0` (see below) |
 | `RUST_LOG` | `info` | Tracing filter |

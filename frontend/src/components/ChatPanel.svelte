@@ -4,6 +4,9 @@
   
   export let messages = []  // [{role: 'user'|'assistant', content: '...', timestamp: ...}]
   export let loading = false
+  // False when the server has no API key; sending is disabled and the panel
+  // says how to turn AI on instead of failing on the first message.
+  export let aiEnabled = true
   export let streamingMessage = ''  // Current streaming response
   
   const dispatch = createEventDispatcher()
@@ -31,7 +34,7 @@
   }
   
   async function handleSubmit() {
-    if (!inputValue.trim() || loading) return
+    if (!inputValue.trim() || loading || !aiEnabled) return
     
     const userMessage = inputValue.trim()
     inputValue = ''
@@ -132,19 +135,24 @@
   
   <!-- Input Area -->
   <div class="input-area">
+    {#if !aiEnabled}
+      <div class="ai-off" role="status">
+        AI is off. Open Settings, then AI, and add an API key to use the assistant.
+      </div>
+    {/if}
     <div class="input-wrapper">
       <textarea
         bind:value={inputValue}
         bind:this={inputField}
         placeholder="What would you like to create or modify? (Shift+Enter for new line)"
         on:keydown={handleKeydown}
-        disabled={loading}
+        disabled={loading || !aiEnabled}
         class="chat-input"
         rows="3"
       ></textarea>
       <button
         on:click={handleSubmit}
-        disabled={!inputValue.trim() || loading}
+        disabled={!inputValue.trim() || loading || !aiEnabled}
         class="send-btn"
         aria-label="Send message"
       >
@@ -355,6 +363,15 @@
     cursor: not-allowed;
   }
   
+  .ai-off {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    border: 1px solid var(--border-color, #444);
+    background: var(--bg-secondary, rgba(128, 128, 128, 0.12));
+  }
+
   .send-btn {
     padding: 10px 16px;
     background: hsl(var(--primary));
@@ -406,9 +423,12 @@
 </style>
 
 <script context="module">
+  import { escapeHtml } from '../utils/escapeHtml.js'
+
   export function formatAssistantMessage(content) {
-    // Format LaTeX code blocks with syntax highlighting
-    return content
+    // Escape FIRST: the result is rendered with {@html}, and the input is
+    // model output / server error text. Only the spans below may be markup.
+    return escapeHtml(content)
       .replace(/```latex\n?([\s\S]*?)```/g, '<div class="code-block"><pre>$1</pre></div>')
       .replace(/\\([\w]+)/g, '<span class="latex-command">\\$1</span>')
   }

@@ -1,4 +1,5 @@
 <script>
+  import { api } from '../lib/api/client.js'
   import { onMount, onDestroy } from 'svelte'
   import Icon from './Icon.svelte'
 
@@ -42,9 +43,7 @@
 
   async function loadTheme() {
     try {
-      const res = await fetch('/api/config')
-      if (!res.ok) throw new Error('Failed to load config')
-      const config = await res.json()
+      const config = await api.getConfig()
       if (config.theme?.mode) applyTheme(config.theme.mode)
     } catch (e) {
       console.error('Error loading theme:', e)

@@ -17,8 +17,8 @@ pub enum SecurityError {
     NotFound,
     #[error("path escapes workspace")]
     EscapesWorkspace,
-    #[error("symlink escapes workspace")]
-    SymlinkEscape,
+    #[error("access to this file is denied")]
+    Denied,
     #[error("forbidden file extension: {0}")]
     ForbiddenExtension(String),
 }
@@ -32,6 +32,43 @@ pub enum AccessKind {
 /// Extensions the engine may write. Everything else is rejected so an AI edit
 /// can never produce an executable, dotenv, or key file.
 const ALLOWED_WRITE_EXTENSIONS: &[&str] = &["tex", "bib", "sty", "cls", "tikz"];
+
+/// Secrets and VCS internals that must never be read through the API, sent
+/// to a model, or exposed to the TeX engine, whatever their extension.
+///
+/// `rel` is workspace-relative. Matching is on names, so it holds for files
+/// that do not exist yet.
+#[must_use]
+pub fn is_denied(rel: &Path) -> bool {
+    const DENIED_DIRS: &[&str] = &[".git", ".ssh", ".aws", ".gnupg"];
+    const DENIED_NAMES: &[&str] = &[
+        ".netrc",
+        ".npmrc",
+        ".pgpass",
+        "id_rsa",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ed25519",
+    ];
+    const DENIED_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx", "keystore"];
+
+    let in_denied_dir = rel.components().any(|c| {
+        c.as_os_str()
+            .to_str()
+            .is_some_and(|n| DENIED_DIRS.contains(&n))
+    });
+    let Some(name) = rel.file_name().and_then(|n| n.to_str()) else {
+        return in_denied_dir;
+    };
+    let lower = name.to_ascii_lowercase();
+    let extension = Path::new(&lower).extension().and_then(|e| e.to_str());
+
+    in_denied_dir
+        || lower == ".env"
+        || lower.starts_with(".env.")
+        || DENIED_NAMES.contains(&lower.as_str())
+        || extension.is_some_and(|e| DENIED_EXTENSIONS.contains(&e))
+}
 
 /// Resolve `requested` inside `workspace_root`, rejecting traversal, symlink
 /// escapes, and (for writes) non-allowlisted extensions.
@@ -55,7 +92,11 @@ pub fn validate_path(
         return Err(SecurityError::AbsoluteOutsideWorkspace);
     }
 
-    if requested.contains("..") {
+    // Per component, not by substring: `v1..2.tex` is a legal name.
+    if requested_path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err(SecurityError::ParentDir);
     }
 
@@ -68,13 +109,10 @@ pub fn validate_path(
         return Err(SecurityError::EscapesWorkspace);
     }
 
-    if let Ok(meta) = std::fs::symlink_metadata(&abs) {
-        if meta.file_type().is_symlink() {
-            let resolved = std::fs::canonicalize(&abs).map_err(|_| SecurityError::NotFound)?;
-            if !resolved.starts_with(workspace_root) {
-                return Err(SecurityError::SymlinkEscape);
-            }
-        }
+    // `canonicalize` already resolved every symlink, so a link pointing out
+    // of the workspace was caught by the `starts_with` check above.
+    if is_denied(abs.strip_prefix(workspace_root).unwrap_or(&abs)) {
+        return Err(SecurityError::Denied);
     }
 
     if matches!(kind, AccessKind::Write) {
@@ -140,12 +178,8 @@ mod tests {
         let (_dir, root) = workspace();
         std::os::unix::fs::symlink("/etc/hostname", root.join("sneaky.tex")).unwrap();
         let err = validate_path(&root, "sneaky.tex", AccessKind::Read).unwrap_err();
-        // canonicalize resolves the link, so either escape variant is correct
         assert!(
-            matches!(
-                err,
-                SecurityError::EscapesWorkspace | SecurityError::SymlinkEscape
-            ),
+            matches!(err, SecurityError::EscapesWorkspace),
             "unexpected error: {err:?}"
         );
     }
@@ -161,6 +195,47 @@ mod tests {
         // Reading it is fine; only writes are extension-gated.
         assert!(validate_path(&root, "run.sh", AccessKind::Read).is_ok());
         assert!(validate_path(&root, "doc.tex", AccessKind::Write).is_ok());
+    }
+
+    #[test]
+    fn dots_inside_a_name_are_not_traversal() {
+        let (_dir, root) = workspace();
+        std::fs::write(root.join("v1..2.tex"), "x").unwrap();
+        assert!(validate_path(&root, "v1..2.tex", AccessKind::Read).is_ok());
+        assert!(matches!(
+            validate_path(&root, "sub/../doc.tex", AccessKind::Read),
+            Err(SecurityError::ParentDir)
+        ));
+    }
+
+    #[test]
+    fn secrets_are_denied_for_read_and_write() {
+        let (_dir, root) = workspace();
+        std::fs::write(root.join(".env"), "KEY=1").unwrap();
+        std::fs::write(root.join("server.pem"), "x").unwrap();
+        std::fs::create_dir(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git/config.tex"), "x").unwrap();
+
+        for name in [".env", "server.pem", ".git/config.tex"] {
+            assert!(
+                matches!(
+                    validate_path(&root, name, AccessKind::Read),
+                    Err(SecurityError::Denied)
+                ),
+                "{name} was readable"
+            );
+        }
+        assert!(validate_path(&root, "doc.tex", AccessKind::Read).is_ok());
+    }
+
+    #[test]
+    fn denylist_matches_names_not_substrings() {
+        assert!(is_denied(Path::new(".env.local")));
+        assert!(is_denied(Path::new("a/b/id_ed25519")));
+        assert!(is_denied(Path::new(".ssh/known_hosts")));
+        assert!(!is_denied(Path::new("environment.tex")));
+        assert!(!is_denied(Path::new("monkey.tex")));
+        assert!(!is_denied(Path::new("gitbook/intro.tex")));
     }
 
     #[test]

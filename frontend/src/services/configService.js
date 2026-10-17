@@ -13,7 +13,7 @@ export async function loadConfig() {
 }
 
 export async function saveConfig(config) {
-  return await api.request('POST', '/config', { body: config })
+  return await api.saveConfig(config)
 }
 
 export async function updateConfigField(fieldPath, value) {

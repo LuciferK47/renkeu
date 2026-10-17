@@ -330,10 +330,10 @@ Every other `pedantic` lint fires as an error.
 
 ## I.12 Configuration
 
-- Configuration is loaded via `figment::Provider` chain at startup, producing a single immutable `Arc<Config>` cloned into `AppState`.
-- **No config reload** during a request lifecycle (would require `ArcSwap` round trip per hot path — out of scope).
-- Tunables catalogued in `.latex-ai.toml.example` generated via `figment::test::-doc` at build time, checked into the repo after every change.
-- Env vars win over TOML win over defaults, in that order.
+- Configuration is layered at startup: defaults < `<home>/config.toml` < environment variables (env wins). Unknown keys are a startup error (`deny_unknown_fields`). Secrets (API keys) live in a separate `0600` file or an env var, never in the readable config file, and their types redact `Debug`.
+- **Amended (M8, 2026-10):** the process config is hot-swappable (`ArcSwap<Snapshot>`), because a desktop app must let the user set an API key without restarting. The rule that matters is kept: **every request takes one snapshot at its start and uses only that snapshot**, so a settings change never lands mid-request. A write persists to disk first and swaps second; a failed write changes nothing.
+- A golden `config.example.toml` is checked into the repo and a test asserts it parses to exactly the defaults.
+- Fields pinned by an environment variable are reported to the UI and refuse changes (409), so a UI edit is never silently overridden on the next start.
 
 ## I.13 Filesystem Atomic Writes
 

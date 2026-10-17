@@ -163,6 +163,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arg_enum_proc_macro"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3279,6 +3288,7 @@ dependencies = [
 name = "latex-ai-core"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "blake3",
  "genai",
  "hex",
@@ -3292,6 +3302,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "toml 0.8.23",
  "tracing",
 ]
 
@@ -3334,7 +3345,6 @@ dependencies = [
  "latex-ai-core",
  "latex-ai-server",
  "serde_json",
- "sqlx",
  "tauri",
  "tauri-build",
  "tokio",

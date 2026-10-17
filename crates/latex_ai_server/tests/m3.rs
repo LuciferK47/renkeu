@@ -138,7 +138,13 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(JobRegistry::default()),
             workspace_root: root.clone(),
-            model: "test-model".to_owned(),
+            settings: Arc::new(
+                latex_ai_core::config::Settings::open(
+                    tempfile::tempdir().unwrap().keep(),
+                    latex_ai_core::config::EnvOverrides::default(),
+                )
+                .unwrap(),
+            ),
             metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,

@@ -3,7 +3,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use axum::extract::{Query, State};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use latex_ai_core::ai::EditPlanner;
 use latex_ai_core::metrics::Metrics;
@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
+pub mod bootstrap;
 pub mod error;
 pub mod jobs;
 pub mod routes;
@@ -28,8 +29,8 @@ pub struct AppState {
     pub jobs: Arc<jobs::JobRegistry>,
     /// Canonicalized workspace root every user-supplied path is sandboxed to.
     pub workspace_root: PathBuf,
-    /// Planner model id, surfaced by `GET /api/config`.
-    pub model: String,
+    /// Hot-swappable configuration; routes call `snapshot()` once per request.
+    pub settings: Arc<latex_ai_core::config::Settings>,
     /// Process-lifetime counters, surfaced by `GET /api/metrics`.
     pub metrics: Arc<Metrics>,
 }
@@ -51,6 +52,88 @@ pub enum StartupError {
     UnparseableAllowedOrigins(String),
 }
 
+const DEV_ORIGINS: &str = "http://localhost:5173,http://127.0.0.1:5173,\
+tauri://localhost,http://tauri.localhost,https://tauri.localhost";
+
+/// Hostnames that are always valid in a `Host` header: the loopback names a
+/// local browser or the Tauri shell uses.
+const LOOPBACK_HOSTS: &[&str] = &["localhost", "127.0.0.1", "[::1]", "tauri.localhost"];
+
+/// Hosts the server answers to: loopback, anything named in
+/// `ALLOWED_ORIGINS` (a production deployment's own domain) and anything in
+/// the comma-separated `ALLOWED_HOSTS`.
+fn allowed_hosts() -> Vec<String> {
+    let mut hosts: Vec<String> = LOOPBACK_HOSTS.iter().map(|h| (*h).to_owned()).collect();
+    if let Ok(origins) = env::var("ALLOWED_ORIGINS") {
+        for origin in origins.split(',') {
+            if let Some(host) = origin
+                .trim()
+                .split_once("://")
+                .map(|(_, rest)| rest.split('/').next().unwrap_or(rest))
+                .and_then(|authority| host_without_port(authority))
+            {
+                hosts.push(host.to_ascii_lowercase());
+            }
+        }
+    }
+    if let Ok(extra) = env::var("ALLOWED_HOSTS") {
+        hosts.extend(
+            extra
+                .split(',')
+                .map(|h| h.trim().to_ascii_lowercase())
+                .filter(|h| !h.is_empty()),
+        );
+    }
+    hosts
+}
+
+/// `example.com:3000` -> `example.com`; `[::1]:3000` -> `[::1]`.
+fn host_without_port(authority: &str) -> Option<&str> {
+    if authority.is_empty() {
+        return None;
+    }
+    if authority.starts_with('[') {
+        let end = authority.find(']')?;
+        return Some(&authority[..=end]);
+    }
+    Some(authority.split(':').next().unwrap_or(authority))
+}
+
+/// Reject requests whose `Host` is not one we serve.
+///
+/// A malicious page can make a victim's browser resolve
+/// `attacker.example` to `127.0.0.1` (DNS rebinding) and then talk to this
+/// unauthenticated server as a same-origin site — CORS does not apply. The
+/// browser still sends the attacker's name in `Host`, which is what this
+/// check refuses. A missing `Host` (HTTP/1.0 tooling) cannot come from a
+/// browser and is let through.
+async fn require_known_host(
+    axum::extract::State(allowed): axum::extract::State<Arc<Vec<String>>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    let host = request
+        .headers()
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .and_then(host_without_port)
+        .map(str::to_ascii_lowercase);
+
+    match host {
+        Some(h) if !allowed.contains(&h) => {
+            tracing::warn!(host = %h, "rejected request with unknown Host header");
+            (
+                axum::http::StatusCode::FORBIDDEN,
+                Json(json!({ "error": "forbidden", "message": "unknown Host header" })),
+            )
+                .into_response()
+        }
+        _ => next.run(request).await,
+    }
+}
+
 /// Resolve the CORS allow-list.
 ///
 /// In production a missing or unusable `ALLOWED_ORIGINS` is fatal: silently
@@ -65,7 +148,12 @@ fn cors_layer() -> Result<CorsLayer, StartupError> {
     let raw = match (configured, is_production) {
         (Some(v), _) => v,
         (None, true) => return Err(StartupError::MissingAllowedOrigins),
-        (None, false) => "http://localhost:5173,http://127.0.0.1:5173".to_owned(),
+        // Vite dev server, plus the origins a Tauri webview serves the SPA
+        // from (`tauri://` on macOS/Linux, `http(s)://tauri.localhost` on
+        // Windows). Without them the desktop app's every API call is a
+        // blocked cross-origin request. Production never gets these: it
+        // must name its origins explicitly.
+        (None, false) => DEV_ORIGINS.to_owned(),
     };
 
     let origins: Vec<_> = raw
@@ -96,7 +184,14 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
     Ok(Router::new()
         .route("/health", get(health))
         .route("/api/search", post(search_candidates).get(search_workspace))
-        .route("/api/config", get(routes::config::get_config))
+        .route(
+            "/api/config",
+            get(routes::config::get_config).patch(routes::config::patch_config),
+        )
+        .route(
+            "/api/config/api-key",
+            put(routes::config::put_api_key).delete(routes::config::delete_api_key),
+        )
         .route("/api/history", get(routes::history::list_history))
         .route("/api/files", get(routes::files::list_files))
         .route(
@@ -126,6 +221,12 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
         ))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        // Outermost: a rebinding request is refused before anything else
+        // (including CORS and metrics) sees it.
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::new(allowed_hosts()),
+            require_known_host,
+        ))
         .with_state(state))
 }
 
@@ -240,7 +341,13 @@ mod tests {
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(jobs::JobRegistry::default()),
             workspace_root: root,
-            model: "test-model".to_owned(),
+            settings: Arc::new(
+                latex_ai_core::config::Settings::open(
+                    tempfile::tempdir().unwrap().keep(),
+                    latex_ai_core::config::EnvOverrides::default(),
+                )
+                .unwrap(),
+            ),
             metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         };
         (state, dir)
@@ -260,6 +367,73 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    async fn status_for_host(host: Option<&str>) -> StatusCode {
+        let (state, _dir) = test_state().await;
+        let app = build_router(state).unwrap();
+        let mut request = Request::builder().uri("/health");
+        if let Some(h) = host {
+            request = request.header("host", h);
+        }
+        app.oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status()
+    }
+
+    #[tokio::test]
+    async fn rebinding_host_headers_are_refused() {
+        assert_eq!(status_for_host(Some("evil.example")).await, StatusCode::FORBIDDEN);
+        assert_eq!(
+            status_for_host(Some("evil.example:3000")).await,
+            StatusCode::FORBIDDEN
+        );
+        // A look-alike must not match by prefix or suffix.
+        assert_eq!(
+            status_for_host(Some("localhost.evil.example")).await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn loopback_hosts_and_hostless_requests_are_served() {
+        for host in ["localhost", "localhost:3000", "127.0.0.1:3000", "[::1]:3000", "tauri.localhost"] {
+            assert_eq!(status_for_host(Some(host)).await, StatusCode::OK, "{host}");
+        }
+        assert_eq!(status_for_host(None).await, StatusCode::OK);
+    }
+
+    #[test]
+    fn host_parsing_handles_ports_and_ipv6() {
+        assert_eq!(host_without_port("example.com:8080"), Some("example.com"));
+        assert_eq!(host_without_port("example.com"), Some("example.com"));
+        assert_eq!(host_without_port("[::1]:3000"), Some("[::1]"));
+        assert_eq!(host_without_port(""), None);
+    }
+
+    #[tokio::test]
+    async fn tauri_origin_passes_the_cors_preflight() {
+        let (state, _dir) = test_state().await;
+        let app = build_router(state).unwrap();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/api/files")
+                    .header("origin", "tauri://localhost")
+                    .header("access-control-request-method", "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            res.headers()
+                .get("access-control-allow-origin")
+                .and_then(|v| v.to_str().ok()),
+            Some("tauri://localhost")
+        );
     }
 
     #[tokio::test]

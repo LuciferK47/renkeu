@@ -1,4 +1,5 @@
 <script>
+  import { api } from '../lib/api/client.js'
   import Icon from './Icon.svelte'
   import { createEventDispatcher, onMount } from 'svelte'
 
@@ -30,17 +31,12 @@
     loading = true
     loadError = ''
     try {
-      const params = new URLSearchParams({
-        limit: String(limit),
-        offset: String(offset)
-      })
+      const params = { limit: String(limit), offset: String(offset) }
       if (searchQuery.trim()) {
-        params.set('search', searchQuery.trim())
+        params.search = searchQuery.trim()
       }
 
-      const res = await fetch(`/api/files?${params.toString()}`)
-      if (!res.ok) return
-      const data = await res.json()
+      const data = await api.listFiles(params)
       const files = (data.files || []).map(toFileEntry)
       allFiles = reset ? files : [...allFiles, ...files]
       offset += files.length

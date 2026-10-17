@@ -8,6 +8,7 @@ pub mod paper;
 pub mod render;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum VisualError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -17,4 +18,10 @@ pub enum VisualError {
     Image(String),
     #[error("Page not found in PDF")]
     PageNotFound,
+    #[error("page would render at {width}x{height}px, over the {max_pixels}-pixel limit")]
+    TooLarge {
+        width: u32,
+        height: u32,
+        max_pixels: u32,
+    },
 }

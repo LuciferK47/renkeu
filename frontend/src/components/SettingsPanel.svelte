@@ -1,4 +1,5 @@
 <script>
+  import { api } from '../lib/api/client.js'
   import Icon from './Icon.svelte'
   import { paperStore } from '../stores/paperStore.js'
   import { onMount } from 'svelte'
@@ -22,8 +23,13 @@
 
   let selectedTab = 'editor'
   let loading = true
-  let modelsLoading = false
-  let availableModels = []
+  // What the server reports about AI (model, key source, pinned fields).
+  // The key itself is never returned -- only where it comes from.
+  let server = null
+  let aiForm = { model: '', vision_model: '', timeout_secs: 120 }
+  let keyInput = ''
+  let aiError = ''
+  let aiBusy = false
   let modalContainer
   let previouslyFocused
 
@@ -33,13 +39,11 @@
   async function loadConfig() {
     try {
       loading = true
-      const res = await fetch('/api/config')
-      if (!res.ok) throw new Error('Failed to load config')
       // Merge rather than replace. Assigning the response wholesale dropped
       // `editor`, `theme` and `keyboard_shortcuts`, and the very next thing the
       // markup does is read `config.editor.font_size` -- which threw, so the
       // whole panel failed to render and Settings appeared to do nothing.
-      const fromServer = await res.json()
+      const fromServer = await api.getConfig()
       config = {
         ...DEFAULT_CONFIG,
         ...fromServer,
@@ -51,43 +55,80 @@
         },
       }
 
-      // One configured planner model (masterplan Q1) — reported by /api/config.
-      modelsLoading = true
-      if (config.model) {
-        availableModels = [{ id: config.model, name: config.model }]
-        if (!config.ai_model_default) config.ai_model_default = config.model
+      server = fromServer
+      aiForm = {
+        model: fromServer.model ?? '',
+        vision_model: fromServer.vision_model ?? '',
+        timeout_secs: fromServer.timeout_secs ?? 120,
       }
     } catch (e) {
       console.error('Error loading config:', e)
     } finally {
       loading = false
-      modelsLoading = false
     }
   }
 
+  const isPinned = (field) => server?.env_overridden?.includes(field) ?? false
+
   /**
-   * Save configuration updates
+   * Persist the AI settings. Only fields that changed and are not pinned by
+   * an environment variable are sent; the server rejects the rest with 409.
    */
+  async function saveAiSettings() {
+    const patch = {}
+    if (!isPinned('model') && aiForm.model !== server.model) patch.model = aiForm.model.trim()
+    if (!isPinned('vision_model') && aiForm.vision_model !== (server.vision_model ?? '')) {
+      patch.vision_model = aiForm.vision_model.trim()
+    }
+    const timeout = Number(aiForm.timeout_secs)
+    if (timeout !== server.timeout_secs) patch.timeout_secs = timeout
+    if (Object.keys(patch).length === 0) return true
+    try {
+      aiBusy = true
+      aiError = ''
+      server = await api.saveConfig(patch)
+      return true
+    } catch (e) {
+      aiError = e.message
+      return false
+    } finally {
+      aiBusy = false
+    }
+  }
+
+  async function saveApiKey() {
+    try {
+      aiBusy = true
+      aiError = ''
+      server = await api.setApiKey(keyInput)
+      keyInput = ''
+    } catch (e) {
+      aiError = e.message
+    } finally {
+      aiBusy = false
+    }
+  }
+
+  async function removeApiKey() {
+    try {
+      aiBusy = true
+      aiError = ''
+      server = await api.clearApiKey()
+    } catch (e) {
+      aiError = e.message
+    } finally {
+      aiBusy = false
+    }
+  }
+
   async function saveConfig() {
-    const updates = {}
-
-    // Collect all changed values
-    for (const [key, value] of Object.entries(config)) {
-      if (typeof value === 'object') {
-        for (const [subKey, subValue] of Object.entries(value)) {
-          updates[`${key}.${subKey}`] = subValue
-        }
-      } else {
-        updates[key] = value
-      }
+    // The AI tab is the only part of this dialog the server stores; the
+    // other tabs have no server-side home yet (reworked in M16).
+    if (server && !(await saveAiSettings())) {
+      selectedTab = 'ai'
+      return
     }
-
-    // Ensure AI model default is saved explicitly when present
-    if (config.ai_model_default) {
-      updates['ai_model_default'] = config.ai_model_default
-    }
-
-    await onSave(updates)
+    await onSave({})
     onClose()
   }
 
@@ -362,79 +403,76 @@
           {#if selectedTab === 'ai'}
             <div class="settings-section">
               <h3>AI Model</h3>
-              <p class="help-text">Choose the global default model used for AI planning.</p>
-
-              {#if modelsLoading}
-                <div class="setting-group">
-                  <p>Loading available models...</p>
-                </div>
+              {#if !server}
+                <p class="help-text">Could not reach the server, so AI settings cannot be shown.</p>
               {:else}
+                <p class="help-text">
+                  {#if server.ai_enabled}
+                    AI is on.
+                  {:else}
+                    AI is off until you add an API key below.
+                  {/if}
+                  {#if server.env_overridden.length > 0}
+                    Fields set by an environment variable are locked.
+                  {/if}
+                </p>
+
                 <div class="setting-group">
-                  <label for="ai-model-select">Default Model</label>
-                  <select
-                    id="ai-model-select"
-                    aria-label="Select global default AI model"
-                    bind:value={config.ai_model_default}
-                  >
-                    {#each availableModels as m}
-                      <option value={m.id}>
-                        {m.label} {m.tier ? `(${m.tier})` : ''}
-                      </option>
-                    {/each}
-                  </select>
+                  <label for="ai-model">Model</label>
+                  <input
+                    id="ai-model"
+                    type="text"
+                    bind:value={aiForm.model}
+                    disabled={isPinned('model')}
+                    spellcheck="false"
+                  />
+                  {#if isPinned('model')}<p class="help-text">Set by LATEX_AI_MODEL.</p>{/if}
                 </div>
 
-                {#if config.ai_model_default}
-                  {#each availableModels.filter(m => m.id === config.ai_model_default) as selected}
-                    <div class="setting-group">
-                      <label>Model Capabilities</label>
-                      <div class="capabilities">
-                        {#if selected.supports}
-                          {#if selected.supports.streaming}
-                            <span class="cap-badge streaming" title="Supports real-time streaming">
-                              <Icon name="bolt" /> Streaming
-                            </span>
-                          {/if}
-                          {#if selected.supports.vision}
-                            <span class="cap-badge vision" title="Can analyze images">
-                              <Icon name="eye" /> Vision
-                            </span>
-                          {/if}
-                          {#if selected.supports.code}
-                            <span class="cap-badge code" title="Optimized for code">
-                              {'<>'} Code
-                            </span>
-                          {/if}
-                          {#if selected.supports.json}
-                            <span class="cap-badge json" title="Structured JSON output">
-                              {'{ }'} JSON
-                            </span>
-                          {/if}
-                          {#if selected.supports.long_context}
-                            <span class="cap-badge context" title="Extended context window">
-                              [DOCS] Long Context
-                            </span>
-                          {/if}
-                          {#if selected.supports.function_calling}
-                            <span class="cap-badge tools" title="Tool/function calling">
-                              <Icon name="wrench" /> Tools
-                            </span>
-                          {/if}
-                        {/if}
-                        {#if selected.provider}
-                          <span class="cap-provider">
-                            Provider: {selected.provider}
-                          </span>
-                        {/if}
-                        {#if selected.max_tokens}
-                          <span class="cap-info">
-                            Max: {selected.max_tokens.toLocaleString()} tokens
-                          </span>
-                        {/if}
-                      </div>
-                    </div>
-                  {/each}
+                <div class="setting-group">
+                  <label for="ai-vision-model">Vision model (optional)</label>
+                  <input
+                    id="ai-vision-model"
+                    type="text"
+                    bind:value={aiForm.vision_model}
+                    disabled={isPinned('vision_model')}
+                    spellcheck="false"
+                  />
+                  {#if isPinned('vision_model')}<p class="help-text">Set by LATEX_AI_VISION_MODEL.</p>{/if}
+                </div>
+
+                <div class="setting-group">
+                  <label for="ai-timeout">Request timeout (seconds)</label>
+                  <input id="ai-timeout" type="number" min="5" max="600" bind:value={aiForm.timeout_secs} />
+                </div>
+
+                <h3>API key</h3>
+                {#if server.key_source === 'env'}
+                  <p class="help-text">The key comes from the GROQ_API_KEY environment variable and cannot be changed here.</p>
+                {:else}
+                  <p class="help-text">
+                    {server.key_source === 'file' ? 'A key is stored on this computer.' : 'No key is stored.'}
+                    It is kept in a private file and is never shown again.
+                  </p>
+                  <div class="setting-group">
+                    <label for="ai-key">{server.key_source === 'file' ? 'Replace key' : 'Groq API key'}</label>
+                    <input
+                      id="ai-key"
+                      type="password"
+                      autocomplete="off"
+                      spellcheck="false"
+                      bind:value={keyInput}
+                    />
+                    <button class="btn-save" on:click={saveApiKey} disabled={aiBusy || !keyInput.trim()}>
+                      Save key
+                    </button>
+                    {#if server.key_source === 'file'}
+                      <button class="btn-cancel" on:click={removeApiKey} disabled={aiBusy}>Remove key</button>
+                    {/if}
+                  </div>
                 {/if}
+
+                {#if aiError}<p class="help-text" role="alert">{aiError}</p>{/if}
               {/if}
             </div>
           {/if}

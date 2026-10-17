@@ -1,4 +1,5 @@
 <script>
+  import { api } from '../lib/api/client.js'
   import { createEventDispatcher, onMount } from 'svelte'
 
   export let filePath = ''
@@ -19,12 +20,10 @@
 
   async function loadHistory() {
     try {
-      const params = new URLSearchParams({ limit: '1000' })
-      if (filePath) params.set('path', filePath)
-      if (filterAgentOnly) params.set('agent_only', 'true')
-      const res = await fetch(`/api/history?${params.toString()}`)
-      if (!res.ok) return
-      history = await res.json()
+      const params = { limit: '1000' }
+      if (filePath) params.path = filePath
+      if (filterAgentOnly) params.agent_only = 'true'
+      history = await api.getHistory(params)
     } catch (e) {
       console.error('Failed to load history:', e)
     }

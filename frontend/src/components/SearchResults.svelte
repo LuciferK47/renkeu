@@ -1,4 +1,5 @@
 <script>
+  import { escapeHtml } from '../utils/escapeHtml.js'
   import { createEventDispatcher } from 'svelte'
   import { searchWorkspace } from '../services/fileService.js'
   
@@ -54,13 +55,17 @@
   }
   
   function highlightMatch(text, query) {
-    if (!query) return text
-    
+    const safe = escapeHtml(text)
+    if (!query) return safe
+
     try {
-      const regex = new RegExp(`(${query})`, caseSensitive ? 'g' : 'gi')
-      return text.replace(regex, '<mark>$1</mark>')
+      // Escape the query too so it matches the escaped text, and so regex
+      // metacharacters typed by the user are literals rather than a pattern.
+      const needle = escapeHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const regex = new RegExp(`(${needle})`, caseSensitive ? 'g' : 'gi')
+      return safe.replace(regex, '<mark>$1</mark>')
     } catch (e) {
-      return text
+      return safe
     }
   }
   
