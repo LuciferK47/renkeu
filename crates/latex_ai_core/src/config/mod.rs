@@ -44,6 +44,23 @@ pub enum ConfigError {
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
     pub ai: AiConfig,
+    pub compile: CompileConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct CompileConfig {
+    /// Wall-clock budget for one compile, in seconds. A document still
+    /// running after this is killed (an infinite macro loop, a huge TikZ
+    /// picture). The first compile after install also downloads the TeX
+    /// bundle, so keep this generous.
+    pub timeout_secs: u64,
+}
+
+impl Default for CompileConfig {
+    fn default() -> Self {
+        Self { timeout_secs: 60 }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +78,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             ai: AiConfig::default(),
+            compile: CompileConfig::default(),
         }
     }
 }
@@ -88,6 +106,12 @@ impl Config {
         if !(5..=600).contains(&self.ai.timeout_secs) {
             return Err(ConfigError::Invalid {
                 field: "ai.timeout_secs",
+                reason: "must be between 5 and 600".to_owned(),
+            });
+        }
+        if !(5..=600).contains(&self.compile.timeout_secs) {
+            return Err(ConfigError::Invalid {
+                field: "compile.timeout_secs",
                 reason: "must be between 5 and 600".to_owned(),
             });
         }

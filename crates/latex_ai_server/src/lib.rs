@@ -24,7 +24,7 @@ pub(crate) mod sse;
 pub struct AppState {
     /// Object-safe so tests can inject a scripted planner (masterplan §12 M2).
     pub planner: Arc<dyn EditPlanner>,
-    pub queue: Arc<latex_ai_compiler::queue::CompilationQueue>,
+    pub compiler: Arc<latex_ai_compiler::Compiler>,
     pub store: Arc<latex_ai_core::storage::Store>,
     pub jobs: Arc<jobs::JobRegistry>,
     /// Canonicalized workspace root every user-supplied path is sandboxed to.
@@ -199,6 +199,9 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
             get(routes::files::read_file).post(routes::files::write_file),
         )
         .route("/api/compile", post(routes::compile::compile))
+        .route("/api/compile/{id}/cancel", post(routes::compile::cancel_compile))
+        .route("/api/builds/{id}", get(routes::compile::get_build))
+        .route("/api/builds/{id}/pdf", get(routes::compile::export_pdf))
         .route(
             "/api/compile/stream/{id}",
             get(routes::compile::compile_stream),
@@ -330,14 +333,16 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(dir.path()).unwrap();
-        let engine = latex_ai_compiler::Engine::new(2);
-        let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(Arc::new(
-            engine,
-        )));
 
         let state = AppState {
             planner: Arc::new(NoPlanner),
-            queue,
+            // These unit tests never compile, so the worker path is moot.
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(
+                latex_ai_compiler::CompilerConfig::new(
+                    "/nonexistent-worker".into(),
+                    root.join(".builds"),
+                ),
+            )),
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(jobs::JobRegistry::default()),
             workspace_root: root,

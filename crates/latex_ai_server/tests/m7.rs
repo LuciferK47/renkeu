@@ -61,11 +61,13 @@ async fn app() -> App {
     .unwrap();
     let dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(dir.path()).unwrap();
-    let engine = Arc::new(latex_ai_compiler::Engine::new(2));
     App {
         state: AppState {
             planner: Arc::new(NoPlanner),
-            queue: Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine)),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(latex_ai_compiler::CompilerConfig::new(
+                env!("CARGO_BIN_EXE_latex-ai").into(),
+                tempfile::tempdir().unwrap().keep(),
+            ))),
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(JobRegistry::default()),
             workspace_root: root.clone(),

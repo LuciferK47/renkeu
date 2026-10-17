@@ -18,6 +18,10 @@ pub struct BootOptions {
     /// App data directory: config, secrets, per-project history.
     pub home: PathBuf,
     pub env: EnvOverrides,
+    /// Binary to run compile workers from. `None` means this very process
+    /// (see `latex_ai_compiler::worker::run_if_requested`); tests, whose own
+    /// binary is the test harness, name the real one.
+    pub worker_exe: Option<PathBuf>,
 }
 
 impl BootOptions {
@@ -31,6 +35,7 @@ impl BootOptions {
             workspace_root: std::env::current_dir().context("reading the current directory")?,
             home: latex_ai_core::config::default_home(),
             env: EnvOverrides::from_process(),
+            worker_exe: None,
         })
     }
 }
@@ -73,12 +78,17 @@ pub async fn build_state(opts: BootOptions) -> anyhow::Result<AppState> {
     }
 
     let store = Arc::new(Store::new(pool, workspace_root.clone()));
-    let engine = Arc::new(latex_ai_compiler::Engine::new(10));
-    let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine));
+    let worker_exe = match opts.worker_exe {
+        Some(exe) => exe,
+        None => std::env::current_exe().context("locating this executable for compile workers")?,
+    };
+    let compiler = Arc::new(latex_ai_compiler::Compiler::new(
+        latex_ai_compiler::CompilerConfig::new(worker_exe, project.dir.join("builds")),
+    ));
 
     Ok(AppState {
         planner: Arc::new(ConfiguredPlanner::new(Arc::clone(&settings))),
-        queue,
+        compiler,
         store,
         jobs: Arc::new(JobRegistry::default()),
         workspace_root,

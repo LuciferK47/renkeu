@@ -1,79 +1,137 @@
-//! The raw, blocking Tectonic invocation.
+//! The blocking Tectonic invocation, run inside the worker process.
 //!
-//! `tectonic::latex_to_pdf` is a convenience wrapper that cannot emit `SyncTeX`,
-//! so we drive `ProcessingSessionBuilder` directly with `synctex(true)` and
-//! collect BOTH artefacts from the in-memory file map — no `Tectonic.toml`, no
-//! output directory, no temp files (masterplan.md §12 M3).
+//! Everything is kept in memory (`do_not_write_output_files`): a document
+//! that does `\openout` to an absolute path writes into Tectonic's in-memory
+//! file map, not onto the disk (verified in the M10 spike and pinned by a
+//! test). Only the artefacts we choose are written, into `out_dir`.
 
-use crate::CompileError;
+use crate::worker::{BLG, LOG, PDF, SYNCTEX, WorkerRequest, WorkerResult};
+use std::path::Path;
 use tectonic::driver::{OutputFormat, ProcessingSessionBuilder};
-use tectonic::status::NoopStatusBackend;
+use tectonic::status::{MessageKind, StatusBackend};
 
-/// What one engine run produced.
-pub(crate) struct RawOutput {
-    pub(crate) pdf: Vec<u8>,
-    /// gzipped `SyncTeX` map; `None` when `SyncTeX` was not requested or the
-    /// engine produced none.
-    pub(crate) synctex_gz: Option<Vec<u8>>,
+/// Remembers the engine's own error messages, for when there is no log.
+#[derive(Default)]
+struct Collect {
+    errors: Vec<String>,
 }
 
-/// Run Tectonic synchronously. Blocking and NOT thread-safe — callers must
-/// hold the process-wide engine mutex and run this on a blocking thread.
-///
-/// `tex_name` is the name the engine gives the primary input. It matters:
-/// `SyncTeX` records it as the source file, and the viewer maps hits back
-/// through it.
-pub(crate) fn run(
-    latex: &str,
-    tex_name: &str,
-    want_synctex: bool,
-) -> Result<RawOutput, CompileError> {
-    let mut status = NoopStatusBackend::default();
+impl StatusBackend for Collect {
+    fn report(&mut self, kind: MessageKind, args: std::fmt::Arguments, err: Option<&anyhow::Error>) {
+        if matches!(kind, MessageKind::Error) && self.errors.len() < 20 {
+            let mut line = args.to_string();
+            if let Some(e) = err {
+                line.push_str(&format!(": {e}"));
+            }
+            self.errors.push(line);
+        }
+    }
 
-    let config = tectonic::config::PersistentConfig::open(false)
-        .map_err(|e| CompileError::Tectonic(format!("opening tectonic config: {e}")))?;
-    let bundle = config
-        .default_bundle(false)
-        .map_err(|e| CompileError::Tectonic(format!("loading resource bundle: {e}")))?;
-    let format_cache_path = config
-        .format_cache_path()
-        .map_err(|e| CompileError::Tectonic(format!("format cache: {e}")))?;
+    fn dump_error_logs(&mut self, _output: &[u8]) {}
+}
 
-    let mut files = {
+fn failed(error: String) -> WorkerResult {
+    WorkerResult {
+        tex_ok: false,
+        engine_error: Some(error),
+        has_pdf: false,
+        has_synctex: false,
+        has_log: false,
+        has_blg: false,
+    }
+}
+
+pub(crate) fn run(req: &WorkerRequest) -> WorkerResult {
+    let mut status = Collect::default();
+
+    let main_path = req.root.join(&req.main);
+    let Some(main_name) = main_path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+        return failed(format!("`{}` is not a file name", req.main));
+    };
+    let main_dir = main_path.parent().unwrap_or(&req.root).to_path_buf();
+
+    let config = match tectonic::config::PersistentConfig::open(false) {
+        Ok(c) => c,
+        Err(e) => return failed(format!("opening the Tectonic config: {e}")),
+    };
+    let bundle = match config.default_bundle(false) {
+        Ok(b) => b,
+        Err(e) => return failed(format!("loading the resource bundle: {e}")),
+    };
+    let format_cache_path = match config.format_cache_path() {
+        Ok(p) => p,
+        Err(e) => return failed(format!("opening the format cache: {e}")),
+    };
+
+    let (run, mut files) = {
         let mut builder = ProcessingSessionBuilder::default();
         builder
             .bundle(bundle)
-            .primary_input_buffer(latex.as_bytes())
-            .tex_input_name(tex_name)
+            .primary_input_path(&main_path)
+            .tex_input_name(&main_name)
             .format_name("latex")
             .format_cache_path(format_cache_path)
-            .keep_logs(false)
+            .keep_logs(true)
             .keep_intermediates(false)
             .print_stdout(false)
-            .synctex(want_synctex)
+            .synctex(req.synctex)
             .output_format(OutputFormat::Pdf)
             .do_not_write_output_files();
+        // Textual match against `<main dir>/<name>`: it stops `\input{.env}`
+        // and friends, not a path spelled around the check.
+        for rel in &req.hidden {
+            if let Ok(inside_main_dir) = req.root.join(rel).strip_prefix(&main_dir) {
+                builder.hide(main_dir.join(inside_main_dir));
+            }
+        }
 
-        let mut session = builder
-            .create(&mut status)
-            .map_err(|e| CompileError::Tectonic(format!("creating session: {e}")))?;
-        session
-            .run(&mut status)
-            .map_err(|e| CompileError::Tectonic(format!("the LaTeX engine failed: {e}")))?;
-        session.into_file_data()
+        let mut session = match builder.create(&mut status) {
+            Ok(s) => s,
+            Err(e) => return failed(format!("creating the session: {e}")),
+        };
+        let run = session.run(&mut status);
+        let files = session.into_file_data();
+        (run, files)
     };
 
-    // Artefacts are keyed by the input stem, e.g. `main.tex` -> `main.pdf`.
-    let stem = tex_name.strip_suffix(".tex").unwrap_or(tex_name);
+    let stem = main_name.strip_suffix(".tex").unwrap_or(&main_name);
+    let mut take = |ext: &str, out_name: &str| -> bool {
+        match files.remove(&format!("{stem}.{ext}")) {
+            Some(f) if !f.data.is_empty() => write_artefact(&req.out_dir, out_name, &f.data),
+            _ => false,
+        }
+    };
+    let has_pdf = take("pdf", PDF);
+    let has_synctex = take("synctex.gz", SYNCTEX);
+    let has_log = take("log", LOG);
+    let has_blg = take("blg", BLG);
 
-    let pdf = files
-        .remove(&format!("{stem}.pdf"))
-        .map(|f| f.data)
-        .ok_or_else(|| {
-            CompileError::Tectonic("engine reported success but produced no PDF".to_owned())
-        })?;
+    let engine_error = run
+        .err()
+        .map(|e| format!("{e}"))
+        .map(|e| match status.errors.first() {
+            Some(first) => format!("{e} ({first})"),
+            None => e,
+        });
+    WorkerResult {
+        tex_ok: engine_error.is_none(),
+        engine_error,
+        has_pdf,
+        has_synctex,
+        has_log,
+        has_blg,
+    }
+}
 
-    let synctex_gz = files.remove(&format!("{stem}.synctex.gz")).map(|f| f.data);
-
-    Ok(RawOutput { pdf, synctex_gz })
+fn write_artefact(dir: &Path, name: &str, data: &[u8]) -> bool {
+    match std::fs::write(dir.join(name), data) {
+        Ok(()) => true,
+        Err(e) => {
+            let _ = std::io::Write::write_fmt(
+                &mut std::io::stderr(),
+                format_args!("compile worker: writing {name}: {e}\n"),
+            );
+            false
+        }
+    }
 }

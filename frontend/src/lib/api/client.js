@@ -121,8 +121,14 @@ export class APIClient {
   // unlike the `filter: invert()` every other LaTeX viewer resorts to.
   // paper === 1 means "send it exactly as it prints", which is what
   // hold-to-reveal asks for.
-  pdfPageUrl(filePath, page, dpi, tone) {
-    const params = new URLSearchParams({ file: filePath, n: String(page) });
+  //
+  // Pass `buildId` (from the `compiled` event) so the URL names exactly one
+  // compile: it never goes stale and the server lets the browser cache it.
+  // Without it the server serves "the newest build of this file".
+  pdfPageUrl(filePath, page, dpi, tone, buildId) {
+    const params = new URLSearchParams({ n: String(page) });
+    if (buildId) params.set('build', buildId);
+    else params.set('file', filePath);
     if (dpi) params.set('dpi', String(dpi));
     if (tone) {
       if (tone.paper != null) params.set('paper', String(tone.paper));
@@ -162,10 +168,11 @@ export class APIClient {
   }
 
   // Region coordinates are pixels of the page image rendered at `dpi`.
-  repairVisualCrop({ filePath, page, x, y, w, h, dpi, instruction }) {
+  repairVisualCrop({ filePath, buildId, page, x, y, w, h, dpi, instruction }) {
     return this.request('POST', '/visual-fix', {
       body: {
         file_path: filePath,
+        ...(buildId ? { build: buildId } : {}),
         page,
         x,
         y,
@@ -179,6 +186,23 @@ export class APIClient {
 
   getConfig() {
     return this.request('GET', '/config');
+  }
+
+  // --- builds ------------------------------------------------------------
+
+  // Stop a running compile; the worker process is killed server-side.
+  cancelCompile(jobId) {
+    return this.request('POST', `/compile/${encodeURIComponent(jobId)}/cancel`);
+  }
+
+  // What a compile found: success, main file, diagnostics with file and line.
+  getBuild(buildId) {
+    return this.request('GET', `/builds/${encodeURIComponent(buildId)}`);
+  }
+
+  // URL that downloads the finished PDF ("Export PDF").
+  exportPdfUrl(buildId) {
+    return this.buildUrl(`/builds/${encodeURIComponent(buildId)}/pdf`);
   }
 
   // Partial update of the server-side settings (model, vision_model,

@@ -24,6 +24,7 @@ async fn state_in(home: &Path, ws: &Path, env: EnvOverrides) -> latex_ai_server:
         workspace_root: ws.to_owned(),
         home: home.to_owned(),
         env,
+        worker_exe: Some(env!("CARGO_BIN_EXE_latex-ai").into()),
     })
     .await
     .unwrap()
@@ -231,6 +232,7 @@ async fn invalid_config_file_stops_startup_naming_the_file() {
         workspace_root: ws.path().to_owned(),
         home: home.path().to_owned(),
         env: EnvOverrides::default(),
+        worker_exe: Some(env!("CARGO_BIN_EXE_latex-ai").into()),
     })
     .await
     .err()

@@ -8,6 +8,7 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { api } from '../lib/api/client.js';
   import { activeTone } from '../stores/paperStore.js';
+  import { compileStore } from '../stores/compileStore.js';
   import { normalizeDrag, isMeaningfulDrag, toImagePixels } from '../utils/bbox.js';
 
   const dispatch = createEventDispatcher();
@@ -52,7 +53,7 @@
   onDestroy(() => themeObserver?.disconnect());
 
   $: tone = isDark ? $activeTone : { paper: 1, warmth: 0 };
-  $: pageUrl = filePath ? api.pdfPageUrl(filePath, page, dpi, tone) : '';
+  $: pageUrl = filePath ? api.pdfPageUrl(filePath, page, dpi, tone, $compileStore.buildId) : '';
   // Changing page/file invalidates any in-progress selection.
   $: if (page || filePath) resetSelection();
 
@@ -112,6 +113,7 @@
     try {
       result = await api.repairVisualCrop({
         filePath,
+        buildId: $compileStore.buildId,
         page,
         dpi,
         instruction: instruction.trim() || undefined,

@@ -4,10 +4,12 @@
 //! `compile_queue` table is M5 scope (masterplan.md §12 M5) — this registry is
 //! deliberately process-local.
 
+use latex_ai_compiler::diagnostics::Diagnostic;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 /// Cap on remembered jobs; oldest are evicted (finished jobs stay queryable
 /// until then so late subscribers still see the terminal state).
@@ -37,6 +39,11 @@ pub struct JobState {
     pub progress: f32,
     pub page_count: Option<u16>,
     pub error_summary: Option<String>,
+    /// The stored build this job produced (or tried to), once there is one.
+    pub build_id: Option<String>,
+    /// The file that was compiled, project-relative.
+    pub main_file: Option<String>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl JobState {
@@ -48,6 +55,9 @@ impl JobState {
             progress: 0.0,
             page_count: None,
             error_summary: None,
+            build_id: None,
+            main_file: None,
+            diagnostics: Vec::new(),
         }
     }
 }
@@ -59,7 +69,7 @@ pub struct JobRegistry {
 
 #[derive(Default)]
 struct Registry {
-    jobs: HashMap<String, watch::Receiver<JobState>>,
+    jobs: HashMap<String, (watch::Receiver<JobState>, CancellationToken)>,
     order: VecDeque<String>,
 }
 
@@ -67,8 +77,9 @@ impl JobRegistry {
     /// Register a new job; the returned sender drives its state. The mutex is
     /// held only for map bookkeeping (no await, no user code); a poisoned
     /// lock is recovered with `into_inner` since the map stays consistent.
-    pub fn create(&self, job_id: &str) -> watch::Sender<JobState> {
+    pub fn create(&self, job_id: &str) -> (watch::Sender<JobState>, CancellationToken) {
         let (tx, rx) = watch::channel(JobState::queued());
+        let cancel = CancellationToken::new();
         let mut inner = match self.inner.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
@@ -81,7 +92,7 @@ impl JobRegistry {
                 inner
                     .jobs
                     .get(id)
-                    .is_none_or(|rx| rx.borrow().phase.is_terminal())
+                    .is_none_or(|(rx, _)| rx.borrow().phase.is_terminal())
             });
             if let Some(index) = evictable {
                 if let Some(oldest) = inner.order.remove(index) {
@@ -89,9 +100,26 @@ impl JobRegistry {
                 }
             }
         }
-        inner.jobs.insert(job_id.to_owned(), rx);
+        inner.jobs.insert(job_id.to_owned(), (rx, cancel.clone()));
         inner.order.push_back(job_id.to_owned());
-        tx
+        (tx, cancel)
+    }
+
+    /// Ask a job to stop. Returns `false` if the job is unknown. Cancelling a
+    /// job that already finished is harmless and still returns `true`.
+    #[must_use]
+    pub fn cancel(&self, job_id: &str) -> bool {
+        let inner = match self.inner.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        match inner.jobs.get(job_id) {
+            Some((_, token)) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
     }
 
     /// Watch an existing job, if it is still remembered.
@@ -101,7 +129,7 @@ impl JobRegistry {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        inner.jobs.get(job_id).cloned()
+        inner.jobs.get(job_id).map(|(rx, _)| rx.clone())
     }
 }
 
@@ -112,13 +140,13 @@ mod tests {
     #[test]
     fn subscribe_sees_latest_state_and_unknown_ids_are_none() {
         let registry = JobRegistry::default();
-        let tx = registry.create("job-1");
+        let (tx, _) = registry.create("job-1");
         tx.send_replace(JobState {
             phase: JobPhase::Done,
             message: "ok".into(),
             progress: 1.0,
             page_count: Some(2),
-            error_summary: None,
+            ..JobState::queued()
         });
 
         let rx = registry.subscribe("job-1").expect("job exists");
@@ -129,10 +157,10 @@ mod tests {
     #[test]
     fn eviction_never_drops_a_running_job() {
         let registry = JobRegistry::default();
-        let running = registry.create("running");
+        let (running, _) = registry.create("running");
         let mut finished = Vec::new();
         for i in 0..MAX_JOBS {
-            let tx = registry.create(&format!("done-{i}"));
+            let (tx, _) = registry.create(&format!("done-{i}"));
             tx.send_replace(JobState {
                 phase: JobPhase::Done,
                 ..JobState::queued()
@@ -152,7 +180,7 @@ mod tests {
         let registry = JobRegistry::default();
         let mut senders = Vec::new();
         for i in 0..(MAX_JOBS + 5) {
-            let tx = registry.create(&format!("job-{i}"));
+            let (tx, _) = registry.create(&format!("job-{i}"));
             tx.send_replace(JobState {
                 phase: JobPhase::Done,
                 ..JobState::queued()
@@ -166,5 +194,15 @@ mod tests {
                 .is_some(),
             "newest kept"
         );
+    }
+
+    #[test]
+    fn cancel_trips_the_jobs_token_and_unknown_ids_are_reported() {
+        let registry = JobRegistry::default();
+        let (_tx, token) = registry.create("j");
+        assert!(!token.is_cancelled());
+        assert!(registry.cancel("j"));
+        assert!(token.is_cancelled());
+        assert!(!registry.cancel("nope"));
     }
 }

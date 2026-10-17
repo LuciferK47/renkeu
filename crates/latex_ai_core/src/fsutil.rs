@@ -83,7 +83,8 @@ async fn preserve_permissions(target: &Path, tmp: &Path) -> std::io::Result<()> 
 /// 128 random bits as hex, from the blake3 XOF seeded with time + a counter +
 /// the address of a stack local; unique per call within and across processes,
 /// which is all a temp-file name needs (not a secret).
-fn unique_id() -> String {
+#[must_use]
+pub fn unique_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 

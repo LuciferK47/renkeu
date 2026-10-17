@@ -77,4 +77,7 @@ opt-level = "z"
 lto = "fat"
 codegen-units = 1
 strip = true
-panic = "abort"
+# "unwind", not "abort": a panic in one request must not take the whole
+# server (and every other request) with it. Compile workers are separate
+# processes either way.
+panic = "unwind"

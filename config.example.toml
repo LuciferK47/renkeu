@@ -13,3 +13,9 @@ model = "llama-3.3-70b-versatile"
 # vision_model = "meta-llama/llama-4-scout-17b-16e-instruct"
 # Upper bound on one LLM call, in seconds (5-600).
 timeout_secs = 120
+
+[compile]
+# Wall-clock budget for one compile, in seconds (5-600). A document still
+# running after this is killed. The very first compile also downloads the TeX
+# bundle, so keep it generous.
+timeout_secs = 60

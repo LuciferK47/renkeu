@@ -1,4 +1,5 @@
 import * as compileService from '../services/compileService.js';
+import { api } from '../lib/api/client.js';
 import { compileStore } from '../stores/compileStore.js';
 import { uiStore, pushToast } from '../stores/uiStore.js';
 
@@ -7,6 +8,36 @@ let compileQueued = false;
 let compiling = false;
 
 compileStore.subscribe((s) => (compiling = s.status === 'compiling'));
+
+/** Split the server's diagnostics into the error/warning lists the panel shows. */
+export function splitDiagnostics(diagnostics) {
+  const list = Array.isArray(diagnostics) ? diagnostics : [];
+  const shape = (d) => ({
+    message: d.message,
+    file: d.file ?? null,
+    line: d.line ?? null,
+    context: d.context ?? null,
+    kind: d.kind
+  });
+  return {
+    errors: list.filter((d) => d.severity === 'error').map(shape),
+    warnings: list.filter((d) => d.severity === 'warning').map(shape)
+  };
+}
+
+/** Stop the running compile, if any. The server kills the worker process. */
+export async function cancelCompile() {
+  let jobId = null;
+  compileStore.subscribe((c) => (jobId = c.status === 'compiling' ? c.jobId : null))();
+  if (!jobId) return false;
+  try {
+    await api.cancelCompile(jobId);
+    return true;
+  } catch (e) {
+    pushToast(`Could not cancel: ${e.message}`, 'error');
+    return false;
+  }
+}
 
 /**
  * Start a compile job and follow it to completion over SSE.
@@ -53,14 +84,18 @@ export async function compileDocument(filePath) {
           }));
           uiStore.update((ui) => ({ ...ui, status: data.message ?? 'Compiling...' }));
         } else if (event === 'compiled') {
+          const { errors, warnings } = splitDiagnostics(data.diagnostics);
           if (data.success) {
             compileStore.update((c) => ({
               ...c,
               status: 'success',
               progress: 100,
               pageCount: data.page_count ?? 1,
-              pdfUrl: compileService.pdfPageUrl(filePath, 1),
+              buildId: data.build_id ?? null,
+              mainFile: data.main_file ?? null,
+              pdfUrl: compileService.pdfPageUrl(filePath, 1, undefined, data.build_id),
               errors: [],
+              warnings,
               lastCompileAt: new Date()
             }));
             uiStore.update((ui) => ({ ...ui, status: 'Compiled' }));
@@ -71,7 +106,12 @@ export async function compileDocument(filePath) {
               ...c,
               status: 'error',
               progress: 0,
-              errors: [{ message }],
+              buildId: data.build_id ?? null,
+              mainFile: data.main_file ?? null,
+              // Located problems when the server found them (file and line),
+              // else the one-line summary.
+              errors: errors.length > 0 ? errors : [{ message }],
+              warnings,
               lastCompileAt: new Date()
             }));
             uiStore.update((ui) => ({ ...ui, status: 'Compile failed', activeRightTab: 'errors' }));

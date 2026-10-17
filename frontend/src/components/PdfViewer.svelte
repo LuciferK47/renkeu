@@ -2,6 +2,7 @@
   import { onDestroy, onMount, createEventDispatcher } from 'svelte'
   import { api } from '../lib/api/client.js'
   import { paperStore, activeTone } from '../stores/paperStore.js'
+  import { compileStore } from '../stores/compileStore.js'
   import VisualFixOverlay from './VisualFixOverlay.svelte'
   
   const dispatch = createEventDispatcher()
@@ -36,7 +37,7 @@
   $: tone = isDark ? $activeTone : { paper: 1, warmth: 0 };
 
   $: pageImgUrl = (isVisible && filePath && numPages > 0)
-    ? api.pdfPageUrl(filePath, currentPage, undefined, tone)
+    ? api.pdfPageUrl(filePath, currentPage, undefined, tone, $compileStore.buildId)
     : '';
 
   // Watch the theme attribute rather than a media query: the in-app toggle is

@@ -11,7 +11,8 @@ use crate::sse::{self, CancelOnDisconnect};
 use axum::Json;
 use axum::extract::State;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use latex_ai_compiler::CompileError;
+use latex_ai_compiler::diagnostics::{Diagnostic, Severity};
+use latex_ai_compiler::{CompileError, CompileJob};
 use latex_ai_compiler::scratchpad::ScratchPad;
 use latex_ai_core::compile::AgentEdit;
 use latex_ai_core::security::{AccessKind, validate_path};
@@ -19,6 +20,7 @@ use latex_ai_core::storage::{Precondition, etag_of};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::convert::Infallible;
+use std::time::Duration;
 use std::path::PathBuf;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
@@ -368,9 +370,21 @@ async fn run_agent_loop(
             }
         };
 
-        match state.queue.submit(&healed, &cancel).await {
-            Ok(result) if result.success => {
-                scratch.cleanup();
+        let main_name = scratch
+            .main_file
+            .file_name()
+            .map_or_else(|| "main.tex".to_owned(), |n| n.to_string_lossy().into_owned());
+        let job = CompileJob {
+            root: scratch.root.clone(),
+            main: main_name,
+            synctex: false,
+            timeout: Duration::from_secs(state.settings.snapshot().config.compile.timeout_secs),
+        };
+        let compiled = state.compiler.compile_scratch(&job, &cancel).await;
+        scratch.cleanup();
+
+        match compiled {
+            Ok(out) if out.success => {
                 match state
                     .store
                     .save_with_etag_history(
@@ -420,21 +434,37 @@ async fn run_agent_loop(
                 }
                 return;
             }
-            Ok(_) => {
-                scratch.cleanup();
+            Ok(out) => {
+                // The model now sees what TeX said, with file and line, not
+                // just that something failed.
+                let summary = truncate(&describe_errors(&out.diagnostics), MAX_ERROR_SUMMARY_LEN);
+                for d in out.diagnostics.iter().filter(|d| d.severity == Severity::Error) {
+                    failures.push(latex_ai_core::storage::jobs::CompileErrorRecord {
+                        iteration,
+                        line: d.line,
+                        file: d.file.clone(),
+                        message: d.message.clone(),
+                        error_type: kind_name(d),
+                    });
+                }
                 sse::send(
                     &tx,
                     "compiled",
-                    &json!({ "success": false, "error_summary": "empty PDF produced" }),
+                    &json!({
+                        "success": false,
+                        "error_summary": summary,
+                        "diagnostics": out.diagnostics,
+                    }),
                 )
                 .await;
                 instruction = format!(
-                    "{original_instruction}\n\nThe previous attempt produced an empty PDF. Fix the document."
+                    "{original_instruction}\n\nThe document failed to compile:\n{summary}\nFix them."
                 );
+                content = healed;
             }
-            Err(CompileError::Tectonic(msg)) => {
-                scratch.cleanup();
-                let summary = truncate(&msg, MAX_ERROR_SUMMARY_LEN);
+            Err(CompileError::Cancelled) => return, // disconnect: token already cancelled
+            Err(CompileError::Timeout { secs }) => {
+                let summary = format!("compilation timed out after {secs}s (an infinite loop?)");
                 failures.push(
                     latex_ai_core::storage::jobs::CompileErrorRecord::engine_failure(
                         iteration,
@@ -448,16 +478,11 @@ async fn run_agent_loop(
                 )
                 .await;
                 instruction = format!(
-                    "{original_instruction}\n\nCompilation errors so far:\n{summary}\nFix them."
+                    "{original_instruction}\n\nThe previous attempt {summary}. Fix the document."
                 );
                 content = healed;
             }
-            Err(CompileError::Cancelled) => {
-                scratch.cleanup();
-                return; // disconnect: token already cancelled, just stop
-            }
             Err(e) => {
-                scratch.cleanup();
                 sse::send(&tx, "error", &json!({ "message": e.to_string() })).await;
                 return;
             }
@@ -604,6 +629,32 @@ pub async fn preview(
         .collect();
 
     Ok(Json(PreviewResponse { etag, hunks }))
+}
+
+/// The errors a failed compile reported, one per line, for the model.
+fn describe_errors(diagnostics: &[Diagnostic]) -> String {
+    let lines: Vec<String> = diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .take(8)
+        .map(|d| match &d.context {
+            Some(ctx) => format!("- {} (near: {ctx})", d.headline()),
+            None => format!("- {}", d.headline()),
+        })
+        .collect();
+    if lines.is_empty() {
+        "(the engine gave no details)".to_owned()
+    } else {
+        lines.join("\n")
+    }
+}
+
+/// The diagnostic's kind as its wire name, for the audit trail.
+fn kind_name(d: &Diagnostic) -> String {
+    serde_json::to_value(d.kind)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
 fn truncate(s: &str, max: usize) -> String {

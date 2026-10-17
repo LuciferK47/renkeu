@@ -16,6 +16,9 @@ import { writable } from 'svelte/store'
 
 export const compileStore = writable({
   jobId: null,
+  // The stored build the current PDF came from; page URLs name it.
+  buildId: null,
+  mainFile: null,
   // idle | compiling | success | error
   status: 'idle',
   progress: 0,
@@ -33,6 +36,8 @@ export function resetCompile() {
   compileStore.update((c) => ({
     ...c,
     jobId: null,
+    buildId: null,
+    mainFile: null,
     status: 'idle',
     progress: 0,
     pdfUrl: null,

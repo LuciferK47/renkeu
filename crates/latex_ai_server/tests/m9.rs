@@ -31,6 +31,7 @@ async fn app() -> App {
         workspace_root: ws.path().to_owned(),
         home: home.path().to_owned(),
         env: EnvOverrides::default(),
+        worker_exe: Some(env!("CARGO_BIN_EXE_latex-ai").into()),
     })
     .await
     .unwrap();

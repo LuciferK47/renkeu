@@ -53,6 +53,6 @@ export async function streamCompilationStatus(jobId, onEvent, onError, options =
   }
 }
 
-export function pdfPageUrl(filePath, page, dpi) {
-  return api.pdfPageUrl(filePath, page, dpi);
+export function pdfPageUrl(filePath, page, dpi, buildId) {
+  return api.pdfPageUrl(filePath, page, dpi, undefined, buildId);
 }

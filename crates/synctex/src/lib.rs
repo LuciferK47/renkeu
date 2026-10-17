@@ -147,6 +147,41 @@ pub struct SyncTexData {
     pub pages: BTreeMap<u32, Vec<Node>>,
 }
 
+/// Turn an `Input:` name from a map into a project-relative path.
+///
+/// When a document is compiled from a file on disk, Tectonic records inputs
+/// by their **absolute** path (`/work/proj/chapters/a.tex`); bundle files
+/// (`article.cls`, fonts) are recorded with an empty name. Documents
+/// compiled from an in-memory buffer record the placeholder `texput`. The
+/// answer is `None` for anything that is not a file inside `root`: empty
+/// names, the placeholder, paths elsewhere on disk, and anything that tries
+/// to climb out with `..`. Callers treat `None` as "the main file".
+#[must_use]
+pub fn resolve_input_name(name: &str, root: &Path) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+
+    let name = name.trim();
+    if name.is_empty() || name == "texput" || name == "texput.tex" {
+        return None;
+    }
+    let path = Path::new(name);
+    let relative = if path.is_absolute() {
+        path.strip_prefix(root).ok()?
+    } else {
+        path
+    };
+
+    let mut out = std::path::PathBuf::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(p) => out.push(p),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
 impl SyncTexData {
     /// Parse a `.synctex` or `.synctex.gz` file.
     ///
@@ -217,5 +252,43 @@ impl SyncTexData {
     #[must_use]
     pub fn forward_search(&self, tag: u32, line: u32) -> Vec<PdfHit> {
         search::forward_search(self, tag, line)
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    #[test]
+    fn absolute_names_inside_the_root_become_relative() {
+        let root = Path::new("/work/proj");
+        assert_eq!(
+            resolve_input_name("/work/proj/main.tex", root),
+            Some("main.tex".into())
+        );
+        assert_eq!(
+            resolve_input_name("/work/proj/chapters/a.tex", root),
+            Some("chapters/a.tex".into())
+        );
+        assert_eq!(
+            resolve_input_name("/work/proj/./chapters/../b.tex", root),
+            None,
+            "a parent component is refused even if it would stay inside"
+        );
+    }
+
+    #[test]
+    fn relative_names_are_kept_if_they_stay_inside() {
+        let root = Path::new("/work/proj");
+        assert_eq!(resolve_input_name("./chapters/a.tex", root), Some("chapters/a.tex".into()));
+        assert_eq!(resolve_input_name("chapters/a.tex", root), Some("chapters/a.tex".into()));
+    }
+
+    #[test]
+    fn everything_else_means_the_main_file() {
+        let root = Path::new("/work/proj");
+        for name in ["", "  ", "texput", "texput.tex", "/etc/passwd", "../up.tex", "/work/other/x.tex", "/work/proj", "/"] {
+            assert_eq!(resolve_input_name(name, root), None, "{name:?}");
+        }
     }
 }

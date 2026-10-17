@@ -4,7 +4,7 @@ A writing app for LaTeX documents that **fixes its own mistakes using AI**, and
 runs **entirely on your own computer**.
 
 > **Status:** all five milestones (M1–M5) implemented. The engine compiles
-> in-process, the AI self-healing loop works end to end, drawing a box on the
+> in its own killable worker process, the AI self-healing loop works end to end, drawing a box on the
 > PDF maps back to the source line that produced it, changes are accepted hunk
 > by hunk, and the desktop shell bundles the lot. See
 > [`masterplan.md`](masterplan.md) §12 for the per-milestone record and §15.1

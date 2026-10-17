@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use latex_ai_compiler::Engine;
+use latex_ai_compiler::{CompileJob, Compiler, CompilerConfig};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
@@ -50,8 +50,15 @@ enum Command {
     },
 }
 
+fn main() -> anyhow::Result<()> {
+    // Compile workers are this same binary. This must run before anything
+    // else (no runtime, no logging): a worker is a one-shot child process.
+    latex_ai_compiler::worker::run_if_requested();
+    run()
+}
+
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -121,18 +128,41 @@ async fn healthcheck(port: u16) -> anyhow::Result<()> {
 }
 
 async fn compile(file: &std::path::Path, out: &std::path::Path) -> anyhow::Result<()> {
-    let latex = tokio::fs::read_to_string(file)
+    let file = tokio::fs::canonicalize(file)
         .await
         .with_context(|| format!("reading {}", file.display()))?;
-    let engine = Engine::new(10);
-    let result = engine
-        .compile(&latex, &CancellationToken::new())
-        .await
-        .context("tectonic compile")?;
-    anyhow::ensure!(result.success, "compile produced empty PDF");
-    tokio::fs::write(out, result.pdf_bytes.as_ref())
+    let root = file.parent().context("the file has no directory")?.to_path_buf();
+    let main = file
+        .file_name()
+        .context("the path has no file name")?
+        .to_string_lossy()
+        .into_owned();
+
+    let work = std::env::temp_dir().join(format!("latex-ai-cli-{}", latex_ai_core::fsutil::unique_id()));
+    let compiler = Compiler::new(CompilerConfig::new(std::env::current_exe()?, work.clone()));
+    let result = compiler
+        .compile_scratch(
+            &CompileJob {
+                root,
+                main,
+                synctex: false,
+                timeout: std::time::Duration::from_secs(120),
+            },
+            &CancellationToken::new(),
+        )
+        .await;
+    let _ = tokio::fs::remove_dir_all(&work).await;
+    let result = result.context("tectonic compile")?;
+
+    anyhow::ensure!(
+        result.success,
+        "compile failed: {}",
+        latex_ai_compiler::diagnostics::summarize(&result.diagnostics)
+            .unwrap_or_else(|| "no details".to_owned())
+    );
+    tokio::fs::write(out, &result.pdf)
         .await
         .with_context(|| format!("writing {}", out.display()))?;
-    tracing::info!(out = %out.display(), bytes = result.pdf_bytes.len(), "compiled");
+    tracing::info!(out = %out.display(), bytes = result.pdf.len(), "compiled");
     Ok(())
 }

@@ -15,7 +15,6 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use latex_ai_core::ai::VisualFixRequest as PlannerRequest;
 use latex_ai_core::security::{AccessKind, validate_path};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use tracing::instrument;
 
 /// DPI the frontend renders pages at, and therefore the space its bbox
@@ -37,7 +36,14 @@ fn default_dpi() -> u16 {
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct VisualFixPayload {
+    /// The source file the user is looking at; used to find the latest build
+    /// when `build` is not given.
     pub file_path: String,
+    /// The build the page image came from. Pass it: the document may have
+    /// been recompiled since, and a box drawn on one build means nothing on
+    /// another.
+    #[serde(default)]
+    pub build: Option<String>,
     /// 1-based page number.
     pub page: u32,
     /// Bounding box in **pixels** of the page image rendered at `dpi`.
@@ -77,19 +83,15 @@ pub async fn visual_fix(
     Json(req): Json<VisualFixPayload>,
 ) -> Result<Json<VisualFixResponse>, ApiError> {
     super::agent::ensure_ai_available(&state)?;
-    let abs_source = validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?;
+    validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?;
     let dpi = validate_bbox(&req)?;
 
-    let pdf_path = abs_source.with_extension("pdf");
-    let synctex_path = abs_source.with_extension("synctex.gz");
-    if !pdf_path.exists() {
+    let build = resolve_build(&state, req.build.as_deref(), Some(&req.file_path)).await?;
+    let pdf_path = build.pdf_path();
+    let synctex_path = build.synctex_path();
+    if !build.manifest.has_synctex || !synctex_path.exists() {
         return Err(ApiError::NotFound {
-            message: "no compiled PDF for this file — compile first".to_owned(),
-        });
-    }
-    if !synctex_path.exists() {
-        return Err(ApiError::NotFound {
-            message: "no SyncTeX map for this file — recompile to generate one".to_owned(),
+            message: "this build has no SyncTeX map — recompile to generate one".to_owned(),
         });
     }
 
@@ -120,7 +122,7 @@ pub async fn visual_fix(
     // usable path, so single-document hits resolve to the file we compiled.
     // Anything else is re-validated against the workspace before we read it
     // (masterplan §12 M3 audit: security).
-    let (rel_path, abs_hit_path) = resolve_hit_path(&state, &req.file_path, &abs_source, &hit)?;
+    let (rel_path, abs_hit_path) = resolve_hit_path(&state, &build.manifest.main, &hit)?;
 
     // --- source snippet -------------------------------------------------
     let source = tokio::fs::read_to_string(&abs_hit_path)
@@ -263,27 +265,51 @@ fn sanitized_instruction(raw: Option<&str>) -> Result<String, ApiError> {
 
 /// Decide which source file a hit refers to, re-validating anything that did
 /// not come from us.
+///
+/// `SyncTeX` records absolute paths for the project's files; a name that is
+/// empty, a placeholder, or outside the workspace means "the main file".
 fn resolve_hit_path(
     state: &AppState,
-    requested: &str,
-    abs_source: &Path,
+    main: &str,
     hit: &synctex::SourceHit,
 ) -> Result<(String, std::path::PathBuf), ApiError> {
-    let name = hit.file.trim();
-
-    // Tectonic's primary-input placeholder, an empty name, or the file we
-    // compiled: all mean "the document the caller asked about".
-    if name.is_empty() || name == "texput" || name == "texput.tex" {
-        return Ok((requested.to_owned(), abs_source.to_path_buf()));
-    }
-
-    // A real name (multi-file documents, once `bundle` lands) must pass the
-    // sandbox before we read it.
-    let abs = validate_path(&state.workspace_root, name, AccessKind::Read)?;
-    let rel = abs
-        .strip_prefix(&state.workspace_root)
-        .map_or_else(|_| name.to_owned(), |p| p.to_string_lossy().into_owned());
+    let rel = synctex::resolve_input_name(&hit.file, &state.workspace_root)
+        .map_or_else(|| main.to_owned(), |p| p.to_string_lossy().into_owned());
+    let abs = validate_path(&state.workspace_root, &rel, AccessKind::Read)?;
     Ok((rel, abs))
+}
+
+/// Find the build a request is about: the one it names, else the newest
+/// successful build of the project `file` belongs to.
+pub(crate) async fn resolve_build(
+    state: &AppState,
+    build: Option<&str>,
+    file: Option<&str>,
+) -> Result<latex_ai_compiler::builds::Build, ApiError> {
+    use latex_ai_compiler::builds::is_valid_id;
+
+    let builds = state.compiler.builds();
+    if let Some(id) = build {
+        if !is_valid_id(id) {
+            return Err(ApiError::BadRequest {
+                message: "malformed build id".to_owned(),
+            });
+        }
+        return builds.get(id).await.ok_or_else(|| ApiError::NotFound {
+            message: "that build is gone — compile again".to_owned(),
+        });
+    }
+    let file = file.ok_or_else(|| ApiError::BadRequest {
+        message: "give a `build` or a `file`".to_owned(),
+    })?;
+    validate_path(&state.workspace_root, file, AccessKind::Read)?;
+    let main = super::compile::resolve_main(state, file, None).await?;
+    builds
+        .latest_with_pdf(&main)
+        .await
+        .ok_or_else(|| ApiError::NotFound {
+            message: "no compiled PDF for this file — compile first".to_owned(),
+        })
 }
 
 /// `context` lines either side of `line` (1-based). Returns the text and the
@@ -307,7 +333,12 @@ fn snippet_around(source: &str, line: u32, context: u32) -> (String, u32) {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PageQuery {
-    pub file: String,
+    /// The build to render (preferred; the URL then never goes stale).
+    #[serde(default)]
+    pub build: Option<String>,
+    /// Or: the source file whose latest build to render.
+    #[serde(default)]
+    pub file: Option<String>,
     pub n: u32,
     pub dpi: Option<u16>,
     /// Paper lightness, 0.6..=1.0. Omitted means the server default; `1.0`
@@ -328,13 +359,13 @@ pub async fn get_pdf_page(
     State(state): State<AppState>,
     Query(query): Query<PageQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let abs_source = validate_path(&state.workspace_root, &query.file, AccessKind::Read)?;
-    let pdf_path = abs_source.with_extension("pdf");
-    if !pdf_path.exists() {
+    let build = resolve_build(&state, query.build.as_deref(), query.file.as_deref()).await?;
+    if !build.manifest.has_pdf {
         return Err(ApiError::NotFound {
-            message: "no compiled PDF for this file — compile first".to_owned(),
+            message: "that build produced no PDF".to_owned(),
         });
     }
+    let pdf_path = build.pdf_path();
 
     let dpi = query.dpi.unwrap_or(DEFAULT_DPI).clamp(36, 300);
     let page_index = query.n.saturating_sub(1);
@@ -372,7 +403,18 @@ pub async fn get_pdf_page(
         },
     })?;
 
-    Ok((StatusCode::OK, [(header::CONTENT_TYPE, "image/png")], png))
+    // A page of a named build never changes, so it may be cached for good.
+    // Addressing by file means "whatever is newest", which may.
+    let cache = if query.build.is_some() {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, cache)],
+        png,
+    ))
 }
 
 #[cfg(test)]

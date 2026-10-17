@@ -3,7 +3,7 @@
 //! (masterplan.md §12 M3).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use latex_ai_compiler::Engine;
+use latex_ai_compiler::{CompileJob, Compiler, CompilerConfig};
 use tokio_util::sync::CancellationToken;
 
 /// Line numbers are load-bearing here, so keep the document literal and count
@@ -27,16 +27,37 @@ First paragraph on line four.\n\
 Body text far down the page.\n\
 \\end{document}\n";
 
-#[tokio::test]
-async fn pdf_coordinates_map_back_to_the_source_lines_that_made_them() {
-    let engine = Engine::default();
-    let result = engine
-        .compile_with_synctex(DOC, "roundtrip.tex", &CancellationToken::new())
+
+/// Compile `DOC` as `main.tex` in a fresh project and return the parsed map
+/// plus the stored build (kept alive with its temp dirs).
+async fn compile_doc() -> (synctex::SyncTexData, (tempfile::TempDir, tempfile::TempDir)) {
+    let project = tempfile::tempdir().unwrap();
+    let store = tempfile::tempdir().unwrap();
+    std::fs::write(project.path().join("main.tex"), DOC).unwrap();
+    let compiler = Compiler::new(CompilerConfig::new(
+        env!("CARGO_BIN_EXE_latex-ai").into(),
+        store.path().to_owned(),
+    ));
+    let build = compiler
+        .compile(
+            &CompileJob {
+                root: std::fs::canonicalize(project.path()).unwrap(),
+                main: "main.tex".to_owned(),
+                synctex: true,
+                timeout: std::time::Duration::from_secs(120),
+            },
+            &CancellationToken::new(),
+        )
         .await
         .expect("compile should succeed");
+    assert!(build.manifest.success, "{:?}", build.manifest.diagnostics);
+    let data = synctex::SyncTexData::parse(&build.synctex_path()).expect("parse synctex");
+    (data, (project, store))
+}
 
-    let gz = result.synctex_gz.expect("synctex map");
-    let data = synctex::SyncTexData::parse_gz_bytes(&gz).expect("parse synctex");
+#[tokio::test]
+async fn pdf_coordinates_map_back_to_the_source_lines_that_made_them() {
+    let (data, _keep) = compile_doc().await;
 
     // Sanity: the map describes a real page with real content.
     assert_eq!(data.magnification, 1000);
@@ -83,14 +104,7 @@ async fn pdf_coordinates_map_back_to_the_source_lines_that_made_them() {
 
 #[tokio::test]
 async fn later_source_lines_typeset_further_down_the_page() {
-    let engine = Engine::default();
-    let result = engine
-        .compile_with_synctex(DOC, "ordering.tex", &CancellationToken::new())
-        .await
-        .expect("compile should succeed");
-
-    let data =
-        synctex::SyncTexData::parse_gz_bytes(&result.synctex_gz.expect("synctex map")).unwrap();
+    let (data, _keep) = compile_doc().await;
     let tag = data.primary_tag().unwrap();
 
     let first = data.forward_search(tag, 4);

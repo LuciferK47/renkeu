@@ -17,6 +17,10 @@
 use anyhow::Context;
 
 fn main() -> anyhow::Result<()> {
+    // Compile workers are this same binary: run as one before anything else
+    // (no logging, no webview) if that is what we were started as.
+    latex_ai_compiler::worker::run_if_requested();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

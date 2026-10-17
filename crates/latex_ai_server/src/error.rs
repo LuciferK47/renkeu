@@ -41,6 +41,9 @@ pub enum ApiError {
     Unprocessable { message: String },
     #[error("unavailable: {message}")]
     Unavailable { message: String },
+    /// Several files could be the document root and nothing says which.
+    #[error("cannot tell which file is the main one")]
+    MainFileAmbiguous { candidates: Vec<String> },
     #[error("internal error")]
     Internal { message: String },
 }
@@ -51,7 +54,9 @@ impl ApiError {
         // 404 not found; 409 EtagConflict; 422 validation; 429 RateLimited;
         // 500 uncaught; 503 unavailable.
         match self {
-            Self::EtagConflict { .. } | Self::Conflict { .. } => StatusCode::CONFLICT,
+            Self::EtagConflict { .. } | Self::Conflict { .. } | Self::MainFileAmbiguous { .. } => {
+                StatusCode::CONFLICT
+            }
             Self::Forbidden { .. } => StatusCode::FORBIDDEN,
             Self::PreconditionRequired { .. } => StatusCode::PRECONDITION_REQUIRED,
             Self::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,

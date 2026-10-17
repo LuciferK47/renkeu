@@ -104,12 +104,14 @@ async fn test_app() -> TestApp {
         "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
     )
     .unwrap();
-    let engine = Arc::new(latex_ai_compiler::Engine::new(2));
 
     TestApp {
         state: AppState {
             planner: Arc::new(FailingPlanner),
-            queue: Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine)),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(latex_ai_compiler::CompilerConfig::new(
+                env!("CARGO_BIN_EXE_latex-ai").into(),
+                tempfile::tempdir().unwrap().keep(),
+            ))),
             store: Arc::new(latex_ai_core::storage::Store::new(
                 pool.clone(),
                 root.clone(),
