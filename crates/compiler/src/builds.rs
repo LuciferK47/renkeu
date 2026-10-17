@@ -76,7 +76,10 @@ pub struct Builds {
 impl Builds {
     #[must_use]
     pub fn new(dir: PathBuf, keep: usize) -> Self {
-        Self { dir, keep: keep.max(1) }
+        Self {
+            dir,
+            keep: keep.max(1),
+        }
     }
 
     /// A fresh private directory for a worker to write into.
@@ -84,7 +87,10 @@ impl Builds {
     /// # Errors
     /// IO errors creating it.
     pub async fn new_scratch_dir(&self) -> std::io::Result<PathBuf> {
-        let dir = self.dir.join(format!("{TMP_PREFIX}{}", latex_ai_core::fsutil::unique_id()));
+        let dir = self.dir.join(format!(
+            "{TMP_PREFIX}{}",
+            latex_ai_core::fsutil::unique_id()
+        ));
         tokio::fs::create_dir_all(&dir).await?;
         Ok(dir)
     }
@@ -134,7 +140,10 @@ impl Builds {
             Err(e) => return Err(e),
         }
         self.prune().await;
-        Ok(Build { dir: target, manifest })
+        Ok(Build {
+            dir: target,
+            manifest,
+        })
     }
 
     /// Delete a scratch directory that will not be published.
@@ -211,14 +220,23 @@ mod tests {
 
     async fn publish(builds: &Builds, m: Manifest) -> Build {
         let scratch = builds.new_scratch_dir().await.unwrap();
-        tokio::fs::write(scratch.join(PDF), b"%PDF-fake").await.unwrap();
+        tokio::fs::write(scratch.join(PDF), b"%PDF-fake")
+            .await
+            .unwrap();
         builds.publish(&scratch, m).await.unwrap()
     }
 
     #[test]
     fn only_32_hex_characters_are_valid_ids() {
         assert!(is_valid_id(A));
-        for bad in ["", "abc", "../etc/passwd", &"g".repeat(32), &format!("{A}0"), "a/../aaaaaaaaaaaaaaaaaaaaaaaaaaaa"] {
+        for bad in [
+            "",
+            "abc",
+            "../etc/passwd",
+            &"g".repeat(32),
+            &format!("{A}0"),
+            "a/../aaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ] {
             assert!(!is_valid_id(bad), "{bad:?}");
         }
     }

@@ -280,14 +280,30 @@ mod resolve_tests {
     #[test]
     fn relative_names_are_kept_if_they_stay_inside() {
         let root = Path::new("/work/proj");
-        assert_eq!(resolve_input_name("./chapters/a.tex", root), Some("chapters/a.tex".into()));
-        assert_eq!(resolve_input_name("chapters/a.tex", root), Some("chapters/a.tex".into()));
+        assert_eq!(
+            resolve_input_name("./chapters/a.tex", root),
+            Some("chapters/a.tex".into())
+        );
+        assert_eq!(
+            resolve_input_name("chapters/a.tex", root),
+            Some("chapters/a.tex".into())
+        );
     }
 
     #[test]
     fn everything_else_means_the_main_file() {
         let root = Path::new("/work/proj");
-        for name in ["", "  ", "texput", "texput.tex", "/etc/passwd", "../up.tex", "/work/other/x.tex", "/work/proj", "/"] {
+        for name in [
+            "",
+            "  ",
+            "texput",
+            "texput.tex",
+            "/etc/passwd",
+            "../up.tex",
+            "/work/other/x.tex",
+            "/work/proj",
+            "/",
+        ] {
             assert_eq!(resolve_input_name(name, root), None, "{name:?}");
         }
     }

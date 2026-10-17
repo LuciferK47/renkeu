@@ -388,12 +388,7 @@ fn classify_warning(message: &str) -> DiagnosticKind {
     }
 }
 
-fn read_box(
-    lines: &[String],
-    start: usize,
-    stack: &[Open],
-    out: &mut Vec<Diagnostic>,
-) -> usize {
+fn read_box(lines: &[String], start: usize, stack: &[Open], out: &mut Vec<Diagnostic>) -> usize {
     let head = lines[start].trim();
     let mut next = start + 1;
     // The offending text follows until a blank line.
@@ -450,9 +445,7 @@ mod tests {
     fn resolver(token: &str) -> Option<String> {
         const FILES: &[&str] = &["main.tex", "chapters/a.tex", "chapters/c.tex", "refs.bib"];
         let candidates = [token.to_owned(), format!("{token}.tex")];
-        candidates
-            .into_iter()
-            .find(|c| FILES.contains(&c.as_str()))
+        candidates.into_iter().find(|c| FILES.contains(&c.as_str()))
     }
 
     fn parse(name: &str) -> Vec<Diagnostic> {
@@ -474,7 +467,10 @@ mod tests {
         assert_eq!(e[0].line, Some(2));
         assert_eq!(e[0].message, "Undefined control sequence.");
         assert_eq!(e[0].context.as_deref(), Some("\\undefinedmacro"));
-        assert_eq!(e[0].headline(), "chapters/a.tex:2: Undefined control sequence.");
+        assert_eq!(
+            e[0].headline(),
+            "chapters/a.tex:2: Undefined control sequence."
+        );
     }
 
     #[test]
@@ -486,12 +482,18 @@ mod tests {
         assert_eq!(e[0].file.as_deref(), Some("main.tex"));
         assert_eq!(e[0].line, Some(3));
         // The doubled `! ` and trailing `..` Tectonic prints are tidied.
-        assert_eq!(e[0].message, "LaTeX Error: File `nonexistentpkg.sty' not found.");
+        assert_eq!(
+            e[0].message,
+            "LaTeX Error: File `nonexistentpkg.sty' not found."
+        );
     }
 
     #[test]
     fn missing_input_and_image_are_missing_files() {
-        for (name, needle) in [("missing_input.log", "nothere"), ("missing_image.log", "nope.png")] {
+        for (name, needle) in [
+            ("missing_input.log", "nothere"),
+            ("missing_image.log", "nope.png"),
+        ] {
             let d = parse(name);
             let e = errors(&d);
             assert_eq!(e.len(), 1, "{name}: {d:#?}");
@@ -500,9 +502,11 @@ mod tests {
             assert_eq!(e[0].file.as_deref(), Some("main.tex"));
         }
         // missing_image also carries LaTeX's own warning about the file.
-        assert!(parse("missing_image.log")
-            .iter()
-            .any(|d| d.severity == Severity::Warning && d.message.contains("nope.png")));
+        assert!(
+            parse("missing_image.log")
+                .iter()
+                .any(|d| d.severity == Severity::Warning && d.message.contains("nope.png"))
+        );
     }
 
     #[test]
@@ -518,12 +522,19 @@ mod tests {
     #[test]
     fn runaway_argument_and_emergency_stop() {
         let d = parse("runaway.log");
-        assert_eq!(errors(&d)[0].message, "File ended while scanning use of \\textbf .");
+        assert_eq!(
+            errors(&d)[0].message,
+            "File ended while scanning use of \\textbf ."
+        );
 
         let d = parse("no_document.log");
         let e = errors(&d);
         assert_eq!(e[0].kind, DiagnosticKind::Fatal);
-        assert!(e[0].message.contains("no legal \\end found"), "{}", e[0].message);
+        assert!(
+            e[0].message.contains("no legal \\end found"),
+            "{}",
+            e[0].message
+        );
     }
 
     #[test]
@@ -535,7 +546,11 @@ mod tests {
         assert_eq!(e.len(), 1, "{d:#?}");
         assert_eq!(e[0].file.as_deref(), Some("main.tex"));
         assert_eq!(e[0].line, None);
-        assert!(e[0].message.contains("Unknown option `nonsenseoption'"), "{}", e[0].message);
+        assert!(
+            e[0].message.contains("Unknown option `nonsenseoption'"),
+            "{}",
+            e[0].message
+        );
     }
 
     #[test]
@@ -544,7 +559,11 @@ mod tests {
         let e = errors(&d);
         assert_eq!(e[0].kind, DiagnosticKind::LatexError);
         assert_eq!(e[0].line, Some(5));
-        assert!(e[0].message.contains("ended by \\end{enumerate}"), "{}", e[0].message);
+        assert!(
+            e[0].message.contains("ended by \\end{enumerate}"),
+            "{}",
+            e[0].message
+        );
     }
 
     #[test]
@@ -566,7 +585,10 @@ mod tests {
         assert!(o.message.contains("148.01pt too wide"), "{}", o.message);
 
         // The "There were undefined references" summary adds nothing.
-        assert!(!d.iter().any(|x| x.message.contains("There were")), "{d:#?}");
+        assert!(
+            !d.iter().any(|x| x.message.contains("There were")),
+            "{d:#?}"
+        );
     }
 
     #[test]
@@ -586,18 +608,28 @@ mod tests {
         assert_eq!(d[0].kind, DiagnosticKind::BibtexError);
         assert_eq!(d[0].file.as_deref(), Some("refs.bib"));
         assert_eq!(d[0].line, Some(10));
-        assert!(d[0].message.starts_with("I was expecting"), "{}", d[0].message);
+        assert!(
+            d[0].message.starts_with("I was expecting"),
+            "{}",
+            d[0].message
+        );
         assert!(d[0].context.as_deref().unwrap().contains("title={Broken}"));
 
         assert_eq!(d[1].kind, DiagnosticKind::BibtexWarning);
-        assert!(d[1].message.contains("didn't find a database entry for \"ghost\""));
+        assert!(
+            d[1].message
+                .contains("didn't find a database entry for \"ghost\"")
+        );
     }
 
     #[test]
     fn wrapped_lines_are_rejoined() {
         let long = format!("{}{}", "a".repeat(79), "bcd");
         let lines = unwrap_lines(&format!("{long}\nnext\n"));
-        assert_eq!(lines, vec![format!("{}bcd", "a".repeat(79)), "next".to_owned()]);
+        assert_eq!(
+            lines,
+            vec![format!("{}bcd", "a".repeat(79)), "next".to_owned()]
+        );
     }
 
     #[test]
@@ -618,7 +650,17 @@ mod tests {
 
     #[test]
     fn garbage_input_never_panics() {
-        for junk in ["", "\n\n", "(", ")))", "! ", "l.5", "Overfull \\", "\u{0}\u{1}", "((((main.tex"] {
+        for junk in [
+            "",
+            "\n\n",
+            "(",
+            ")))",
+            "! ",
+            "l.5",
+            "Overfull \\",
+            "\u{0}\u{1}",
+            "((((main.tex",
+        ] {
             let _ = parse_tex_log(junk, &|_| None);
             let _ = parse_bibtex_log(junk);
         }

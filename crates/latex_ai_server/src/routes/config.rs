@@ -7,7 +7,7 @@
 use crate::AppState;
 use crate::error::ApiError;
 use axum::{Json, extract::State};
-use latex_ai_core::config::{KeySource, Snapshot, SettingsError, ConfigPatch};
+use latex_ai_core::config::{ConfigPatch, KeySource, SettingsError, Snapshot};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -20,7 +20,7 @@ pub struct ConfigResponse {
     pub timeout_secs: u64,
     /// Where the active key comes from; the key itself is never returned.
     pub key_source: KeySource,
-    /// Fields an environment variable pins; PATCHing them is a 409.
+    /// Fields an environment variable pins; a `PATCH` of them is a 409.
     pub env_overridden: Vec<&'static str>,
 }
 

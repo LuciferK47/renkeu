@@ -185,7 +185,8 @@ pub fn detect_main(
     let path_str = |p: &Path| p.to_string_lossy().into_owned();
 
     if let Some(m) = override_main {
-        let rel = normalise_inside(Path::new(m)).ok_or_else(|| MainError::NotFound(m.to_owned()))?;
+        let rel =
+            normalise_inside(Path::new(m)).ok_or_else(|| MainError::NotFound(m.to_owned()))?;
         return if exists(&path_str(&rel)) {
             Ok(path_str(&rel))
         } else {
@@ -239,7 +240,9 @@ pub fn detect_main(
                 .collect();
             match including.as_slice() {
                 [one] => Ok((*one).clone()),
-                _ => Err(MainError::Ambiguous(many.iter().map(|(n, _)| n.clone()).collect())),
+                _ => Err(MainError::Ambiguous(
+                    many.iter().map(|(n, _)| n.clone()).collect(),
+                )),
             }
         }
     }
@@ -287,18 +290,25 @@ mod tests {
         dir
     }
 
-    const ROOT_TEX: &str = "\\documentclass{article}\n\\begin{document}\n\\input{chapters/a}\n\\end{document}\n";
+    const ROOT_TEX: &str =
+        "\\documentclass{article}\n\\begin{document}\n\\input{chapters/a}\n\\end{document}\n";
 
     #[test]
     fn the_active_file_is_main_when_it_has_documentclass() {
         let p = project(&[("main.tex", ROOT_TEX), ("other.tex", ROOT_TEX)]);
-        assert_eq!(detect_main(p.path(), "other.tex", None).unwrap(), "other.tex");
+        assert_eq!(
+            detect_main(p.path(), "other.tex", None).unwrap(),
+            "other.tex"
+        );
     }
 
     #[test]
     fn a_chapter_resolves_to_the_only_root_in_the_project() {
         let p = project(&[("main.tex", ROOT_TEX), ("chapters/a.tex", "text\n")]);
-        assert_eq!(detect_main(p.path(), "chapters/a.tex", None).unwrap(), "main.tex");
+        assert_eq!(
+            detect_main(p.path(), "chapters/a.tex", None).unwrap(),
+            "main.tex"
+        );
     }
 
     #[test]
@@ -307,7 +317,10 @@ mod tests {
             ("main.tex", ROOT_TEX),
             ("notes.tex", "% \\documentclass{article}\nnotes\n"),
         ]);
-        assert_eq!(detect_main(p.path(), "notes.tex", None).unwrap(), "main.tex");
+        assert_eq!(
+            detect_main(p.path(), "notes.tex", None).unwrap(),
+            "main.tex"
+        );
     }
 
     #[test]
@@ -335,7 +348,10 @@ mod tests {
     #[test]
     fn explicit_override_beats_everything_and_must_exist() {
         let p = project(&[("main.tex", ROOT_TEX), ("alt.tex", ROOT_TEX)]);
-        assert_eq!(detect_main(p.path(), "main.tex", Some("alt.tex")).unwrap(), "alt.tex");
+        assert_eq!(
+            detect_main(p.path(), "main.tex", Some("alt.tex")).unwrap(),
+            "alt.tex"
+        );
         assert!(matches!(
             detect_main(p.path(), "main.tex", Some("missing.tex")),
             Err(MainError::NotFound(_))
@@ -350,12 +366,18 @@ mod tests {
     fn several_roots_are_ambiguous_unless_one_includes_the_active_file() {
         let p = project(&[
             ("a.tex", ROOT_TEX),
-            ("b.tex", "\\documentclass{book}\n\\begin{document}\n\\include{chapters/x}\n\\end{document}\n"),
+            (
+                "b.tex",
+                "\\documentclass{book}\n\\begin{document}\n\\include{chapters/x}\n\\end{document}\n",
+            ),
             ("chapters/x.tex", "x\n"),
             ("chapters/y.tex", "y\n"),
         ]);
         // b.tex includes chapters/x, so that is the answer for x...
-        assert_eq!(detect_main(p.path(), "chapters/x.tex", None).unwrap(), "b.tex");
+        assert_eq!(
+            detect_main(p.path(), "chapters/x.tex", None).unwrap(),
+            "b.tex"
+        );
         // ...but nothing includes y, so the user must say.
         match detect_main(p.path(), "chapters/y.tex", None) {
             Err(MainError::Ambiguous(c)) => assert_eq!(c, ["a.tex", "b.tex"]),
@@ -366,7 +388,10 @@ mod tests {
     #[test]
     fn a_project_with_no_root_says_so() {
         let p = project(&[("notes.tex", "just text\n")]);
-        assert!(matches!(detect_main(p.path(), "notes.tex", None), Err(MainError::NoRoot)));
+        assert!(matches!(
+            detect_main(p.path(), "notes.tex", None),
+            Err(MainError::NoRoot)
+        ));
     }
 
     #[test]
@@ -390,7 +415,12 @@ mod tests {
 
     #[test]
     fn denied_files_looks_inside_dot_directories() {
-        let p = project(&[("main.tex", "x"), (".env", "S"), (".ssh/id_rsa", "k"), ("sub/server.pem", "p")]);
+        let p = project(&[
+            ("main.tex", "x"),
+            (".env", "S"),
+            (".ssh/id_rsa", "k"),
+            ("sub/server.pem", "p"),
+        ]);
         let mut denied: Vec<_> = denied_files(p.path())
             .unwrap()
             .iter()
@@ -402,9 +432,17 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_any_input_and_only_then() {
-        let p = project(&[("main.tex", ROOT_TEX), ("chapters/a.tex", "one\n"), ("fig.png", "v1")]);
+        let p = project(&[
+            ("main.tex", ROOT_TEX),
+            ("chapters/a.tex", "one\n"),
+            ("fig.png", "v1"),
+        ]);
         let base = fingerprint(p.path(), "main.tex", true).unwrap();
-        assert_eq!(base, fingerprint(p.path(), "main.tex", true).unwrap(), "must be stable");
+        assert_eq!(
+            base,
+            fingerprint(p.path(), "main.tex", true).unwrap(),
+            "must be stable"
+        );
         assert_eq!(base.len(), 32);
 
         // An included file, an image, and a new file each bust the cache.
@@ -415,7 +453,10 @@ mod tests {
         let after_image = fingerprint(p.path(), "main.tex", true).unwrap();
         assert_ne!(after_include, after_image);
         std::fs::write(p.path().join("refs.bib"), "@book{}").unwrap();
-        assert_ne!(after_image, fingerprint(p.path(), "main.tex", true).unwrap());
+        assert_ne!(
+            after_image,
+            fingerprint(p.path(), "main.tex", true).unwrap()
+        );
 
         // The flags and the entry point are part of the identity too.
         assert_ne!(base, fingerprint(p.path(), "main.tex", false).unwrap());
@@ -429,12 +470,25 @@ mod tests {
 
     #[test]
     fn log_names_resolve_relative_to_the_main_files_directory() {
-        let p = project(&[("doc/main.tex", ROOT_TEX), ("doc/chapters/a.tex", "a"), ("doc/refs.bib", "b")]);
+        let p = project(&[
+            ("doc/main.tex", ROOT_TEX),
+            ("doc/chapters/a.tex", "a"),
+            ("doc/refs.bib", "b"),
+        ]);
         let root = p.path();
         let main_dir = root.join("doc");
-        assert_eq!(resolve_log_name(root, &main_dir, "chapters/a").as_deref(), Some("doc/chapters/a.tex"));
-        assert_eq!(resolve_log_name(root, &main_dir, "./chapters/a.tex").as_deref(), Some("doc/chapters/a.tex"));
-        assert_eq!(resolve_log_name(root, &main_dir, "refs.bib").as_deref(), Some("doc/refs.bib"));
+        assert_eq!(
+            resolve_log_name(root, &main_dir, "chapters/a").as_deref(),
+            Some("doc/chapters/a.tex")
+        );
+        assert_eq!(
+            resolve_log_name(root, &main_dir, "./chapters/a.tex").as_deref(),
+            Some("doc/chapters/a.tex")
+        );
+        assert_eq!(
+            resolve_log_name(root, &main_dir, "refs.bib").as_deref(),
+            Some("doc/refs.bib")
+        );
         // Not project files: bundle packages, and things that do not exist.
         assert_eq!(resolve_log_name(root, &main_dir, "article.cls"), None);
         assert_eq!(resolve_log_name(root, &main_dir, "../../etc/passwd"), None);

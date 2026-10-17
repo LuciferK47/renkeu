@@ -126,15 +126,18 @@ fn prepare(
 
 /// The project-relative form of a path the client sent.
 fn relative(state: &AppState, abs: &Path, requested: &str) -> String {
-    abs.strip_prefix(&state.workspace_root)
-        .map_or_else(|_| requested.trim_start_matches("./").to_owned(), |p| p.to_string_lossy().into_owned())
+    abs.strip_prefix(&state.workspace_root).map_or_else(
+        |_| requested.trim_start_matches("./").to_owned(),
+        |p| p.to_string_lossy().into_owned(),
+    )
 }
 
 fn stream_of(
     cancel: CancellationToken,
     rx: tokio::sync::mpsc::Receiver<Result<Event, Infallible>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    Sse::new(CancelOnDisconnect::new(ReceiverStream::new(rx), cancel)).keep_alive(KeepAlive::default())
+    Sse::new(CancelOnDisconnect::new(ReceiverStream::new(rx), cancel))
+        .keep_alive(KeepAlive::default())
 }
 
 /// `POST /api/plan/stream` — one-shot plan, no compile (masterplan §6.2).
@@ -149,7 +152,13 @@ pub async fn plan_stream(
 
     let cancel = CancellationToken::new();
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    tokio::spawn(run_plan(state, active, instruction, cancel.clone(), EventSink::new(tx)));
+    tokio::spawn(run_plan(
+        state,
+        active,
+        instruction,
+        cancel.clone(),
+        EventSink::new(tx),
+    ));
     Ok(stream_of(cancel, rx))
 }
 
@@ -166,7 +175,11 @@ pub async fn agent_loop_stream(
     // Auto-apply writes the file, so it is validated as a write up front
     // (it used to be checked as a read, letting a compiling `rewrite_file`
     // overwrite any readable file).
-    let access = if req.auto_apply { AccessKind::Write } else { AccessKind::Read };
+    let access = if req.auto_apply {
+        AccessKind::Write
+    } else {
+        AccessKind::Read
+    };
     let (abs, instruction) = prepare(&state, &req.file_path, &req.instruction, access)?;
 
     let run = LoopRequest {
@@ -231,7 +244,10 @@ pub async fn apply_selected(
     for edit in &mut selected {
         let abs = validate_path(&state.workspace_root, &edit.file_path, AccessKind::Write)?;
         edit.file_path = relative(&state, &abs, &edit.file_path);
-        by_file.entry(edit.file_path.clone()).or_default().push(edit.clone());
+        by_file
+            .entry(edit.file_path.clone())
+            .or_default()
+            .push(edit.clone());
     }
 
     let proposal = match req.proposal_id.as_deref() {
@@ -252,25 +268,44 @@ pub async fn apply_selected(
         let refs: Vec<&AgentEdit> = edits.iter().collect();
         let first = state
             .store
-            .atomic_apply_selected(Path::new(&primary), &refs, &req.expected_etag, &instruction, "apply-selected")
+            .atomic_apply_selected(
+                Path::new(&primary),
+                &refs,
+                &req.expected_etag,
+                &instruction,
+                "apply-selected",
+            )
             .await;
 
         let (outcome, rebased) = match first {
             Ok(outcome) => (outcome, false),
             Err(StorageError::EtagConflict { actual, expected }) if req.rebase => {
-                let conflict = || ApiError::EtagConflict { current_etag: actual.clone() };
+                let conflict = || ApiError::EtagConflict {
+                    current_etag: actual.clone(),
+                };
                 let base = proposal
                     .as_ref()
                     .and_then(|p| p.base.get(&primary))
                     .ok_or_else(conflict)?;
-                let (current, current_etag) = state.store.read_with_etag(Path::new(&primary)).await?;
-                let moved = rebase_edits(&base.content, &current, edits).map_err(|e| ApiError::Conflict {
-                    message: format!("{e}; the file changed after the proposal (it was {expected})"),
+                let (current, current_etag) =
+                    state.store.read_with_etag(Path::new(&primary)).await?;
+                let moved = rebase_edits(&base.content, &current, edits).map_err(|e| {
+                    ApiError::Conflict {
+                        message: format!(
+                            "{e}; the file changed after the proposal (it was {expected})"
+                        ),
+                    }
                 })?;
                 let refs: Vec<&AgentEdit> = moved.iter().collect();
                 let outcome = state
                     .store
-                    .atomic_apply_selected(Path::new(&primary), &refs, &current_etag, &instruction, "apply-selected")
+                    .atomic_apply_selected(
+                        Path::new(&primary),
+                        &refs,
+                        &current_etag,
+                        &instruction,
+                        "apply-selected",
+                    )
                     .await?;
                 (outcome, true)
             }
@@ -283,7 +318,11 @@ pub async fn apply_selected(
             history_id: outcome.history_id,
             new_etag: outcome.new_etag.clone(),
             diff: outcome.diff,
-            files: vec![AppliedFile { path: primary, history_id: outcome.history_id, new_etag: outcome.new_etag }],
+            files: vec![AppliedFile {
+                path: primary,
+                history_id: outcome.history_id,
+                new_etag: outcome.new_etag,
+            }],
             rebased,
         }));
     }
@@ -311,9 +350,13 @@ pub async fn apply_selected(
         if etag == expected {
             final_edits.extend(edits.iter().cloned());
         } else if req.rebase {
-            let base = proposal.base.get(file).ok_or(ApiError::EtagConflict { current_etag: etag.clone() })?;
-            let moved = rebase_edits(&base.content, &content, edits)
-                .map_err(|e| ApiError::Conflict { message: format!("{file}: {e}") })?;
+            let base = proposal.base.get(file).ok_or(ApiError::EtagConflict {
+                current_etag: etag.clone(),
+            })?;
+            let moved =
+                rebase_edits(&base.content, &content, edits).map_err(|e| ApiError::Conflict {
+                    message: format!("{file}: {e}"),
+                })?;
             final_edits.extend(moved);
             moved_any = true;
         } else {
@@ -326,8 +369,10 @@ pub async fn apply_selected(
         let (content, _) = &current[&edit.file_path];
         latex_ai_core::policy::lint_edit(edit, content).map_err(unprocessable)?;
     }
-    let contents: BTreeMap<String, String> =
-        current.iter().map(|(f, (c, _))| (f.clone(), c.clone())).collect();
+    let contents: BTreeMap<String, String> = current
+        .iter()
+        .map(|(f, (c, _))| (f.clone(), c.clone()))
+        .collect();
     let updated = apply_to_files(&contents, &final_edits).map_err(unprocessable)?;
 
     let changes: Vec<FileChange<'_>> = updated
@@ -338,7 +383,10 @@ pub async fn apply_selected(
             new_content,
         })
         .collect();
-    let outcomes = state.store.apply_file_set(&changes, &instruction, "apply-selected").await?;
+    let outcomes = state
+        .store
+        .apply_file_set(&changes, &instruction, "apply-selected")
+        .await?;
     state.metrics.record_edits_applied(selected.len() as u64);
 
     let files: Vec<AppliedFile> = outcomes
@@ -438,4 +486,3 @@ pub async fn preview(
 
     Ok(Json(PreviewResponse { etag, hunks }))
 }
-

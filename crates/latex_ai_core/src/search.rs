@@ -70,6 +70,6 @@ mod tests {
 
     #[test]
     fn no_match_returns_empty() {
-        assert!(fuzzy_rank("zzzzz", &cands()).is_empty());
+        assert_eq!(fuzzy_rank("zzzzz", &cands()).len(), 0);
     }
 }

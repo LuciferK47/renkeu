@@ -49,9 +49,8 @@ pub async fn build_state(opts: BootOptions) -> anyhow::Result<AppState> {
     let workspace_root = std::fs::canonicalize(&opts.workspace_root)
         .with_context(|| format!("canonicalizing {}", opts.workspace_root.display()))?;
 
-    let settings = Arc::new(
-        Settings::open(opts.home.clone(), opts.env).context("loading configuration")?,
-    );
+    let settings =
+        Arc::new(Settings::open(opts.home.clone(), opts.env).context("loading configuration")?);
 
     let project = ProjectData::locate(&opts.home, &workspace_root);
     project
@@ -73,7 +72,10 @@ pub async fn build_state(opts: BootOptions) -> anyhow::Result<AppState> {
     // out so the queue does not show phantom work forever.
     match latex_ai_core::storage::jobs::recover_abandoned(&pool).await {
         Ok(0) => {}
-        Ok(n) => tracing::warn!(count = n, "recovered abandoned compile jobs from a previous run"),
+        Ok(n) => tracing::warn!(
+            count = n,
+            "recovered abandoned compile jobs from a previous run"
+        ),
         Err(e) => tracing::warn!(error = %e, "compile-job recovery failed"),
     }
 

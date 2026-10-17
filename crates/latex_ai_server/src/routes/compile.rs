@@ -45,11 +45,12 @@ pub(crate) async fn resolve_main(
 ) -> Result<String, ApiError> {
     let root = state.workspace_root.clone();
     let (active, explicit) = (active.to_owned(), explicit.map(str::to_owned));
-    let found = tokio::task::spawn_blocking(move || detect_main(&root, &active, explicit.as_deref()))
-        .await
-        .map_err(|e| ApiError::Internal {
-            message: e.to_string(),
-        })?;
+    let found =
+        tokio::task::spawn_blocking(move || detect_main(&root, &active, explicit.as_deref()))
+            .await
+            .map_err(|e| ApiError::Internal {
+                message: e.to_string(),
+            })?;
     found.map_err(|e| match e {
         MainError::Ambiguous(candidates) => ApiError::MainFileAmbiguous { candidates },
         MainError::NotFound(_) | MainError::NoRoot => ApiError::Unprocessable {
@@ -81,7 +82,8 @@ pub async fn compile(
 
     // Durable audit row alongside the in-memory registry, so a job
     // interrupted by a crash is recoverable (masterplan §12 M5).
-    if let Err(e) = latex_ai_core::storage::jobs::record_started(state.store.pool(), &job_id, &main).await
+    if let Err(e) =
+        latex_ai_core::storage::jobs::record_started(state.store.pool(), &job_id, &main).await
     {
         tracing::warn!(error = %e, "could not persist the compile job");
     }
@@ -94,7 +96,9 @@ pub async fn compile(
         job_id.clone(),
     ));
 
-    Ok(Json(json!({ "job_id": job_id, "status": "queued", "main_file": main })))
+    Ok(Json(
+        json!({ "job_id": job_id, "status": "queued", "main_file": main }),
+    ))
 }
 
 /// Close a job's durable row out. A failure to record must not fail the job
@@ -130,7 +134,9 @@ async fn run_compile_job(
             error_summary: Some(summary),
             build_id: build.map(|b| b.id().to_owned()),
             main_file: Some(main.clone()),
-            diagnostics: build.map(|b| b.manifest.diagnostics.clone()).unwrap_or_default(),
+            diagnostics: build
+                .map(|b| b.manifest.diagnostics.clone())
+                .unwrap_or_default(),
             ..JobState::queued()
         });
     };
@@ -330,19 +336,34 @@ pub async fn export_pdf(
     // that cannot break out of the header.
     let stem = std::path::Path::new(&build.manifest.main)
         .file_stem()
-        .map_or_else(|| "document".to_owned(), |s| s.to_string_lossy().into_owned());
+        .map_or_else(
+            || "document".to_owned(),
+            |s| s.to_string_lossy().into_owned(),
+        );
     let safe: String = stem
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
 
     Ok((
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "application/pdf".to_owned()),
-            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{safe}.pdf\"")),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{safe}.pdf\""),
+            ),
             // A build id names these exact bytes forever.
-            (header::CACHE_CONTROL, "public, max-age=31536000, immutable".to_owned()),
+            (
+                header::CACHE_CONTROL,
+                "public, max-age=31536000, immutable".to_owned(),
+            ),
         ],
         bytes,
     )

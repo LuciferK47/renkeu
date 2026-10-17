@@ -125,7 +125,10 @@ pub fn apply_to_files(
 ) -> Result<BTreeMap<String, String>, ApplyError> {
     let mut by_file: BTreeMap<&str, Vec<&AgentEdit>> = BTreeMap::new();
     for edit in edits {
-        by_file.entry(edit.file_path.as_str()).or_default().push(edit);
+        by_file
+            .entry(edit.file_path.as_str())
+            .or_default()
+            .push(edit);
     }
 
     let mut out = BTreeMap::new();
@@ -158,6 +161,13 @@ pub fn apply_to_files(
 pub fn edits_from_diff(file_path: &str, original: &str, modified: &str) -> Vec<AgentEdit> {
     use similar::TextDiff;
 
+    struct Region {
+        old_start: usize,
+        old_len: usize,
+        new_start: usize,
+        new_len: usize,
+    }
+
     let blank = |op: AgentOp| AgentEdit {
         file_path: file_path.to_owned(),
         op,
@@ -187,12 +197,6 @@ pub fn edits_from_diff(file_path: &str, original: &str, modified: &str) -> Vec<A
     // reports on some ops are hints that are not always consistent with the
     // script order (a property test caught a deletion "at" new line 4), so
     // positions are tracked here instead.
-    struct Region {
-        old_start: usize,
-        old_len: usize,
-        new_start: usize,
-        new_len: usize,
-    }
     let mut regions: Vec<Region> = Vec::new();
     let (mut old_pos, mut new_pos) = (0usize, 0usize);
     let mut open: Option<Region> = None;
@@ -201,7 +205,9 @@ pub fn edits_from_diff(file_path: &str, original: &str, modified: &str) -> Vec<A
             similar::DiffOp::Equal { len, .. } => (len, len, true),
             similar::DiffOp::Delete { old_len, .. } => (old_len, 0, false),
             similar::DiffOp::Insert { new_len, .. } => (0, new_len, false),
-            similar::DiffOp::Replace { old_len, new_len, .. } => (old_len, new_len, false),
+            similar::DiffOp::Replace {
+                old_len, new_len, ..
+            } => (old_len, new_len, false),
         };
         if equal {
             regions.extend(open.take());
@@ -244,6 +250,11 @@ pub fn edits_from_diff(file_path: &str, original: &str, modified: &str) -> Vec<A
         edits.push(edit);
     }
     edits
+}
+
+/// A line number that fits `usize` (saturating on 32-bit targets).
+fn to_usize(n: u64) -> usize {
+    usize::try_from(n).unwrap_or(usize::MAX)
 }
 
 /// An edit that cannot be moved onto the file as it is now.
@@ -289,7 +300,9 @@ pub fn rebase_edits(
             }
             DiffOp::Delete { old_len, .. } => old_pos += old_len,
             DiffOp::Insert { new_len, .. } => new_pos += new_len,
-            DiffOp::Replace { old_len, new_len, .. } => {
+            DiffOp::Replace {
+                old_len, new_len, ..
+            } => {
                 old_pos += old_len;
                 new_pos += new_len;
             }
@@ -308,7 +321,7 @@ pub fn rebase_edits(
                 let (Some(start), Some(end)) = (edit.start_line, edit.end_line) else {
                     return Err(conflict());
                 };
-                let (s, e) = (start.get() as usize, end.get() as usize);
+                let (s, e) = (to_usize(start.get()), to_usize(end.get()));
                 let first = map.get(s - 1).copied().flatten().ok_or_else(conflict)?;
                 for k in s..=e {
                     if map.get(k - 1).copied().flatten() != Some(first + (k - s)) {
@@ -319,18 +332,16 @@ pub fn rebase_edits(
                 moved.end_line = std::num::NonZeroU64::new((first + (e - s)) as u64 + 1);
             }
             AgentOp::Insert if edit.line.is_some() => {
-                let line = edit.line.map_or(1, |l| l.get() as usize);
-                let target = if line - 1 >= base_len {
+                let line = edit.line.map_or(1, |l| to_usize(l.get()));
+                let target = if line > base_len {
                     current_len
                 } else {
                     map.get(line - 1).copied().flatten().ok_or_else(conflict)?
                 };
                 moved.line = std::num::NonZeroU64::new(target as u64 + 1);
             }
-            AgentOp::RewriteFile | AgentOp::ApplyUnifiedDiff => {
-                if base != current {
-                    return Err(conflict());
-                }
+            AgentOp::RewriteFile | AgentOp::ApplyUnifiedDiff if base != current => {
+                return Err(conflict());
             }
             _ => {}
         }
@@ -397,8 +408,17 @@ impl<'a> Doc<'a> {
         }
         let lf = text.matches('\n').count();
         let crlf = text.matches("\r\n").count();
-        let eol = if crlf > 0 && crlf * 2 >= lf { "\r\n" } else { "\n" };
-        Self { text, bom, eol, starts }
+        let eol = if crlf > 0 && crlf * 2 >= lf {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        Self {
+            text,
+            bom,
+            eol,
+            starts,
+        }
     }
 
     fn line_count(&self) -> usize {
@@ -424,7 +444,11 @@ impl<'a> Doc<'a> {
     /// `s` with this file's line endings.
     fn native(&self, s: &str) -> String {
         let lf = s.replace("\r\n", "\n");
-        if self.eol == "\r\n" { lf.replace('\n', "\r\n") } else { lf }
+        if self.eol == "\r\n" {
+            lf.replace('\n', "\r\n")
+        } else {
+            lf
+        }
     }
 
     fn rewrite(&self, payload: &str, edit: usize) -> Splice {
@@ -432,7 +456,12 @@ impl<'a> Doc<'a> {
         if self.ends_with_newline() && !body.is_empty() && !body.ends_with('\n') {
             body.push_str(self.eol);
         }
-        Splice { start: self.bom, end: self.text.len(), text: body, edit }
+        Splice {
+            start: self.bom,
+            end: self.text.len(),
+            text: body,
+            edit,
+        }
     }
 
     /// Replace 0-based lines `from..to` with `new_lines`, keeping the file's
@@ -466,7 +495,12 @@ impl<'a> Doc<'a> {
                 text.push_str(self.eol);
             }
         }
-        Splice { start, end, text, edit }
+        Splice {
+            start,
+            end,
+            text,
+            edit,
+        }
     }
 }
 
@@ -497,10 +531,13 @@ fn replace_range(
         if start > end || end > len {
             return Err(ApplyError::RangeOutOfBounds { start, end, len });
         }
-        let from = usize::try_from(start - 1)
-            .map_err(|_| ApplyError::RangeOutOfBounds { start, end, len })?;
-        let to = usize::try_from(end)
-            .map_err(|_| ApplyError::RangeOutOfBounds { start, end, len })?;
+        let from = usize::try_from(start - 1).map_err(|_| ApplyError::RangeOutOfBounds {
+            start,
+            end,
+            len,
+        })?;
+        let to =
+            usize::try_from(end).map_err(|_| ApplyError::RangeOutOfBounds { start, end, len })?;
         return Ok(doc.line_splice(from, to, &lines_of(replacement), index));
     }
 
@@ -544,7 +581,12 @@ fn insert(doc: &Doc<'_>, edit: &AgentEdit, index: usize) -> Result<Splice, Apply
         }
         body.push_str(&doc.native(text));
         let end = doc.text.len();
-        return Ok(Splice { start: end, end, text: body, edit: index });
+        return Ok(Splice {
+            start: end,
+            end,
+            text: body,
+            edit: index,
+        });
     };
 
     let at = usize::try_from(line.get()).unwrap_or(usize::MAX) - 1;
@@ -556,7 +598,11 @@ fn insert(doc: &Doc<'_>, edit: &AgentEdit, index: usize) -> Result<Splice, Apply
         });
     }
     // An empty `insert_text` inserts one blank line, not nothing.
-    let lines = if text.is_empty() { vec![String::new()] } else { lines_of(text) };
+    let lines = if text.is_empty() {
+        vec![String::new()]
+    } else {
+        lines_of(text)
+    };
     Ok(doc.line_splice(at, at, &lines, index))
 }
 
@@ -590,7 +636,11 @@ fn diff_splices(doc: &Doc<'_>, diff: &str, edit: usize) -> Result<Vec<Splice>, A
         let Some(first) = hunk.ops.iter().position(|(k, _)| *k != ' ') else {
             continue;
         };
-        let last = hunk.ops.iter().rposition(|(k, _)| *k != ' ').unwrap_or(first);
+        let last = hunk
+            .ops
+            .iter()
+            .rposition(|(k, _)| *k != ' ')
+            .unwrap_or(first);
         let old_side = |ops: &[(char, String)]| ops.iter().filter(|(k, _)| *k != '+').count();
 
         let from = anchor + old_side(&hunk.ops[..first]);
@@ -608,16 +658,15 @@ fn diff_splices(doc: &Doc<'_>, diff: &str, edit: usize) -> Result<Vec<Splice>, A
 /// Find where a hunk's old-side lines occur: first try the position the diff
 /// header claims, then fall back to a unique match so slightly stale line
 /// numbers still apply.
-fn locate_hunk(
-    doc: &Doc<'_>,
-    cursor: usize,
-    old_start: u64,
-    old_lines: &[&str],
-) -> Option<usize> {
+fn locate_hunk(doc: &Doc<'_>, cursor: usize, old_start: u64, old_lines: &[&str]) -> Option<usize> {
     let n = doc.line_count();
     let claimed = usize::try_from(old_start.saturating_sub(1)).ok()?;
     let matches_at = |at: usize| -> bool {
-        n >= at + old_lines.len() && old_lines.iter().enumerate().all(|(i, want)| doc.line(at + i) == *want)
+        n >= at + old_lines.len()
+            && old_lines
+                .iter()
+                .enumerate()
+                .all(|(i, want)| doc.line(at + i) == *want)
     };
 
     if claimed >= cursor && matches_at(claimed) {
@@ -861,7 +910,10 @@ mod tests {
         let b = lines_edit(3, 4, "Y");
         assert_eq!(
             apply_edits("1\n2\n3\n4\n5\n", &[&a, &b]),
-            Err(ApplyError::Overlap { first: 1, second: 2 })
+            Err(ApplyError::Overlap {
+                first: 1,
+                second: 2
+            })
         );
         // An insertion strictly inside a replaced span overlaps it too.
         let inside = insert_edit(3, "new");
@@ -926,9 +978,8 @@ mod tests {
     #[test]
     fn two_hunks_of_one_diff_apply_together_and_share_context() {
         let mut e = edit(AgentOp::ApplyUnifiedDiff);
-        e.payload = Some(
-            "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -5,3 +5,3 @@\n e\n-f\n+F\n g\n".into(),
-        );
+        e.payload =
+            Some("@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n@@ -5,3 +5,3 @@\n e\n-f\n+F\n g\n".into());
         assert_eq!(
             apply_edit("a\nb\nc\nd\ne\nf\ng\n", &e).unwrap(),
             "a\nB\nc\nd\ne\nF\ng\n"
@@ -946,7 +997,10 @@ mod tests {
         ));
         // But a diff and an edit on a different line are independent.
         let apart = lines_edit(3, 3, "C");
-        assert_eq!(apply_edits("a\nb\nc\n", &[&diff, &apart]).unwrap(), "a\nB\nC\n");
+        assert_eq!(
+            apply_edits("a\nb\nc\n", &[&diff, &apart]).unwrap(),
+            "a\nB\nC\n"
+        );
     }
 
     // ---- file format preservation -------------------------------------
@@ -1000,8 +1054,14 @@ mod tests {
         assert_eq!(apply_edit("a\nb", &lines_edit(2, 2, "B")).unwrap(), "a\nB");
         assert_eq!(apply_edit("a\nb", &insert_edit(3, "c")).unwrap(), "a\nb\nc");
         // With one, it stays.
-        assert_eq!(apply_edit("a\nb\n", &lines_edit(2, 2, "B")).unwrap(), "a\nB\n");
-        assert_eq!(apply_edit("a\nb\n", &insert_edit(3, "c")).unwrap(), "a\nb\nc\n");
+        assert_eq!(
+            apply_edit("a\nb\n", &lines_edit(2, 2, "B")).unwrap(),
+            "a\nB\n"
+        );
+        assert_eq!(
+            apply_edit("a\nb\n", &insert_edit(3, "c")).unwrap(),
+            "a\nb\nc\n"
+        );
         // A rewrite whose payload forgot the final newline gets it back.
         let mut rewrite = edit(AgentOp::RewriteFile);
         rewrite.payload = Some("x".into());
@@ -1010,7 +1070,10 @@ mod tests {
 
     #[test]
     fn deleting_lines_and_empty_files_behave() {
-        assert_eq!(apply_edit("a\nb\nc\n", &lines_edit(2, 2, "")).unwrap(), "a\nc\n");
+        assert_eq!(
+            apply_edit("a\nb\nc\n", &lines_edit(2, 2, "")).unwrap(),
+            "a\nc\n"
+        );
         assert_eq!(apply_edit("", &insert_edit(1, "first")).unwrap(), "first");
         let mut append = edit(AgentOp::Insert);
         append.insert_text = Some("first".into());
@@ -1091,7 +1154,11 @@ mod tests {
                         .filter_map(|(i, kind)| {
                             let line = i as u64 + 1;
                             match kind {
-                                1 => Some(lines_edit(line, line, &format!("new {line}\nextra {line}"))),
+                                1 => Some(lines_edit(
+                                    line,
+                                    line,
+                                    &format!("new {line}\nextra {line}"),
+                                )),
                                 2 => Some(insert_edit(line, &format!("ins {line}"))),
                                 _ => None,
                             }
@@ -1173,14 +1240,30 @@ mod review_tests {
 
         assert_eq!(edits.len(), 2, "{edits:#?}");
         assert_eq!(edits[0].op, AgentOp::ReplaceRange);
-        assert_eq!((edits[0].start_line.map(|n| n.get()), edits[0].end_line.map(|n| n.get())), (Some(2), Some(2)));
+        assert_eq!(
+            (
+                edits[0].start_line.map(std::num::NonZero::get),
+                edits[0].end_line.map(std::num::NonZero::get)
+            ),
+            (Some(2), Some(2))
+        );
         assert_eq!(edits[0].insert_text.as_deref(), Some("TWO\n"));
         assert_eq!(edits[1].op, AgentOp::Insert);
-        assert_eq!(edits[1].line.map(|n| n.get()), Some(6), "append after the last line");
+        assert_eq!(
+            edits[1].line.map(std::num::NonZero::get),
+            Some(6),
+            "append after the last line"
+        );
 
         // Each hunk applies on its own, which is what per-hunk review needs.
-        assert_eq!(apply_edits(original, &[&edits[0]]).unwrap(), "one\nTWO\nthree\nfour\nfive\n");
-        assert_eq!(apply_edits(original, &[&edits[1]]).unwrap(), "one\ntwo\nthree\nfour\nfive\nsix\n");
+        assert_eq!(
+            apply_edits(original, &[&edits[0]]).unwrap(),
+            "one\nTWO\nthree\nfour\nfive\n"
+        );
+        assert_eq!(
+            apply_edits(original, &[&edits[1]]).unwrap(),
+            "one\ntwo\nthree\nfour\nfive\nsix\n"
+        );
         roundtrip(original, modified);
     }
 
@@ -1196,7 +1279,7 @@ mod review_tests {
 
     #[test]
     fn identical_text_has_no_edits_and_an_empty_original_is_a_rewrite() {
-        assert!(edits_from_diff("a.tex", "same\n", "same\n").is_empty());
+        assert_eq!(edits_from_diff("a.tex", "same\n", "same\n").len(), 0);
         let edits = edits_from_diff("a.tex", "", "new\n");
         assert_eq!(edits.len(), 1);
         assert_eq!(edits[0].op, AgentOp::RewriteFile);
@@ -1263,8 +1346,8 @@ mod review_tests {
         let current = "new a\nnew b\n1\n2\n3\n4\nFIVE\n";
 
         let moved = rebase_edits(base, current, &[line_edit(2, 3, "X")]).unwrap();
-        assert_eq!(moved[0].start_line.map(|n| n.get()), Some(4));
-        assert_eq!(moved[0].end_line.map(|n| n.get()), Some(5));
+        assert_eq!(moved[0].start_line.map(std::num::NonZero::get), Some(4));
+        assert_eq!(moved[0].end_line.map(std::num::NonZero::get), Some(5));
         assert_eq!(
             apply_edits(current, &refs(&moved)).unwrap(),
             "new a\nnew b\n1\nX\n4\nFIVE\n"
@@ -1276,7 +1359,11 @@ mod review_tests {
         let base = "1\n2\n3\n";
         let current = "1\nTWO\n3\n";
         assert_eq!(
-            rebase_edits(base, current, &[line_edit(3, 3, "ok"), line_edit(2, 3, "clash")]),
+            rebase_edits(
+                base,
+                current,
+                &[line_edit(3, 3, "ok"), line_edit(2, 3, "clash")]
+            ),
             Err(RebaseError::Conflict { edit: 2 })
         );
         // A range that the intervening edit split in two is also a conflict.
@@ -1308,10 +1395,17 @@ mod review_tests {
         };
 
         let moved = rebase_edits(base, current, &[insert, append, anchored]).unwrap();
-        assert_eq!(moved[0].line.map(|n| n.get()), Some(3));
-        assert_eq!(moved[1].line.map(|n| n.get()), Some(4), "still an append");
+        assert_eq!(moved[0].line.map(std::num::NonZero::get), Some(3));
+        assert_eq!(
+            moved[1].line.map(std::num::NonZero::get),
+            Some(4),
+            "still an append"
+        );
         assert_eq!(moved[2].text.as_deref(), Some("b"));
-        assert_eq!(apply_edits(current, &refs(&moved)).unwrap(), "z\na\nmid\nB\nmid\n");
+        assert_eq!(
+            apply_edits(current, &refs(&moved)).unwrap(),
+            "z\na\nmid\nB\nmid\n"
+        );
     }
 
     #[test]
@@ -1332,5 +1426,3 @@ mod review_tests {
         assert!(moved[0].expected_etag.is_none() && moved[0].hunk_id.is_none());
     }
 }
-
-

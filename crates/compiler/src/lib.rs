@@ -4,7 +4,7 @@
 //! The pieces:
 //! - [`worker`]: the child process that runs the engine (self-exec);
 //! - [`project`]: main-file detection, fingerprinting, log-name resolution;
-//! - [`diagnostics`]: `.log`/`.blg` parsed into file:line problems;
+//! - [`diagnostics`]: `.log` and `.blg` parsed into problems with a file and line;
 //! - [`builds`]: finished compiles, kept outside the project;
 //! - [`Compiler`]: ties them together, with timeout and cancellation.
 #![forbid(unsafe_code)]
@@ -275,7 +275,7 @@ impl Compiler {
             let mut bib = diagnostics::parse_bibtex_log(&read(BLG).await);
             for d in &mut bib {
                 // `.bib` names in the .blg are relative to the main file.
-                if let Some(f) = d.file.as_deref().and_then(|f| resolve(f)) {
+                if let Some(f) = d.file.as_deref().and_then(resolve) {
                     d.file = Some(f);
                 }
             }
@@ -319,7 +319,8 @@ impl Compiler {
         timeout: Duration,
         cancel: &CancellationToken,
     ) -> Result<WorkerResult, CompileError> {
-        let payload = serde_json::to_vec(request).map_err(|e| CompileError::Protocol(e.to_string()))?;
+        let payload =
+            serde_json::to_vec(request).map_err(|e| CompileError::Protocol(e.to_string()))?;
 
         let mut command = tokio::process::Command::new(&self.worker_exe);
         command
@@ -373,7 +374,9 @@ impl Compiler {
         let tail = stderr_tail.await.unwrap_or_default();
         let text = tokio::fs::read_to_string(request.out_dir.join(RESULT)).await;
         match text {
-            Ok(text) => serde_json::from_str(&text).map_err(|e| CompileError::Protocol(e.to_string())),
+            Ok(text) => {
+                serde_json::from_str(&text).map_err(|e| CompileError::Protocol(e.to_string()))
+            }
             Err(_) => Err(CompileError::WorkerCrashed {
                 status: status.to_string(),
                 stderr: tail,
@@ -439,12 +442,10 @@ mod tests {
         assert!(env.contains(&("PATH".to_owned(), String::new())));
         for (key, _) in &env {
             let upper = key.to_ascii_uppercase();
-            assert!(
-                !(upper.contains("KEY") && upper != "SSL_CERT_FILE")
-                    && !upper.contains("TOKEN")
-                    && !upper.contains("SECRET"),
-                "{key} must not reach the worker"
-            );
+            let secret = (upper.contains("KEY") && upper != "SSL_CERT_FILE")
+                || upper.contains("TOKEN")
+                || upper.contains("SECRET");
+            assert!(!secret, "{key} must not reach the worker");
         }
     }
 }

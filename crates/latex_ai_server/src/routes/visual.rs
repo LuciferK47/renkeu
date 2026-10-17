@@ -219,6 +219,8 @@ fn validate_bbox(req: &VisualFixPayload) -> Result<u16, ApiError> {
 /// Rasterize the page and crop the bbox, returning base64 PNG. The crop is
 /// capped at 512px on its long edge inside `visual::crop` (masterplan §12 M3
 /// audit: security).
+// x, y, w, h are the bounding box; naming them in full would only add noise.
+#[allow(clippy::many_single_char_names)]
 async fn render_crop(
     pdf_path: std::path::PathBuf,
     req: &VisualFixPayload,
@@ -289,7 +291,7 @@ fn resolve_hit_path(
 
 /// A box drawn on a PDF means something only for the source it was compiled
 /// from. If the project has changed since (the build id is a fingerprint of
-/// every input), SyncTeX would map the box to the wrong line and the model
+/// every input), `SyncTeX` would map the box to the wrong line and the model
 /// would be asked to "fix" the wrong text: refuse, and say to recompile.
 async fn ensure_build_is_current(
     state: &AppState,
@@ -300,8 +302,12 @@ async fn ensure_build_is_current(
         latex_ai_compiler::project::fingerprint(&root, &main, true)
     })
     .await
-    .map_err(|e| ApiError::Internal { message: e.to_string() })?
-    .map_err(|e| ApiError::Internal { message: format!("reading the project: {e}") })?;
+    .map_err(|e| ApiError::Internal {
+        message: e.to_string(),
+    })?
+    .map_err(|e| ApiError::Internal {
+        message: format!("reading the project: {e}"),
+    })?;
     if current == build.id() {
         Ok(())
     } else {
@@ -445,7 +451,10 @@ pub async fn get_pdf_page(
     };
     Ok((
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, cache)],
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, cache),
+        ],
         png,
     ))
 }

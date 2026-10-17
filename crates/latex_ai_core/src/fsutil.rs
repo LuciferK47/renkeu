@@ -155,7 +155,9 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
         assert!(
-            names.iter().all(|n| !n.ends_with(".tmp")),
+            names
+                .iter()
+                .all(|n| !n.to_ascii_lowercase().ends_with(".tmp")),
             "temp file leaked: {names:?}"
         );
     }

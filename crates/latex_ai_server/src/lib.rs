@@ -203,7 +203,10 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
             get(routes::files::read_file).post(routes::files::write_file),
         )
         .route("/api/compile", post(routes::compile::compile))
-        .route("/api/compile/{id}/cancel", post(routes::compile::cancel_compile))
+        .route(
+            "/api/compile/{id}/cancel",
+            post(routes::compile::cancel_compile),
+        )
         .route("/api/builds/{id}", get(routes::compile::get_build))
         .route("/api/builds/{id}/pdf", get(routes::compile::export_pdf))
         .route(
@@ -298,7 +301,11 @@ mod tests {
     /// Planner that always errors — router tests never reach the LLM.
     struct NoPlanner;
     impl EditPlanner for NoPlanner {
-        fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _cancel: CancellationToken) -> PlanFuture<'a> {
+        fn plan_edits<'a>(
+            &'a self,
+            _req: PlanRequest<'a>,
+            _cancel: CancellationToken,
+        ) -> PlanFuture<'a> {
             Box::pin(async { Err::<Vec<AgentEdit>, _>(AiError::EmptyResponse) })
         }
         fn visual_fix<'a>(
@@ -389,7 +396,10 @@ mod tests {
 
     #[tokio::test]
     async fn rebinding_host_headers_are_refused() {
-        assert_eq!(status_for_host(Some("evil.example")).await, StatusCode::FORBIDDEN);
+        assert_eq!(
+            status_for_host(Some("evil.example")).await,
+            StatusCode::FORBIDDEN
+        );
         assert_eq!(
             status_for_host(Some("evil.example:3000")).await,
             StatusCode::FORBIDDEN
@@ -403,7 +413,13 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_hosts_and_hostless_requests_are_served() {
-        for host in ["localhost", "localhost:3000", "127.0.0.1:3000", "[::1]:3000", "tauri.localhost"] {
+        for host in [
+            "localhost",
+            "localhost:3000",
+            "127.0.0.1:3000",
+            "[::1]:3000",
+            "tauri.localhost",
+        ] {
             assert_eq!(status_for_host(Some(host)).await, StatusCode::OK, "{host}");
         }
         assert_eq!(status_for_host(None).await, StatusCode::OK);

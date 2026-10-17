@@ -27,7 +27,6 @@ First paragraph on line four.\n\
 Body text far down the page.\n\
 \\end{document}\n";
 
-
 /// Compile `DOC` as `main.tex` in a fresh project and return the parsed map
 /// plus the stored build (kept alive with its temp dirs).
 async fn compile_doc() -> (synctex::SyncTexData, (tempfile::TempDir, tempfile::TempDir)) {

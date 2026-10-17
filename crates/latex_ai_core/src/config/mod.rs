@@ -40,7 +40,7 @@ pub enum ConfigError {
 
 /// Everything the user may tune. Add a field only together with the code that
 /// reads it (rust.md I.15).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
     pub ai: AiConfig,
@@ -51,7 +51,7 @@ pub struct Config {
 #[serde(deny_unknown_fields, default)]
 pub struct CompileConfig {
     /// Wall-clock budget for one compile, in seconds. A document still
-    /// running after this is killed (an infinite macro loop, a huge TikZ
+    /// running after this is killed (an infinite macro loop, a huge `TikZ`
     /// picture). The first compile after install also downloads the TeX
     /// bundle, so keep this generous.
     pub timeout_secs: u64,
@@ -72,15 +72,6 @@ pub struct AiConfig {
     pub vision_model: Option<String>,
     /// Upper bound on one LLM call, in seconds.
     pub timeout_secs: u64,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            ai: AiConfig::default(),
-            compile: CompileConfig::default(),
-        }
-    }
 }
 
 impl Default for AiConfig {
@@ -371,7 +362,10 @@ mod tests {
 
     #[test]
     fn file_beats_defaults_and_env_beats_file() {
-        let dir = home_with(Some("[ai]\nmodel = \"from-file\"\ntimeout_secs = 30\n"), None);
+        let dir = home_with(
+            Some("[ai]\nmodel = \"from-file\"\ntimeout_secs = 30\n"),
+            None,
+        );
 
         let l = load(dir.path(), &EnvOverrides::default()).unwrap();
         assert_eq!(l.effective.ai.model, "from-file");
@@ -406,7 +400,10 @@ mod tests {
         let dir = home_with(Some("[ai]\ntimeout_secs = 0\n"), None);
         assert!(matches!(
             load(dir.path(), &EnvOverrides::default()),
-            Err(ConfigError::Invalid { field: "ai.timeout_secs", .. })
+            Err(ConfigError::Invalid {
+                field: "ai.timeout_secs",
+                ..
+            })
         ));
         let dir = home_with(Some("[ai]\nmodel = \"has space\"\n"), None);
         assert!(load(dir.path(), &EnvOverrides::default()).is_err());

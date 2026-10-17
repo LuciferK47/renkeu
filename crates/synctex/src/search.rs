@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn forward_search_past_the_end_returns_nothing() {
-        assert!(forward_search(&fixture(), 1, 9999).is_empty());
+        assert_eq!(forward_search(&fixture(), 1, 9999).len(), 0);
     }
 
     #[test]
@@ -261,7 +261,7 @@ mod tests {
         let d = fixture();
         let hit = backward_search(&d, 1, 150.0, 150.0).expect("backward hit");
         let back = forward_search(&d, hit.tag, hit.line);
-        assert!(!back.is_empty());
+        assert_ne!(back.len(), 0);
         assert_eq!(back[0].page, 1);
         // The rect we get back must contain the point we started from.
         let h = &back[0];

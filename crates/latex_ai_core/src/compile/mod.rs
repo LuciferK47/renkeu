@@ -276,7 +276,10 @@ mod tests {
     fn hunk_ids_are_stable_across_replans() {
         // The same plan produced twice yields the same ids, which is what
         // lets a user's selection survive a requery.
-        assert_eq!(replace("\\textwidth", "a").hunk_id(), replace("\\textwidth", "a").hunk_id());
+        assert_eq!(
+            replace("\\textwidth", "a").hunk_id(),
+            replace("\\textwidth", "a").hunk_id()
+        );
     }
 
     #[test]
@@ -298,8 +301,7 @@ mod tests {
         let mut other_file = ins_a.clone();
         other_file.file_path = "chapter.tex".into();
 
-        let ids = [&by_lines_a, &by_lines_b, &ins_a, &ins_b, &other_file]
-            .map(|e| e.hunk_id());
+        let ids = [&by_lines_a, &by_lines_b, &ins_a, &ins_b, &other_file].map(AgentEdit::hunk_id);
         let unique: std::collections::HashSet<_> = ids.iter().collect();
         assert_eq!(unique.len(), ids.len(), "{ids:?}");
     }

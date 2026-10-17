@@ -14,6 +14,7 @@ use latex_ai_core::config::{ConfiguredPlanner, EnvOverrides, Settings};
 use latex_ai_server::bootstrap::{BootOptions, build_state};
 use latex_ai_server::build_router;
 use serde_json::{Value, json};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tower::ServiceExt;
 
@@ -44,7 +45,9 @@ fn req(method: &str, uri: &str, body: Option<Value>) -> Request<Body> {
 async fn call(app: &axum::Router, r: Request<Body>) -> (StatusCode, String) {
     let res = app.clone().oneshot(r).await.unwrap();
     let status = res.status();
-    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
     (status, String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -64,7 +67,11 @@ async fn key_is_write_only_hot_swapped_and_stored_owner_only() {
     assert_eq!(parse(&body)["ai_enabled"], false);
     assert_eq!(parse(&body)["key_source"], "none");
 
-    let (s, body) = call(&app, req("PUT", "/api/config/api-key", Some(json!({ "key": SECRET })))).await;
+    let (s, body) = call(
+        &app,
+        req("PUT", "/api/config/api-key", Some(json!({ "key": SECRET }))),
+    )
+    .await;
     assert_eq!(s, StatusCode::OK, "{body}");
     assert_eq!(parse(&body)["ai_enabled"], true);
     assert_eq!(parse(&body)["key_source"], "file");
@@ -75,8 +82,10 @@ async fn key_is_write_only_hot_swapped_and_stored_owner_only() {
     assert_eq!(parse(&body)["ai_enabled"], true);
     assert!(!body.contains(SECRET), "GET leaked the key");
 
-    use std::os::unix::fs::PermissionsExt;
-    let mode = std::fs::metadata(home.path().join("secrets.toml")).unwrap().permissions().mode();
+    let mode = std::fs::metadata(home.path().join("secrets.toml"))
+        .unwrap()
+        .permissions()
+        .mode();
     assert_eq!(mode & 0o777, 0o600);
 
     let (s, body) = call(&app, req("DELETE", "/api/config/api-key", None)).await;
@@ -92,15 +101,31 @@ async fn patch_persists_validates_and_rejects_unknown_fields() {
     let state = state_in(home.path(), ws.path(), EnvOverrides::default()).await;
     let app = build_router(state).unwrap();
 
-    let (s, body) = call(&app, req("PATCH", "/api/config", Some(json!({ "model": "other-model", "timeout_secs": 30 })))).await;
+    let (s, body) = call(
+        &app,
+        req(
+            "PATCH",
+            "/api/config",
+            Some(json!({ "model": "other-model", "timeout_secs": 30 })),
+        ),
+    )
+    .await;
     assert_eq!(s, StatusCode::OK, "{body}");
     assert_eq!(parse(&body)["model"], "other-model");
     let file = std::fs::read_to_string(home.path().join("config.toml")).unwrap();
     assert!(file.contains("other-model"), "{file}");
 
-    let (s, _) = call(&app, req("PATCH", "/api/config", Some(json!({ "timeout_secs": 1 })))).await;
+    let (s, _) = call(
+        &app,
+        req("PATCH", "/api/config", Some(json!({ "timeout_secs": 1 }))),
+    )
+    .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
-    let (s, _) = call(&app, req("PATCH", "/api/config", Some(json!({ "modle": "typo" })))).await;
+    let (s, _) = call(
+        &app,
+        req("PATCH", "/api/config", Some(json!({ "modle": "typo" }))),
+    )
+    .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
     // The rejected patches changed nothing.
     let (_, body) = call(&app, req("GET", "/api/config", None)).await;
@@ -126,9 +151,17 @@ async fn env_pinned_settings_answer_409() {
     assert_eq!(v["env_overridden"], json!(["model"]));
     assert!(!body.contains(SECRET));
 
-    let (s, _) = call(&app, req("PATCH", "/api/config", Some(json!({ "model": "x" })))).await;
+    let (s, _) = call(
+        &app,
+        req("PATCH", "/api/config", Some(json!({ "model": "x" }))),
+    )
+    .await;
     assert_eq!(s, StatusCode::CONFLICT);
-    let (s, _) = call(&app, req("PUT", "/api/config/api-key", Some(json!({ "key": "k" })))).await;
+    let (s, _) = call(
+        &app,
+        req("PUT", "/api/config/api-key", Some(json!({ "key": "k" }))),
+    )
+    .await;
     assert_eq!(s, StatusCode::CONFLICT);
     let (s, _) = call(&app, req("DELETE", "/api/config/api-key", None)).await;
     assert_eq!(s, StatusCode::CONFLICT);
@@ -238,7 +271,10 @@ async fn invalid_config_file_stops_startup_naming_the_file() {
     .err()
     .expect("startup must fail");
     let text = format!("{err:#}");
-    assert!(text.contains("config.toml") && text.contains("modle"), "{text}");
+    assert!(
+        text.contains("config.toml") && text.contains("modle"),
+        "{text}"
+    );
 }
 
 #[tokio::test]

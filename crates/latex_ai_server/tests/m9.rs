@@ -62,11 +62,22 @@ async fn post(app: &App, uri: &str, body: Value) -> (StatusCode, Value) {
         .await
         .unwrap();
     let status = res.status();
-    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
-async fn apply(app: &App, file: &str, content: &str, edits: &[AgentEdit], ids: &[String]) -> (StatusCode, Value) {
+async fn apply(
+    app: &App,
+    file: &str,
+    content: &str,
+    edits: &[AgentEdit],
+    ids: &[String],
+) -> (StatusCode, Value) {
     post(
         app,
         "/api/agent/apply-selected",
@@ -91,11 +102,20 @@ async fn two_replacements_of_one_anchor_are_selected_independently() {
     std::fs::write(app.root.join("a.tex"), content).unwrap();
     // Before M9 both shared one id (a hash of the anchor "x"), so choosing
     // one applied the other as well.
-    let first = edit(json!({"file_path":"a.tex","op":"replace_range","text":"x","insert_text":"A"}));
-    let second = edit(json!({"file_path":"a.tex","op":"replace_range","text":"x","insert_text":"B"}));
+    let first =
+        edit(json!({"file_path":"a.tex","op":"replace_range","text":"x","insert_text":"A"}));
+    let second =
+        edit(json!({"file_path":"a.tex","op":"replace_range","text":"x","insert_text":"B"}));
     assert_ne!(first.hunk_id(), second.hunk_id());
 
-    let (status, body) = apply(&app, "a.tex", content, &[first.clone(), second], &[first.hunk_id().0]).await;
+    let (status, body) = apply(
+        &app,
+        "a.tex",
+        content,
+        &[first.clone(), second],
+        &[first.hunk_id().0],
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(read(&app, "a.tex"), "A\nx\n");
 }
@@ -105,11 +125,22 @@ async fn line_based_hunks_apply_one_at_a_time() {
     let app = app().await;
     let content = "one\ntwo\nthree\nfour\n";
     std::fs::write(app.root.join("a.tex"), content).unwrap();
-    let top = edit(json!({"file_path":"a.tex","op":"replace_range","start_line":1,"end_line":1,"insert_text":"ONE"}));
-    let bottom = edit(json!({"file_path":"a.tex","op":"replace_range","start_line":4,"end_line":4,"insert_text":"FOUR"}));
+    let top = edit(
+        json!({"file_path":"a.tex","op":"replace_range","start_line":1,"end_line":1,"insert_text":"ONE"}),
+    );
+    let bottom = edit(
+        json!({"file_path":"a.tex","op":"replace_range","start_line":4,"end_line":4,"insert_text":"FOUR"}),
+    );
     assert_ne!(top.hunk_id(), bottom.hunk_id());
 
-    let (status, body) = apply(&app, "a.tex", content, &[top, bottom.clone()], &[bottom.hunk_id().0]).await;
+    let (status, body) = apply(
+        &app,
+        "a.tex",
+        content,
+        &[top, bottom.clone()],
+        &[bottom.hunk_id().0],
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(read(&app, "a.tex"), "one\ntwo\nthree\nFOUR\n");
 }
@@ -120,8 +151,12 @@ async fn a_batch_is_resolved_against_the_original_line_numbers() {
     let content = "a\nb\nc\nd\ne\n";
     std::fs::write(app.root.join("a.tex"), content).unwrap();
     // The first edit adds two lines; "line 4" must still mean the original d.
-    let grow = edit(json!({"file_path":"a.tex","op":"replace_range","start_line":2,"end_line":2,"insert_text":"B1\nB2\nB3"}));
-    let later = edit(json!({"file_path":"a.tex","op":"replace_range","start_line":4,"end_line":4,"insert_text":"D"}));
+    let grow = edit(
+        json!({"file_path":"a.tex","op":"replace_range","start_line":2,"end_line":2,"insert_text":"B1\nB2\nB3"}),
+    );
+    let later = edit(
+        json!({"file_path":"a.tex","op":"replace_range","start_line":4,"end_line":4,"insert_text":"D"}),
+    );
     let ids = [grow.hunk_id().0, later.hunk_id().0];
 
     let (status, body) = apply(&app, "a.tex", content, &[grow, later], &ids).await;
@@ -134,13 +169,20 @@ async fn overlapping_selected_hunks_are_refused_and_nothing_is_written() {
     let app = app().await;
     let content = "1\n2\n3\n4\n";
     std::fs::write(app.root.join("a.tex"), content).unwrap();
-    let a = edit(json!({"file_path":"a.tex","op":"replace_range","start_line":2,"end_line":3,"insert_text":"X"}));
-    let b = edit(json!({"file_path":"a.tex","op":"replace_range","start_line":3,"end_line":4,"insert_text":"Y"}));
+    let a = edit(
+        json!({"file_path":"a.tex","op":"replace_range","start_line":2,"end_line":3,"insert_text":"X"}),
+    );
+    let b = edit(
+        json!({"file_path":"a.tex","op":"replace_range","start_line":3,"end_line":4,"insert_text":"Y"}),
+    );
     let ids = [a.hunk_id().0, b.hunk_id().0];
 
     let (status, body) = apply(&app, "a.tex", content, &[a, b], &ids).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert!(body["message"].as_str().unwrap().contains("overlapping"), "{body}");
+    assert!(
+        body["message"].as_str().unwrap().contains("overlapping"),
+        "{body}"
+    );
     assert_eq!(read(&app, "a.tex"), content);
 }
 
@@ -149,30 +191,64 @@ async fn unsafe_tex_in_a_proposal_is_refused_on_apply() {
     let app = app().await;
     let content = "hello\n";
     std::fs::write(app.root.join("a.tex"), content).unwrap();
-    let bad = edit(json!({"file_path":"a.tex","op":"insert","line":1,"insert_text":"\\input{/etc/passwd}"}));
+    let bad = edit(
+        json!({"file_path":"a.tex","op":"insert","line":1,"insert_text":"\\input{/etc/passwd}"}),
+    );
 
-    let (status, body) = apply(&app, "a.tex", content, &[bad.clone()], &[bad.hunk_id().0]).await;
+    let (status, body) = apply(
+        &app,
+        "a.tex",
+        content,
+        std::slice::from_ref(&bad),
+        &[bad.hunk_id().0],
+    )
+    .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert!(body["message"].as_str().unwrap().contains("inside the project"), "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap()
+            .contains("inside the project"),
+        "{body}"
+    );
     assert_eq!(read(&app, "a.tex"), content);
-    let history = app.state.store.recent_history(None, false, 10).await.unwrap();
-    assert!(history.is_empty(), "a refused edit must leave no history row");
+    let history = app
+        .state
+        .store
+        .recent_history(None, false, 10)
+        .await
+        .unwrap();
+    assert!(
+        history.is_empty(),
+        "a refused edit must leave no history row"
+    );
 }
 
 #[tokio::test]
 async fn preview_flags_the_unsafe_hunk_and_still_shows_the_others() {
     let app = app().await;
     std::fs::write(app.root.join("a.tex"), "hello\n").unwrap();
-    let good = edit(json!({"file_path":"a.tex","op":"replace_range","text":"hello","insert_text":"hi"}));
-    let bad = edit(json!({"file_path":"a.tex","op":"insert","line":1,"insert_text":"\\immediate\\write18{id}"}));
+    let good =
+        edit(json!({"file_path":"a.tex","op":"replace_range","text":"hello","insert_text":"hi"}));
+    let bad = edit(
+        json!({"file_path":"a.tex","op":"insert","line":1,"insert_text":"\\immediate\\write18{id}"}),
+    );
 
-    let (status, body) = post(&app, "/api/agent/preview", json!({"file_path":"a.tex","edits":[good,bad]})).await;
+    let (status, body) = post(
+        &app,
+        "/api/agent/preview",
+        json!({"file_path":"a.tex","edits":[good,bad]}),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let hunks = body["hunks"].as_array().unwrap();
     assert_eq!(hunks.len(), 2);
     assert_eq!(hunks[0]["applies"], true);
     assert_eq!(hunks[1]["applies"], false);
-    assert!(hunks[1]["error"].as_str().unwrap().contains("write18"), "{body}");
+    assert!(
+        hunks[1]["error"].as_str().unwrap().contains("write18"),
+        "{body}"
+    );
 }
 
 #[tokio::test]
@@ -180,9 +256,18 @@ async fn crlf_files_stay_crlf_through_apply_selected() {
     let app = app().await;
     let content = "a\r\nb\r\nc\r\n";
     std::fs::write(app.root.join("a.tex"), content).unwrap();
-    let e = edit(json!({"file_path":"a.tex","op":"replace_range","start_line":2,"end_line":2,"insert_text":"B1\nB2"}));
+    let e = edit(
+        json!({"file_path":"a.tex","op":"replace_range","start_line":2,"end_line":2,"insert_text":"B1\nB2"}),
+    );
 
-    let (status, body) = apply(&app, "a.tex", content, &[e.clone()], &[e.hunk_id().0]).await;
+    let (status, body) = apply(
+        &app,
+        "a.tex",
+        content,
+        std::slice::from_ref(&e),
+        &[e.hunk_id().0],
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(read(&app, "a.tex"), "a\r\nB1\r\nB2\r\nc\r\n");
 }

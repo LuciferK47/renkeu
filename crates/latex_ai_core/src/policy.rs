@@ -25,7 +25,9 @@ use std::sync::LazyLock;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum PolicyViolation {
-    #[error("proposed text line {line}: `\\{command}` may only name files inside the project, not `{path}`")]
+    #[error(
+        "proposed text line {line}: `\\{command}` may only name files inside the project, not `{path}`"
+    )]
     PathEscape {
         command: String,
         path: String,
@@ -90,14 +92,20 @@ pub fn lint_edit(edit: &AgentEdit, original: &str) -> Result<(), PolicyViolation
 
         if let Some(m) = FORBIDDEN.as_ref().and_then(|re| re.captures(line)) {
             let command = m[1].split_whitespace().collect::<String>();
-            return Err(PolicyViolation::ForbiddenCommand { command, line: number });
+            return Err(PolicyViolation::ForbiddenCommand {
+                command,
+                line: number,
+            });
         }
         if let Some(re) = COMMAND_WITH_ARG.as_ref() {
             for caps in re.captures_iter(line) {
                 if !PATH_COMMANDS.contains(&&caps[1]) {
                     continue;
                 }
-                let arg = caps.get(2).or_else(|| caps.get(3)).map_or("", |m| m.as_str());
+                let arg = caps
+                    .get(2)
+                    .or_else(|| caps.get(3))
+                    .map_or("", |m| m.as_str());
                 for path in arg.split(',').map(str::trim).filter(|p| !p.is_empty()) {
                     if escapes_project(path) {
                         return Err(PolicyViolation::PathEscape {
@@ -217,7 +225,10 @@ mod tests {
             (r"\input{|cat /etc/passwd}", "|cat /etc/passwd"),
             (r"\input /etc/hosts", "/etc/hosts"),
             (r"\include{C:\Users\x}", r"C:\Users\x"),
-            (r"\includegraphics[width=1cm]{/home/u/.ssh/id_rsa}", "/home/u/.ssh/id_rsa"),
+            (
+                r"\includegraphics[width=1cm]{/home/u/.ssh/id_rsa}",
+                "/home/u/.ssh/id_rsa",
+            ),
             (r"\bibliography{ok,../outside}", "../outside"),
             (r"\usepackage{../evil}", "../evil"),
             (r"\lstinputlisting{/etc/shadow}", "/etc/shadow"),
@@ -245,7 +256,9 @@ mod tests {
             (r"\directlua{os.execute('x')}", "directlua"),
         ] {
             match verdict(bad) {
-                Err(PolicyViolation::ForbiddenCommand { command, .. }) => assert_eq!(command, cmd, "{bad}"),
+                Err(PolicyViolation::ForbiddenCommand { command, .. }) => {
+                    assert_eq!(command, cmd, "{bad}");
+                }
                 other => panic!("`{bad}` should be forbidden, got {other:?}"),
             }
         }
@@ -304,7 +317,10 @@ mod tests {
     #[test]
     fn violations_report_the_line_within_the_proposed_text() {
         let err = verdict("fine\nalso fine\n\\input{/x}\n").unwrap_err();
-        assert!(matches!(err, PolicyViolation::PathEscape { line: 3, .. }), "{err:?}");
+        assert!(
+            matches!(err, PolicyViolation::PathEscape { line: 3, .. }),
+            "{err:?}"
+        );
         assert!(err.to_string().contains("line 3"), "{err}");
     }
 

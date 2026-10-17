@@ -4,7 +4,7 @@
 //! and opens the SPA in a webview.
 //!
 //! The server is spawned on **Tauri's** async runtime, not via `#[tokio::main]`
-//! + `tokio::spawn`. `tauri::run()` installs its own runtime and blocks; tasks
+//! and `tokio::spawn`. `tauri::run()` installs its own runtime and blocks; tasks
 //! spawned on a separate `#[tokio::main]` runtime are orphaned the moment it
 //! does, which silently killed the embedded server (the process kept running
 //! with the listener closed). `tauri-plugin-axum` was evaluated and rejected —

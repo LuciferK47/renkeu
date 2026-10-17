@@ -131,14 +131,20 @@ async fn compile(file: &std::path::Path, out: &std::path::Path) -> anyhow::Resul
     let file = tokio::fs::canonicalize(file)
         .await
         .with_context(|| format!("reading {}", file.display()))?;
-    let root = file.parent().context("the file has no directory")?.to_path_buf();
+    let root = file
+        .parent()
+        .context("the file has no directory")?
+        .to_path_buf();
     let main = file
         .file_name()
         .context("the path has no file name")?
         .to_string_lossy()
         .into_owned();
 
-    let work = std::env::temp_dir().join(format!("latex-ai-cli-{}", latex_ai_core::fsutil::unique_id()));
+    let work = std::env::temp_dir().join(format!(
+        "latex-ai-cli-{}",
+        latex_ai_core::fsutil::unique_id()
+    ));
     let compiler = Compiler::new(CompilerConfig::new(std::env::current_exe()?, work.clone()));
     let result = compiler
         .compile_scratch(

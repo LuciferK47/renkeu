@@ -40,15 +40,22 @@ pub(crate) async fn send(
 #[derive(Debug)]
 pub(crate) enum SseEvent {
     Progress(serde_json::Value),
-    Thinking { message: String, iteration: u32 },
+    Thinking {
+        message: String,
+        iteration: u32,
+    },
     /// An intermediate attempt in a verify-first run: informational only,
     /// not something the client may apply.
     Step(serde_json::Value),
     Proposal(serde_json::Value),
-    Applying { message: String },
+    Applying {
+        message: String,
+    },
     Compiled(serde_json::Value),
     AwaitingApproval(serde_json::Value),
-    Error { message: String },
+    Error {
+        message: String,
+    },
     Done(serde_json::Value),
 }
 
@@ -96,7 +103,10 @@ pub(crate) struct EventSink {
 
 impl EventSink {
     pub(crate) fn new(tx: mpsc::Sender<Result<Event, Infallible>>) -> Self {
-        Self { tx, finished: false }
+        Self {
+            tx,
+            finished: false,
+        }
     }
 
     /// Send an event. `false` means the client is gone; stop working. After
@@ -117,9 +127,15 @@ impl EventSink {
     /// End the run unsuccessfully: `error`, then the one `done`.
     pub(crate) async fn fail(&mut self, message: impl Into<String>) {
         let message = message.into();
-        let _ = self.emit(SseEvent::Error { message: message.clone() }).await;
         let _ = self
-            .emit(SseEvent::Done(serde_json::json!({ "success": false, "message": message })))
+            .emit(SseEvent::Error {
+                message: message.clone(),
+            })
+            .await;
+        let _ = self
+            .emit(SseEvent::Done(
+                serde_json::json!({ "success": false, "message": message }),
+            ))
             .await;
     }
 }
@@ -134,7 +150,9 @@ impl Drop for EventSink {
         // or closed channel just means nobody is listening.
         let message = "the run ended unexpectedly";
         for e in [
-            SseEvent::Error { message: message.to_owned() },
+            SseEvent::Error {
+                message: message.to_owned(),
+            },
             SseEvent::Done(serde_json::json!({ "success": false, "message": message })),
         ] {
             let _ = self.tx.try_send(Ok(self::event(e.name(), &e.payload())));
@@ -172,6 +190,7 @@ impl<S: Stream + Unpin> Stream for CancelOnDisconnect<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
     use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 
     #[tokio::test]
@@ -202,7 +221,7 @@ mod tests {
         let mut stream = ReceiverStream::new(rx);
         let mut out = String::new();
         while let Some(Ok(e)) = stream.next().await {
-            out.push_str(&format!("{e:?}\n"));
+            let _ = writeln!(out, "{e:?}");
         }
         out
     }
@@ -211,10 +230,29 @@ mod tests {
     async fn done_is_sent_once_and_nothing_follows_it() {
         let (tx, rx) = mpsc::channel(16);
         let mut sink = EventSink::new(tx);
-        assert!(sink.emit(SseEvent::Thinking { message: "m".into(), iteration: 1 }).await);
-        assert!(sink.emit(SseEvent::Done(serde_json::json!({"success": true}))).await);
-        assert!(!sink.emit(SseEvent::Done(serde_json::json!({"success": false}))).await);
-        assert!(!sink.emit(SseEvent::Error { message: "late".into() }).await);
+        assert!(
+            sink.emit(SseEvent::Thinking {
+                message: "m".into(),
+                iteration: 1
+            })
+            .await
+        );
+        assert!(
+            sink.emit(SseEvent::Done(serde_json::json!({"success": true})))
+                .await
+        );
+        assert!(
+            !sink
+                .emit(SseEvent::Done(serde_json::json!({"success": false})))
+                .await
+        );
+        assert!(
+            !sink
+                .emit(SseEvent::Error {
+                    message: "late".into()
+                })
+                .await
+        );
         drop(sink);
 
         let text = collect(rx).await;
@@ -242,7 +280,13 @@ mod tests {
     async fn a_sink_dropped_without_done_closes_the_stream_properly() {
         let (tx, rx) = mpsc::channel(16);
         let mut sink = EventSink::new(tx);
-        assert!(sink.emit(SseEvent::Thinking { message: "m".into(), iteration: 1 }).await);
+        assert!(
+            sink.emit(SseEvent::Thinking {
+                message: "m".into(),
+                iteration: 1
+            })
+            .await
+        );
         drop(sink); // as after a panic
 
         let text = collect(rx).await;
@@ -254,16 +298,37 @@ mod tests {
     fn every_event_has_a_taxonomy_name() {
         let names = [
             SseEvent::Progress(serde_json::json!({})).name(),
-            SseEvent::Thinking { message: String::new(), iteration: 1 }.name(),
+            SseEvent::Thinking {
+                message: String::new(),
+                iteration: 1,
+            }
+            .name(),
             SseEvent::Step(serde_json::json!({})).name(),
             SseEvent::Proposal(serde_json::json!({})).name(),
-            SseEvent::Applying { message: String::new() }.name(),
+            SseEvent::Applying {
+                message: String::new(),
+            }
+            .name(),
             SseEvent::Compiled(serde_json::json!({})).name(),
             SseEvent::AwaitingApproval(serde_json::json!({})).name(),
-            SseEvent::Error { message: String::new() }.name(),
+            SseEvent::Error {
+                message: String::new(),
+            }
+            .name(),
             SseEvent::Done(serde_json::json!({})).name(),
         ];
-        let allowed = ["progress", "step", "proposal", "applying", "compiled", "thinking", "done", "error", "awaiting_approval", "keepalive"];
+        let allowed = [
+            "progress",
+            "step",
+            "proposal",
+            "applying",
+            "compiled",
+            "thinking",
+            "done",
+            "error",
+            "awaiting_approval",
+            "keepalive",
+        ];
         assert!(names.iter().all(|n| allowed.contains(n)), "{names:?}");
     }
 }

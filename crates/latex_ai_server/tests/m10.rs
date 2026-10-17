@@ -54,7 +54,8 @@ fn job(p: &Project, main: &str, timeout_secs: u64) -> CompileJob {
 }
 
 const DOC: &str = "\\documentclass{article}\n\\begin{document}\nhello\n\\end{document}\n";
-const LOOP: &str = "\\documentclass{article}\n\\begin{document}\n\\def\\a{\\a}\\a\n\\end{document}\n";
+const LOOP: &str =
+    "\\documentclass{article}\n\\begin{document}\n\\def\\a{\\a}\\a\n\\end{document}\n";
 
 /// Worker processes that are still children of this test process (running or
 /// unreaped zombies).
@@ -63,7 +64,12 @@ fn child_processes() -> usize {
     std::fs::read_dir("/proc")
         .unwrap()
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit()))
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .bytes()
+                .all(|b| b.is_ascii_digit())
+        })
         .filter_map(|e| std::fs::read_to_string(e.path().join("stat")).ok())
         .filter(|stat| {
             // `pid (comm) state ppid …`; comm may contain spaces.
@@ -78,13 +84,23 @@ fn child_processes() -> usize {
 async fn multi_file_project_compiles_independent_of_the_working_directory() {
     let _g = ONE_AT_A_TIME.lock().await;
     let p = project(&[
-        ("main.tex", "\\documentclass{article}\n\\begin{document}\n\\input{chapters/a}\n\\include{b}\n\\bibliographystyle{plain}\n\\nocite{*}\n\\bibliography{refs}\n\\end{document}\n"),
+        (
+            "main.tex",
+            "\\documentclass{article}\n\\begin{document}\n\\input{chapters/a}\n\\include{b}\n\\bibliographystyle{plain}\n\\nocite{*}\n\\bibliography{refs}\n\\end{document}\n",
+        ),
         ("chapters/a.tex", "Chapter A text.\n"),
         ("b.tex", "B text.\n"),
-        ("refs.bib", "@book{k,\n  author={A. Author},\n  title={T},\n  publisher={P},\n  year={2020}\n}\n"),
+        (
+            "refs.bib",
+            "@book{k,\n  author={A. Author},\n  title={T},\n  publisher={P},\n  year={2020}\n}\n",
+        ),
     ]);
     let store = tempfile::tempdir().unwrap();
-    assert_ne!(std::env::current_dir().unwrap(), p.root, "cwd must not be the project");
+    assert_ne!(
+        std::env::current_dir().unwrap(),
+        p.root,
+        "cwd must not be the project"
+    );
 
     let build = compiler(store.path())
         .compile(&job(&p, "main.tex", 120), &CancellationToken::new())
@@ -92,7 +108,11 @@ async fn multi_file_project_compiles_independent_of_the_working_directory() {
         .unwrap();
 
     assert!(build.manifest.success, "{:#?}", build.manifest.diagnostics);
-    assert!(std::fs::read(build.pdf_path()).unwrap().starts_with(b"%PDF"));
+    assert!(
+        std::fs::read(build.pdf_path())
+            .unwrap()
+            .starts_with(b"%PDF")
+    );
     assert!(build.manifest.has_synctex);
 }
 
@@ -100,7 +120,10 @@ async fn multi_file_project_compiles_independent_of_the_working_directory() {
 async fn synctex_names_files_so_a_chapter_hit_resolves_to_the_chapter() {
     let _g = ONE_AT_A_TIME.lock().await;
     let p = project(&[
-        ("main.tex", "\\documentclass{article}\n\\begin{document}\nMain line.\n\\input{chapters/a}\n\\end{document}\n"),
+        (
+            "main.tex",
+            "\\documentclass{article}\n\\begin{document}\nMain line.\n\\input{chapters/a}\n\\end{document}\n",
+        ),
         ("chapters/a.tex", "Chapter line one.\nChapter line two.\n"),
     ]);
     let store = tempfile::tempdir().unwrap();
@@ -117,7 +140,10 @@ async fn synctex_names_files_so_a_chapter_hit_resolves_to_the_chapter() {
         .iter()
         .filter_map(|(tag, name)| synctex::resolve_input_name(name, &p.root).map(|r| (*tag, r)))
         .collect();
-    assert!(resolved.iter().any(|(_, r)| r == Path::new("main.tex")), "{resolved:?}");
+    assert!(
+        resolved.iter().any(|(_, r)| r == Path::new("main.tex")),
+        "{resolved:?}"
+    );
     let (chapter_tag, _) = resolved
         .iter()
         .find(|(_, r)| r == Path::new("chapters/a.tex"))
@@ -142,7 +168,10 @@ async fn synctex_names_files_so_a_chapter_hit_resolves_to_the_chapter() {
 async fn tex_errors_come_back_as_a_failed_build_with_file_and_line() {
     let _g = ONE_AT_A_TIME.lock().await;
     let p = project(&[
-        ("main.tex", "\\documentclass{article}\n\\begin{document}\n\\input{chapters/a}\n\\end{document}\n"),
+        (
+            "main.tex",
+            "\\documentclass{article}\n\\begin{document}\n\\input{chapters/a}\n\\end{document}\n",
+        ),
         ("chapters/a.tex", "fine\n\\undefinedmacro\nmore\n"),
     ]);
     let store = tempfile::tempdir().unwrap();
@@ -163,19 +192,31 @@ async fn tex_errors_come_back_as_a_failed_build_with_file_and_line() {
     assert_eq!(error.file.as_deref(), Some("chapters/a.tex"));
     assert_eq!(error.line, Some(2));
     // The log is kept for people who want all of it.
-    assert!(std::fs::read_to_string(build.log_path()).unwrap().contains("Undefined control sequence"));
+    assert!(
+        std::fs::read_to_string(build.log_path())
+            .unwrap()
+            .contains("Undefined control sequence")
+    );
 }
 
 #[tokio::test]
 async fn a_missing_package_is_reported_against_the_main_file() {
     let _g = ONE_AT_A_TIME.lock().await;
-    let p = project(&[("main.tex", "\\documentclass{article}\n\\usepackage{nonexistentpkg}\n\\begin{document}\nx\n\\end{document}\n")]);
+    let p = project(&[(
+        "main.tex",
+        "\\documentclass{article}\n\\usepackage{nonexistentpkg}\n\\begin{document}\nx\n\\end{document}\n",
+    )]);
     let store = tempfile::tempdir().unwrap();
     let build = compiler(store.path())
         .compile(&job(&p, "main.tex", 120), &CancellationToken::new())
         .await
         .unwrap();
-    let e = build.manifest.diagnostics.iter().find(|d| d.severity == Severity::Error).unwrap();
+    let e = build
+        .manifest
+        .diagnostics
+        .iter()
+        .find(|d| d.severity == Severity::Error)
+        .unwrap();
     assert_eq!(e.kind, DiagnosticKind::MissingFile);
     assert_eq!(e.file.as_deref(), Some("main.tex"));
 }
@@ -187,7 +228,9 @@ async fn an_infinite_loop_times_out_and_the_next_compile_still_works() {
     let store = tempfile::tempdir().unwrap();
     let c = compiler(store.path());
     // Warm the format cache so the timeout measures the loop, not first use.
-    c.compile(&job(&p, "main.tex", 120), &CancellationToken::new()).await.unwrap();
+    c.compile(&job(&p, "main.tex", 120), &CancellationToken::new())
+        .await
+        .unwrap();
 
     let started = Instant::now();
     let err = c
@@ -197,12 +240,18 @@ async fn an_infinite_loop_times_out_and_the_next_compile_still_works() {
     let took = started.elapsed();
 
     assert!(matches!(err, CompileError::Timeout { secs: 3 }), "{err:?}");
-    assert!(took < Duration::from_secs(5), "the kill took too long: {took:?}");
+    assert!(
+        took < Duration::from_secs(5),
+        "the kill took too long: {took:?}"
+    );
     assert_eq!(child_processes(), 0, "a worker was left behind");
 
     // The wedge that motivated the worker: the next compile must succeed.
     p_write(&p, "after.tex", DOC);
-    let after = c.compile(&job(&p, "after.tex", 120), &CancellationToken::new()).await.unwrap();
+    let after = c
+        .compile(&job(&p, "after.tex", 120), &CancellationToken::new())
+        .await
+        .unwrap();
     assert!(after.manifest.success);
     // And the timeout was not remembered as the document's verdict.
     assert!(c.builds().latest_with_pdf("loop.tex").await.is_none());
@@ -218,7 +267,9 @@ async fn cancel_kills_the_worker_promptly_and_reaps_it() {
     let p = project(&[("main.tex", DOC), ("loop.tex", LOOP)]);
     let store = tempfile::tempdir().unwrap();
     let c = std::sync::Arc::new(compiler(store.path()));
-    c.compile(&job(&p, "main.tex", 120), &CancellationToken::new()).await.unwrap();
+    c.compile(&job(&p, "main.tex", 120), &CancellationToken::new())
+        .await
+        .unwrap();
 
     let cancel = CancellationToken::new();
     let running = {
@@ -226,14 +277,21 @@ async fn cancel_kills_the_worker_promptly_and_reaps_it() {
         tokio::spawn(async move { c.compile(&j, &cancel).await })
     };
     tokio::time::sleep(Duration::from_millis(1500)).await;
-    assert_eq!(child_processes(), 1, "the loop should be running in a worker");
+    assert_eq!(
+        child_processes(),
+        1,
+        "the loop should be running in a worker"
+    );
 
     let cancelled_at = Instant::now();
     cancel.cancel();
     let outcome = running.await.unwrap();
     let took = cancelled_at.elapsed();
 
-    assert!(matches!(outcome, Err(CompileError::Cancelled)), "{outcome:?}");
+    assert!(
+        matches!(outcome, Err(CompileError::Cancelled)),
+        "{outcome:?}"
+    );
     assert!(took < Duration::from_millis(500), "cancel took {took:?}");
     assert_eq!(child_processes(), 0, "the worker was not reaped");
 }
@@ -243,7 +301,10 @@ async fn a_worker_that_dies_is_a_crash_not_a_tex_error() {
     let _g = ONE_AT_A_TIME.lock().await;
     let p = project(&[("main.tex", DOC)]);
     let store = tempfile::tempdir().unwrap();
-    let c = Compiler::new(CompilerConfig::new("/bin/false".into(), store.path().to_owned()));
+    let c = Compiler::new(CompilerConfig::new(
+        "/bin/false".into(),
+        store.path().to_owned(),
+    ));
     let err = c
         .compile(&job(&p, "main.tex", 30), &CancellationToken::new())
         .await
@@ -252,9 +313,14 @@ async fn a_worker_that_dies_is_a_crash_not_a_tex_error() {
     // A crash is not cached as the project's verdict.
     assert!(c.builds().latest_with_pdf("main.tex").await.is_none());
 
-    let missing = Compiler::new(CompilerConfig::new("/nonexistent/worker".into(), store.path().to_owned()));
+    let missing = Compiler::new(CompilerConfig::new(
+        "/nonexistent/worker".into(),
+        store.path().to_owned(),
+    ));
     assert!(matches!(
-        missing.compile(&job(&p, "main.tex", 30), &CancellationToken::new()).await,
+        missing
+            .compile(&job(&p, "main.tex", 30), &CancellationToken::new())
+            .await,
         Err(CompileError::Spawn { .. })
     ));
 }
@@ -263,25 +329,43 @@ async fn a_worker_that_dies_is_a_crash_not_a_tex_error() {
 async fn identical_inputs_reuse_the_build_and_any_input_change_busts_it() {
     let _g = ONE_AT_A_TIME.lock().await;
     let p = project(&[
-        ("main.tex", "\\documentclass{article}\n\\usepackage{graphicx}\n\\begin{document}\n\\input{chapters/a}\\nocite{*}\n\\bibliographystyle{plain}\\bibliography{refs}\n\\end{document}\n"),
+        (
+            "main.tex",
+            "\\documentclass{article}\n\\usepackage{graphicx}\n\\begin{document}\n\\input{chapters/a}\\nocite{*}\n\\bibliographystyle{plain}\\bibliography{refs}\n\\end{document}\n",
+        ),
         ("chapters/a.tex", "one\n"),
-        ("refs.bib", "@book{k,author={A},title={T},publisher={P},year={2020}}\n"),
+        (
+            "refs.bib",
+            "@book{k,author={A},title={T},publisher={P},year={2020}}\n",
+        ),
     ]);
     let store = tempfile::tempdir().unwrap();
     let real = compiler(store.path());
-    let first = real.compile(&job(&p, "main.tex", 120), &CancellationToken::new()).await.unwrap();
+    let first = real
+        .compile(&job(&p, "main.tex", 120), &CancellationToken::new())
+        .await
+        .unwrap();
     assert!(first.manifest.success, "{:#?}", first.manifest.diagnostics);
 
     // A compiler whose worker cannot run still answers from the store.
-    let offline = Compiler::new(CompilerConfig::new("/bin/false".into(), store.path().to_owned()));
-    let again = offline.compile(&job(&p, "main.tex", 5), &CancellationToken::new()).await.unwrap();
+    let offline = Compiler::new(CompilerConfig::new(
+        "/bin/false".into(),
+        store.path().to_owned(),
+    ));
+    let again = offline
+        .compile(&job(&p, "main.tex", 5), &CancellationToken::new())
+        .await
+        .unwrap();
     assert_eq!(again.id(), first.id(), "same inputs, same build");
 
     // Each kind of dependency changes the id, so none can serve a stale PDF.
     let mut seen = vec![first.id().to_owned()];
     for (file, content) in [
         ("chapters/a.tex", "two\n"),
-        ("refs.bib", "@book{k,author={B},title={T},publisher={P},year={2021}}\n"),
+        (
+            "refs.bib",
+            "@book{k,author={B},title={T},publisher={P},year={2021}}\n",
+        ),
         ("figure.png", "not really a png"),
     ] {
         p_write_nested(&p, file, content);
@@ -320,7 +404,11 @@ async fn concurrent_compiles_of_one_project_publish_exactly_one_whole_build() {
         .flatten()
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(entries, [a.id().to_owned()], "scratch directories leaked: {entries:?}");
+    assert_eq!(
+        entries,
+        [a.id().to_owned()],
+        "scratch directories leaked: {entries:?}"
+    );
 }
 
 #[tokio::test]
@@ -329,26 +417,48 @@ async fn the_engine_cannot_write_outside_the_project_or_read_secrets() {
     let outside = tempfile::tempdir().unwrap();
     let target = outside.path().join("pwned.txt");
     let p = project(&[
-        ("write.tex", &format!(
-            "\\documentclass{{article}}\n\\begin{{document}}\n\\immediate\\openout3={}\n\\immediate\\write3{{pwned}}\n\\immediate\\closeout3\nx\n\\end{{document}}\n",
-            target.display()
-        )),
-        ("read.tex", "\\documentclass{article}\n\\begin{document}\n\\input{.env}\n\\end{document}\n"),
+        (
+            "write.tex",
+            &format!(
+                "\\documentclass{{article}}\n\\begin{{document}}\n\\immediate\\openout3={}\n\\immediate\\write3{{pwned}}\n\\immediate\\closeout3\nx\n\\end{{document}}\n",
+                target.display()
+            ),
+        ),
+        (
+            "read.tex",
+            "\\documentclass{article}\n\\begin{document}\n\\input{.env}\n\\end{document}\n",
+        ),
         (".env", "SECRET_MARKER_12345\n"),
     ]);
     let store = tempfile::tempdir().unwrap();
     let c = compiler(store.path());
 
-    let write = c.compile(&job(&p, "write.tex", 120), &CancellationToken::new()).await.unwrap();
+    let write = c
+        .compile(&job(&p, "write.tex", 120), &CancellationToken::new())
+        .await
+        .unwrap();
     assert!(write.manifest.success, "{:#?}", write.manifest.diagnostics);
     assert!(!target.exists(), "\\openout reached the real filesystem");
-    let stray: Vec<_> = std::fs::read_dir(&p.root).unwrap().flatten().map(|e| e.file_name()).collect();
-    assert!(!stray.iter().any(|n| n.to_string_lossy().ends_with(".aux")), "files appeared in the project: {stray:?}");
+    let stray: Vec<_> = std::fs::read_dir(&p.root)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
+    assert!(
+        !stray.iter().any(|n| n.to_string_lossy().ends_with(".aux")),
+        "files appeared in the project: {stray:?}"
+    );
 
-    let read = c.compile(&job(&p, "read.tex", 120), &CancellationToken::new()).await.unwrap();
+    let read = c
+        .compile(&job(&p, "read.tex", 120), &CancellationToken::new())
+        .await
+        .unwrap();
     assert!(!read.manifest.success, "the engine read .env");
     assert!(
-        read.manifest.diagnostics.iter().any(|d| d.kind == DiagnosticKind::MissingFile),
+        read.manifest
+            .diagnostics
+            .iter()
+            .any(|d| d.kind == DiagnosticKind::MissingFile),
         "{:#?}",
         read.manifest.diagnostics
     );
@@ -393,7 +503,12 @@ async fn api_with_config(files: &[(&str, &str)], config: Option<&str>) -> Api {
     }
 }
 
-async fn send(api: &Api, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+async fn send(
+    api: &Api,
+    method: &str,
+    uri: &str,
+    body: Option<Value>,
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
     let mut req = Request::builder().method(method).uri(uri);
     let body = match body {
         Some(v) => {
@@ -402,9 +517,21 @@ async fn send(api: &Api, method: &str, uri: &str, body: Option<Value>) -> (Statu
         }
         None => Body::empty(),
     };
-    let res = api.router.clone().oneshot(req.body(body).unwrap()).await.unwrap();
+    let res = api
+        .router
+        .clone()
+        .oneshot(req.body(body).unwrap())
+        .await
+        .unwrap();
     let (status, headers) = (res.status(), res.headers().clone());
-    (status, headers, axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap().to_vec())
+    (
+        status,
+        headers,
+        axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
 }
 
 /// Follow a job to its end; returns the `compiled` event's data.
@@ -415,7 +542,7 @@ async fn finish(api: &Api, job_id: &str) -> Value {
     let mut event = String::new();
     for line in text.lines() {
         if let Some(name) = line.strip_prefix("event:") {
-            event = name.trim().to_owned();
+            name.trim().clone_into(&mut event);
         } else if let Some(data) = line.strip_prefix("data:") {
             if event == "compiled" {
                 return serde_json::from_str(data.trim()).unwrap();
@@ -429,31 +556,57 @@ async fn finish(api: &Api, job_id: &str) -> Value {
 async fn compiling_a_chapter_compiles_the_project_and_reports_diagnostics() {
     let _g = ONE_AT_A_TIME.lock().await;
     let a = api(&[
-        ("main.tex", "\\documentclass{article}\n\\begin{document}\n\\input{chapters/a}\n\\end{document}\n"),
+        (
+            "main.tex",
+            "\\documentclass{article}\n\\begin{document}\n\\input{chapters/a}\n\\end{document}\n",
+        ),
         ("chapters/a.tex", "ok\n\\oops\n"),
     ])
     .await;
 
-    let (status, _, body) = send(&a, "POST", "/api/compile", Some(json!({"file_path": "chapters/a.tex"}))).await;
+    let (status, _, body) = send(
+        &a,
+        "POST",
+        "/api/compile",
+        Some(json!({"file_path": "chapters/a.tex"})),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     let started: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(started["main_file"], "main.tex", "a chapter must compile its root");
+    assert_eq!(
+        started["main_file"], "main.tex",
+        "a chapter must compile its root"
+    );
 
     let done = finish(&a, started["job_id"].as_str().unwrap()).await;
     assert_eq!(done["success"], false);
     assert_eq!(done["main_file"], "main.tex");
-    assert_eq!(done["error_summary"], "chapters/a.tex:2: Undefined control sequence.");
+    assert_eq!(
+        done["error_summary"],
+        "chapters/a.tex:2: Undefined control sequence."
+    );
     let d = &done["diagnostics"][0];
-    assert_eq!((d["file"].as_str(), d["line"].as_u64()), (Some("chapters/a.tex"), Some(2)));
+    assert_eq!(
+        (d["file"].as_str(), d["line"].as_u64()),
+        (Some("chapters/a.tex"), Some(2))
+    );
     assert_eq!(d["kind"], "undefined_control_sequence");
 
     // The failed build is addressable, so the UI can show it later.
     let id = done["build_id"].as_str().unwrap();
     let (status, _, body) = send(&a, "GET", &format!("/api/builds/{id}"), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(serde_json::from_slice::<Value>(&body).unwrap()["success"], false);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).unwrap()["success"],
+        false
+    );
     // No PDF to export from it.
-    assert_eq!(send(&a, "GET", &format!("/api/builds/{id}/pdf"), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        send(&a, "GET", &format!("/api/builds/{id}/pdf"), None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
     // And nothing was written into the project.
     assert!(!a.root.join("main.pdf").exists());
 }
@@ -466,14 +619,26 @@ async fn an_ambiguous_project_asks_which_file_instead_of_guessing() {
         ("notes/n.tex", "text only\n"),
     ])
     .await;
-    let (status, _, body) = send(&a, "POST", "/api/compile", Some(json!({"file_path": "notes/n.tex"}))).await;
+    let (status, _, body) = send(
+        &a,
+        "POST",
+        "/api/compile",
+        Some(json!({"file_path": "notes/n.tex"})),
+    )
+    .await;
     assert_eq!(status, StatusCode::CONFLICT);
     let v: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(v["error"], "main_file_ambiguous");
     assert_eq!(v["candidates"], json!(["a.tex", "b.tex"]));
 
     // Naming one resolves it.
-    let (status, _, _) = send(&a, "POST", "/api/compile", Some(json!({"file_path": "notes/n.tex", "main": "b.tex"}))).await;
+    let (status, _, _) = send(
+        &a,
+        "POST",
+        "/api/compile",
+        Some(json!({"file_path": "notes/n.tex", "main": "b.tex"})),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -483,11 +648,32 @@ async fn a_running_job_can_be_cancelled_through_the_api() {
     let a = api(&[("main.tex", DOC), ("loop.tex", LOOP)]).await;
 
     // Warm up, then start the loop.
-    let (_, _, body) = send(&a, "POST", "/api/compile", Some(json!({"file_path": "main.tex"}))).await;
-    finish(&a, serde_json::from_slice::<Value>(&body).unwrap()["job_id"].as_str().unwrap()).await;
+    let (_, _, body) = send(
+        &a,
+        "POST",
+        "/api/compile",
+        Some(json!({"file_path": "main.tex"})),
+    )
+    .await;
+    finish(
+        &a,
+        serde_json::from_slice::<Value>(&body).unwrap()["job_id"]
+            .as_str()
+            .unwrap(),
+    )
+    .await;
 
-    let (_, _, body) = send(&a, "POST", "/api/compile", Some(json!({"file_path": "loop.tex"}))).await;
-    let job_id = serde_json::from_slice::<Value>(&body).unwrap()["job_id"].as_str().unwrap().to_owned();
+    let (_, _, body) = send(
+        &a,
+        "POST",
+        "/api/compile",
+        Some(json!({"file_path": "loop.tex"})),
+    )
+    .await;
+    let job_id = serde_json::from_slice::<Value>(&body).unwrap()["job_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
     let started = Instant::now();
@@ -500,7 +686,10 @@ async fn a_running_job_can_be_cancelled_through_the_api() {
     assert!(started.elapsed() < Duration::from_secs(2));
     assert_eq!(child_processes(), 0);
 
-    assert_eq!(send(&a, "POST", "/api/compile/nope/cancel", None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        send(&a, "POST", "/api/compile/nope/cancel", None).await.0,
+        StatusCode::NOT_FOUND
+    );
 }
 
 #[tokio::test]
@@ -512,19 +701,50 @@ async fn the_configured_timeout_applies_to_api_compiles() {
         Some("[compile]\ntimeout_secs = 5\n"),
     )
     .await;
-    let (_, _, body) = send(&a, "POST", "/api/compile", Some(json!({"file_path": "main.tex"}))).await;
-    finish(&a, serde_json::from_slice::<Value>(&body).unwrap()["job_id"].as_str().unwrap()).await;
+    let (_, _, body) = send(
+        &a,
+        "POST",
+        "/api/compile",
+        Some(json!({"file_path": "main.tex"})),
+    )
+    .await;
+    finish(
+        &a,
+        serde_json::from_slice::<Value>(&body).unwrap()["job_id"]
+            .as_str()
+            .unwrap(),
+    )
+    .await;
 
     let started = Instant::now();
-    let (_, _, body) = send(&a, "POST", "/api/compile", Some(json!({"file_path": "loop.tex"}))).await;
-    let done = finish(&a, serde_json::from_slice::<Value>(&body).unwrap()["job_id"].as_str().unwrap()).await;
+    let (_, _, body) = send(
+        &a,
+        "POST",
+        "/api/compile",
+        Some(json!({"file_path": "loop.tex"})),
+    )
+    .await;
+    let done = finish(
+        &a,
+        serde_json::from_slice::<Value>(&body).unwrap()["job_id"]
+            .as_str()
+            .unwrap(),
+    )
+    .await;
 
     assert_eq!(done["success"], false);
     assert!(
-        done["error_summary"].as_str().unwrap().contains("timed out after 5s"),
+        done["error_summary"]
+            .as_str()
+            .unwrap()
+            .contains("timed out after 5s"),
         "{done}"
     );
-    assert!(started.elapsed() < Duration::from_secs(8), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "{:?}",
+        started.elapsed()
+    );
     assert_eq!(child_processes(), 0);
 }
 
@@ -532,8 +752,20 @@ async fn the_configured_timeout_applies_to_api_compiles() {
 async fn export_returns_the_pdf_as_an_immutable_download() {
     let _g = ONE_AT_A_TIME.lock().await;
     let a = api(&[("my paper!.tex", DOC)]).await;
-    let (_, _, body) = send(&a, "POST", "/api/compile", Some(json!({"file_path": "my paper!.tex"}))).await;
-    let done = finish(&a, serde_json::from_slice::<Value>(&body).unwrap()["job_id"].as_str().unwrap()).await;
+    let (_, _, body) = send(
+        &a,
+        "POST",
+        "/api/compile",
+        Some(json!({"file_path": "my paper!.tex"})),
+    )
+    .await;
+    let done = finish(
+        &a,
+        serde_json::from_slice::<Value>(&body).unwrap()["job_id"]
+            .as_str()
+            .unwrap(),
+    )
+    .await;
     assert_eq!(done["success"], true, "{done}");
     let id = done["build_id"].as_str().unwrap();
 
@@ -542,8 +774,16 @@ async fn export_returns_the_pdf_as_an_immutable_download() {
     assert!(bytes.starts_with(b"%PDF"));
     assert_eq!(headers["content-type"], "application/pdf");
     // The file name is the main file's stem, made header-safe.
-    assert_eq!(headers["content-disposition"], "attachment; filename=\"my_paper_.pdf\"");
-    assert!(headers["cache-control"].to_str().unwrap().contains("immutable"));
+    assert_eq!(
+        headers["content-disposition"],
+        "attachment; filename=\"my_paper_.pdf\""
+    );
+    assert!(
+        headers["cache-control"]
+            .to_str()
+            .unwrap()
+            .contains("immutable")
+    );
 
     for bad in ["not-hex", "../../etc/passwd", &"0".repeat(32)] {
         let (status, _, _) = send(&a, "GET", &format!("/api/builds/{bad}/pdf"), None).await;

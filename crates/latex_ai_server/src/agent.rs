@@ -75,7 +75,9 @@ pub(crate) async fn run_plan(
         Err(e) => return sink.fail(format!("read failed: {e}")).await,
     };
     if !sink
-        .emit(SseEvent::Progress(json!({ "message": "Planning edits...", "progress": 0.1 })))
+        .emit(SseEvent::Progress(
+            json!({ "message": "Planning edits...", "progress": 0.1 }),
+        ))
         .await
     {
         return;
@@ -84,7 +86,10 @@ pub(crate) async fn run_plan(
     // Counted before the call so an in-flight or failed request is still
     // visible (§12 M5 audit: integration).
     state.metrics.record_llm_call();
-    let files = [PlanFile { path: &active, content: &content }];
+    let files = [PlanFile {
+        path: &active,
+        content: &content,
+    }];
     let request = PlanRequest {
         instruction: &instruction,
         files: &files,
@@ -113,6 +118,9 @@ pub(crate) async fn run_plan(
 }
 
 /// `POST /api/agent/stream`: the verify-first loop.
+// One loop whose steps share a lot of state; splitting it would mean passing
+// that state around for no gain in clarity.
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn run_loop(
     state: AppState,
     req: LoopRequest,
@@ -120,11 +128,15 @@ pub(crate) async fn run_loop(
     mut sink: EventSink,
 ) {
     state.metrics.record_agent_run();
-    let LoopRequest { active, instruction: original, auto_apply, max_iterations } = req;
+    let LoopRequest {
+        active,
+        instruction: original,
+        auto_apply,
+        max_iterations,
+    } = req;
 
-    let initial = match tokio::fs::read_to_string(state.workspace_root.join(&active)).await {
-        Ok(c) => c,
-        Err(_) => return sink.fail("could not read file").await,
+    let Ok(initial) = tokio::fs::read_to_string(state.workspace_root.join(&active)).await else {
+        return sink.fail("could not read file").await;
     };
     let main = match main_file(&state, &active).await {
         Ok(m) => m,
@@ -132,13 +144,25 @@ pub(crate) async fn run_loop(
     };
 
     let scratch = {
-        let (root, home) = (state.workspace_root.clone(), state.settings.home().join("scratch"));
+        let (root, home) = (
+            state.workspace_root.clone(),
+            state.settings.home().join("scratch"),
+        );
         let session = uuid::Uuid::new_v4().to_string();
-        match tokio::task::spawn_blocking(move || ScratchProject::create(&home, &session, &root)).await
+        match tokio::task::spawn_blocking(move || ScratchProject::create(&home, &session, &root))
+            .await
         {
             Ok(Ok(s)) => s,
-            Ok(Err(e)) => return sink.fail(format!("could not prepare a working copy: {e}")).await,
-            Err(e) => return sink.fail(format!("could not prepare a working copy: {e}")).await,
+            Ok(Err(e)) => {
+                return sink
+                    .fail(format!("could not prepare a working copy: {e}"))
+                    .await;
+            }
+            Err(e) => {
+                return sink
+                    .fail(format!("could not prepare a working copy: {e}"))
+                    .await;
+            }
         }
     };
     let other_files = listed_files(&state.workspace_root).await;
@@ -152,7 +176,10 @@ pub(crate) async fn run_loop(
     for iteration in 1..=u32::from(max_iterations) {
         state.metrics.record_agent_iteration();
         if !sink
-            .emit(SseEvent::Thinking { message: "Planning edits...".to_owned(), iteration })
+            .emit(SseEvent::Thinking {
+                message: "Planning edits...".to_owned(),
+                iteration,
+            })
             .await
         {
             return; // client gone; CancelOnDisconnect already fired the token
@@ -179,7 +206,11 @@ pub(crate) async fn run_loop(
             }
         }
         let shown: Vec<String> = contents.iter().map(|(p, _)| p.clone()).collect();
-        let others: Vec<String> = other_files.iter().filter(|f| !shown.contains(f)).cloned().collect();
+        let others: Vec<String> = other_files
+            .iter()
+            .filter(|f| !shown.contains(f))
+            .cloned()
+            .collect();
         let files: Vec<PlanFile<'_>> = contents
             .iter()
             .map(|(path, content)| PlanFile { path, content })
@@ -210,8 +241,13 @@ pub(crate) async fn run_loop(
 
         // Refused edits are a failed attempt, not the end of the run.
         let refusal = edits.iter().find_map(|edit| {
-            let current = contents.iter().find(|(p, _)| *p == edit.file_path).map_or("", |(_, c)| c.as_str());
-            lint_edit(edit, current).err().map(|v| format!("The AI proposed an unsafe edit: {v}"))
+            let current = contents
+                .iter()
+                .find(|(p, _)| *p == edit.file_path)
+                .map_or("", |(_, c)| c.as_str());
+            lint_edit(edit, current)
+                .err()
+                .map(|v| format!("The AI proposed an unsafe edit: {v}"))
         });
         stamp_hunk_ids(&mut edits);
 
@@ -226,7 +262,10 @@ pub(crate) async fn run_loop(
         } else {
             // Intermediate attempts are not for the client to apply; the one
             // proposal comes at the end, once something compiles.
-            sink.emit(SseEvent::Step(json!({ "iteration": iteration, "edit_count": edits.len() }))).await
+            sink.emit(SseEvent::Step(
+                json!({ "iteration": iteration, "edit_count": edits.len() }),
+            ))
+            .await
         };
         if !announced {
             return;
@@ -240,11 +279,19 @@ pub(crate) async fn run_loop(
             continue;
         }
 
-        if !sink.emit(SseEvent::Applying { message: "Applying edits to a working copy...".to_owned() }).await {
+        if !sink
+            .emit(SseEvent::Applying {
+                message: "Applying edits to a working copy...".to_owned(),
+            })
+            .await
+        {
             return;
         }
         if let Err(e) = scratch.apply(&edits).await {
-            let reason = truncate(&format!("The edits failed to apply: {e}"), MAX_ERROR_SUMMARY_LEN);
+            let reason = truncate(
+                &format!("The edits failed to apply: {e}"),
+                MAX_ERROR_SUMMARY_LEN,
+            );
             if !fail_iteration(&mut sink, &mut failures, iteration, &reason).await {
                 return;
             }
@@ -262,11 +309,19 @@ pub(crate) async fn run_loop(
         };
         match state.compiler.compile_scratch(&job, &cancel).await {
             Ok(out) if out.success => {
-                return finish(&state, &mut sink, &scratch, &original, &active, &initial, iteration, auto_apply, failures).await;
+                return finish(
+                    &state, &mut sink, &scratch, &original, &active, &initial, iteration,
+                    auto_apply, failures,
+                )
+                .await;
             }
             Ok(out) => {
                 let summary = truncate(&describe_errors(&out.diagnostics), MAX_ERROR_SUMMARY_LEN);
-                for d in out.diagnostics.iter().filter(|d| d.severity == Severity::Error) {
+                for d in out
+                    .diagnostics
+                    .iter()
+                    .filter(|d| d.severity == Severity::Error)
+                {
                     failures.push(CompileErrorRecord {
                         iteration,
                         line: d.line,
@@ -305,7 +360,10 @@ pub(crate) async fn run_loop(
         }
     }
 
-    sink.emit(SseEvent::Done(json!({ "success": false, "message": "Max iterations reached" }))).await;
+    sink.emit(SseEvent::Done(
+        json!({ "success": false, "message": "Max iterations reached" }),
+    ))
+    .await;
 }
 
 /// Record a failed iteration and tell the client. `false` means it is gone.
@@ -324,7 +382,7 @@ async fn fail_iteration(
 }
 
 /// An attempt compiled. Write it, or offer it for review.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 async fn finish(
     state: &AppState,
     sink: &mut EventSink,
@@ -342,7 +400,10 @@ async fn finish(
     };
 
     if auto_apply {
-        let etags: Vec<String> = changes.iter().map(|(_, original, _)| etag_of(original)).collect();
+        let etags: Vec<String> = changes
+            .iter()
+            .map(|(_, original, _)| etag_of(original))
+            .collect();
         let set: Vec<FileChange<'_>> = changes
             .iter()
             .zip(&etags)
@@ -353,7 +414,11 @@ async fn finish(
             })
             .collect();
 
-        match state.store.apply_file_set(&set, instruction, "agent-apply").await {
+        match state
+            .store
+            .apply_file_set(&set, instruction, "agent-apply")
+            .await
+        {
             Ok(outcomes) => {
                 // The errors that were healed on the way here are part of the
                 // audit trail for this change.
@@ -373,7 +438,10 @@ async fn finish(
                     .iter()
                     .map(|o| json!({ "path": o.path, "history_id": o.history_id, "new_etag": o.new_etag }))
                     .collect();
-                if !sink.emit(SseEvent::Compiled(json!({ "success": true }))).await {
+                if !sink
+                    .emit(SseEvent::Compiled(json!({ "success": true })))
+                    .await
+                {
                     return;
                 }
                 sink.emit(SseEvent::Done(json!({
@@ -401,17 +469,27 @@ async fn finish(
     for (path, original, current) in &changes {
         let mut file_edits = edits_from_diff(path, original, current);
         stamp_hunk_ids(&mut file_edits);
-        summary.push(json!({ "path": path, "etag": etag_of(original), "edit_count": file_edits.len() }));
+        summary.push(
+            json!({ "path": path, "etag": etag_of(original), "edit_count": file_edits.len() }),
+        );
         base.insert(
             path.clone(),
-            crate::proposals::BaseFile { content: original.clone(), etag: etag_of(original) },
+            crate::proposals::BaseFile {
+                content: original.clone(),
+                etag: etag_of(original),
+            },
         );
         edits.extend(file_edits);
     }
-    let active_etag = base.get(active).map_or_else(|| etag_of(initial), |b| b.etag.clone());
+    let active_etag = base
+        .get(active)
+        .map_or_else(|| etag_of(initial), |b| b.etag.clone());
     let proposal_id = state.proposals.insert(instruction.to_owned(), base);
 
-    if !sink.emit(SseEvent::Compiled(json!({ "success": true }))).await {
+    if !sink
+        .emit(SseEvent::Compiled(json!({ "success": true })))
+        .await
+    {
         return;
     }
     if !sink
@@ -434,8 +512,10 @@ async fn finish(
         "proposal_id": proposal_id,
     })))
     .await;
-    sink.emit(SseEvent::Done(json!({ "success": true, "awaiting_approval": true, "iterations": iteration })))
-        .await;
+    sink.emit(SseEvent::Done(
+        json!({ "success": true, "awaiting_approval": true, "iterations": iteration }),
+    ))
+    .await;
 }
 
 /// The file to compile for `active`: the project's root document. A project
@@ -548,8 +628,14 @@ mod tests {
         let mut edits = vec![edit("./main.tex"), edit("made-up.tex"), edit("ch.tex")];
         normalise_paths(&mut edits, &scope, &project);
         assert_eq!(edits[0].file_path, "main.tex");
-        assert_eq!(edits[1].file_path, "main.tex", "not a project file: the one shown is meant");
-        assert_eq!(edits[2].file_path, "ch.tex", "another project file is a real target");
+        assert_eq!(
+            edits[1].file_path, "main.tex",
+            "not a project file: the one shown is meant"
+        );
+        assert_eq!(
+            edits[2].file_path, "ch.tex",
+            "another project file is a real target"
+        );
 
         // With several files shown a wrong name is left alone, so applying
         // it fails visibly instead of silently editing the wrong file.

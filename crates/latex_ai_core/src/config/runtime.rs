@@ -6,7 +6,7 @@
 //! its whole life even if the user changes settings meanwhile.
 
 use super::{
-    ApiKey, Config, ConfigError, EnvOverrides, KeySource, Overridden, SECRETS_FILE, CONFIG_FILE,
+    ApiKey, CONFIG_FILE, Config, ConfigError, EnvOverrides, KeySource, Overridden, SECRETS_FILE,
     apply_env, config_toml, load, secrets_toml,
 };
 use crate::ai::{AiError, EditPlanner, LlmPlanner, PlanFuture, PlanRequest, VisualFixRequest};
@@ -54,7 +54,7 @@ impl std::fmt::Debug for Snapshot {
             .field("overridden", &self.overridden)
             .field("key_source", &self.key_source)
             .field("ai_enabled", &self.ai_enabled())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -127,7 +127,9 @@ impl Settings {
             return Err(SettingsError::Locked { field: "model" });
         }
         if patch.vision_model.is_some() && self.env.vision_model.is_some() {
-            return Err(SettingsError::Locked { field: "vision_model" });
+            return Err(SettingsError::Locked {
+                field: "vision_model",
+            });
         }
 
         let mut layers = self.layers.lock().await;
@@ -255,11 +257,7 @@ impl EditPlanner for ConfiguredPlanner {
         self.settings.snapshot().ai_enabled()
     }
 
-    fn plan_edits<'a>(
-        &'a self,
-        req: PlanRequest<'a>,
-        cancel: CancellationToken,
-    ) -> PlanFuture<'a> {
+    fn plan_edits<'a>(&'a self, req: PlanRequest<'a>, cancel: CancellationToken) -> PlanFuture<'a> {
         Box::pin(async move {
             let snap = self.settings.snapshot();
             let planner = snap.planner.as_ref().ok_or(AiError::Disabled)?;
@@ -296,7 +294,12 @@ mod tests {
         assert!(!s.snapshot().ai_enabled());
         let planner = ConfiguredPlanner::new(Arc::new(s));
         assert!(!planner.is_available());
-        let req = PlanRequest { instruction: "x", files: &[], other_files: &[], feedback: "" };
+        let req = PlanRequest {
+            instruction: "x",
+            files: &[],
+            other_files: &[],
+            feedback: "",
+        };
         let err = planner
             .plan_edits(req, CancellationToken::new())
             .await
@@ -328,11 +331,17 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let (d, s) = open(EnvOverrides::default());
         s.set_api_key("gsk_super_secret").await.unwrap();
-        s.update(ConfigPatch { model: Some("m".into()), ..ConfigPatch::default() })
-            .await
-            .unwrap();
+        s.update(ConfigPatch {
+            model: Some("m".into()),
+            ..ConfigPatch::default()
+        })
+        .await
+        .unwrap();
 
-        let mode = std::fs::metadata(d.path().join(SECRETS_FILE)).unwrap().permissions().mode();
+        let mode = std::fs::metadata(d.path().join(SECRETS_FILE))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600);
         let config_text = std::fs::read_to_string(d.path().join(CONFIG_FILE)).unwrap();
         assert!(!config_text.contains("gsk_super_secret"));
@@ -353,10 +362,16 @@ mod tests {
         assert_eq!(s.snapshot().key_source, KeySource::Env);
 
         let err = s
-            .update(ConfigPatch { model: Some("other".into()), ..ConfigPatch::default() })
+            .update(ConfigPatch {
+                model: Some("other".into()),
+                ..ConfigPatch::default()
+            })
             .await
             .unwrap_err();
-        assert!(matches!(err, SettingsError::Locked { field: "model" }), "{err:?}");
+        assert!(
+            matches!(err, SettingsError::Locked { field: "model" }),
+            "{err:?}"
+        );
         assert!(matches!(
             s.set_api_key("k").await.unwrap_err(),
             SettingsError::Locked { field: "api_key" }
@@ -367,9 +382,12 @@ mod tests {
         ));
 
         // A different field still saves, and the env value is not baked in.
-        s.update(ConfigPatch { timeout_secs: Some(45), ..ConfigPatch::default() })
-            .await
-            .unwrap();
+        s.update(ConfigPatch {
+            timeout_secs: Some(45),
+            ..ConfigPatch::default()
+        })
+        .await
+        .unwrap();
         let text = std::fs::read_to_string(d.path().join(CONFIG_FILE)).unwrap();
         assert!(!text.contains("env-model"), "{text}");
         assert_eq!(s.snapshot().config.ai.model, "env-model");
@@ -381,9 +399,12 @@ mod tests {
     async fn a_snapshot_taken_before_an_update_keeps_its_values() {
         let (_d, s) = open(EnvOverrides::default());
         let before = s.snapshot();
-        s.update(ConfigPatch { model: Some("new-model".into()), ..ConfigPatch::default() })
-            .await
-            .unwrap();
+        s.update(ConfigPatch {
+            model: Some("new-model".into()),
+            ..ConfigPatch::default()
+        })
+        .await
+        .unwrap();
         assert_eq!(before.config.ai.model, crate::config::DEFAULT_MODEL);
         assert_eq!(s.snapshot().config.ai.model, "new-model");
     }
@@ -392,7 +413,10 @@ mod tests {
     async fn invalid_patch_changes_nothing_on_disk_or_in_memory() {
         let (d, s) = open(EnvOverrides::default());
         let err = s
-            .update(ConfigPatch { timeout_secs: Some(1), ..ConfigPatch::default() })
+            .update(ConfigPatch {
+                timeout_secs: Some(1),
+                ..ConfigPatch::default()
+            })
             .await
             .unwrap_err();
         assert!(matches!(err, SettingsError::Config(_)), "{err:?}");
@@ -403,13 +427,19 @@ mod tests {
     #[tokio::test]
     async fn empty_vision_model_clears_it() {
         let (_d, s) = open(EnvOverrides::default());
-        s.update(ConfigPatch { vision_model: Some("vlm".into()), ..ConfigPatch::default() })
-            .await
-            .unwrap();
+        s.update(ConfigPatch {
+            vision_model: Some("vlm".into()),
+            ..ConfigPatch::default()
+        })
+        .await
+        .unwrap();
         assert_eq!(s.snapshot().config.ai.vision_model.as_deref(), Some("vlm"));
-        s.update(ConfigPatch { vision_model: Some(String::new()), ..ConfigPatch::default() })
-            .await
-            .unwrap();
+        s.update(ConfigPatch {
+            vision_model: Some(String::new()),
+            ..ConfigPatch::default()
+        })
+        .await
+        .unwrap();
         assert_eq!(s.snapshot().config.ai.vision_model, None);
     }
 }

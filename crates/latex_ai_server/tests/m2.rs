@@ -58,7 +58,11 @@ impl ScriptedPlanner {
 }
 
 impl EditPlanner for ScriptedPlanner {
-    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _cancel: CancellationToken) -> PlanFuture<'a> {
+    fn plan_edits<'a>(
+        &'a self,
+        _req: PlanRequest<'a>,
+        _cancel: CancellationToken,
+    ) -> PlanFuture<'a> {
         *self.calls.lock().unwrap() += 1;
         let next = {
             let mut script = self.script.lock().unwrap();
@@ -87,7 +91,11 @@ struct HangingPlanner {
 }
 
 impl EditPlanner for HangingPlanner {
-    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, cancel: CancellationToken) -> PlanFuture<'a> {
+    fn plan_edits<'a>(
+        &'a self,
+        _req: PlanRequest<'a>,
+        cancel: CancellationToken,
+    ) -> PlanFuture<'a> {
         let notify = self.cancelled_at.clone();
         Box::pin(async move {
             cancel.cancelled().await;
@@ -139,10 +147,12 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
     TestApp {
         state: AppState {
             planner,
-            compiler: Arc::new(latex_ai_compiler::Compiler::new(latex_ai_compiler::CompilerConfig::new(
-                env!("CARGO_BIN_EXE_latex-ai").into(),
-                tempfile::tempdir().unwrap().keep(),
-            ))),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(
+                latex_ai_compiler::CompilerConfig::new(
+                    env!("CARGO_BIN_EXE_latex-ai").into(),
+                    tempfile::tempdir().unwrap().keep(),
+                ),
+            )),
             store: Arc::new(latex_ai_core::storage::Store::new(
                 pool.clone(),
                 root.clone(),
@@ -388,13 +398,27 @@ async fn without_auto_apply_loop_verifies_then_pauses_at_awaiting_approval() {
     assert_taxonomy(&events);
     assert_eq!(
         names(&events),
-        vec!["thinking", "step", "applying", "compiled", "proposal", "awaiting_approval", "done"]
+        vec![
+            "thinking",
+            "step",
+            "applying",
+            "compiled",
+            "proposal",
+            "awaiting_approval",
+            "done"
+        ]
     );
-    assert_eq!(events[3].1["success"], true, "the proposal is verified to compile");
+    assert_eq!(
+        events[3].1["success"], true,
+        "the proposal is verified to compile"
+    );
 
     let proposal = &events[4].1;
     assert_eq!(proposal["verified"], true);
-    assert!(proposal["edits"][0]["hunk_id"].as_str().is_some(), "hunk ids stamped");
+    assert!(
+        proposal["edits"][0]["hunk_id"].as_str().is_some(),
+        "hunk ids stamped"
+    );
     assert!(proposal["proposal_id"].as_str().is_some());
     assert_eq!(events[6].1["awaiting_approval"], true);
 

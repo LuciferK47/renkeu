@@ -11,7 +11,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest, PlanRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, PlanRequest, VisualFixRequest};
 use latex_ai_core::storage::etag_of;
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
@@ -59,10 +59,12 @@ async fn app() -> App {
     App {
         state: AppState {
             planner: Arc::new(NoPlanner),
-            compiler: Arc::new(latex_ai_compiler::Compiler::new(latex_ai_compiler::CompilerConfig::new(
-                env!("CARGO_BIN_EXE_latex-ai").into(),
-                tempfile::tempdir().unwrap().keep(),
-            ))),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(
+                latex_ai_compiler::CompilerConfig::new(
+                    env!("CARGO_BIN_EXE_latex-ai").into(),
+                    tempfile::tempdir().unwrap().keep(),
+                ),
+            )),
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(JobRegistry::default()),
             proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
@@ -318,7 +320,11 @@ async fn concurrent_saves_of_same_stem_files_do_not_collide() {
         .unwrap()
         .flatten()
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| n.ends_with(".tmp"))
+        .filter(|n| {
+            std::path::Path::new(n)
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("tmp"))
+        })
         .collect();
     assert!(leftovers.is_empty(), "temp files leaked: {leftovers:?}");
 }

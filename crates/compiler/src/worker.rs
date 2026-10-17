@@ -39,6 +39,8 @@ pub struct WorkerRequest {
     pub hidden: Vec<PathBuf>,
 }
 
+// Independent facts on the wire (which artefacts exist), not a state machine.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkerResult {

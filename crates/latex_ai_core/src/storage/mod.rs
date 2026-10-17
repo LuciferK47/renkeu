@@ -575,14 +575,26 @@ mod tests {
         };
         let current = etag_of("content\n");
         let err = store
-            .atomic_apply_selected(Path::new("a.tex"), &[&edit], &current, "cmd", "apply-selected")
+            .atomic_apply_selected(
+                Path::new("a.tex"),
+                &[&edit],
+                &current,
+                "cmd",
+                "apply-selected",
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, StorageError::EtagConflict { .. }));
 
         edit.expected_etag = Some(current.clone());
         store
-            .atomic_apply_selected(Path::new("a.tex"), &[&edit], &current, "cmd", "apply-selected")
+            .atomic_apply_selected(
+                Path::new("a.tex"),
+                &[&edit],
+                &current,
+                "cmd",
+                "apply-selected",
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -690,7 +702,10 @@ mod tests {
         assert!(result.is_err());
 
         let rows = store.recent_history(None, false, 10).await.unwrap();
-        assert!(rows.is_empty(), "history row survived a failed write: {rows:?}");
+        assert!(
+            rows.is_empty(),
+            "history row survived a failed write: {rows:?}"
+        );
     }
 
     #[tokio::test]
@@ -744,8 +759,16 @@ mod tests {
         let out = store
             .apply_file_set(
                 &[
-                    FileChange { path: Path::new("a.tex"), expected_etag: &etag_of("a1\n"), new_content: "a2\n" },
-                    FileChange { path: Path::new("b.tex"), expected_etag: &etag_of("b1\n"), new_content: "b2\n" },
+                    FileChange {
+                        path: Path::new("a.tex"),
+                        expected_etag: &etag_of("a1\n"),
+                        new_content: "a2\n",
+                    },
+                    FileChange {
+                        path: Path::new("b.tex"),
+                        expected_etag: &etag_of("b1\n"),
+                        new_content: "b2\n",
+                    },
                 ],
                 "fix both",
                 "agent-apply",
@@ -756,8 +779,14 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_ne!(out[0].history_id, out[1].history_id);
         assert_eq!(out[1].new_etag, etag_of("b2\n"));
-        assert_eq!(std::fs::read_to_string(dir.path().join("a.tex")).unwrap(), "a2\n");
-        assert_eq!(std::fs::read_to_string(dir.path().join("b.tex")).unwrap(), "b2\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.tex")).unwrap(),
+            "a2\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("b.tex")).unwrap(),
+            "b2\n"
+        );
         let rows = store.recent_history(None, true, 10).await.unwrap();
         assert_eq!(rows.len(), 2);
     }
@@ -771,8 +800,16 @@ mod tests {
         let err = store
             .apply_file_set(
                 &[
-                    FileChange { path: Path::new("a.tex"), expected_etag: &etag_of("a1\n"), new_content: "a2\n" },
-                    FileChange { path: Path::new("b.tex"), expected_etag: &etag_of("b1\n"), new_content: "b2\n" },
+                    FileChange {
+                        path: Path::new("a.tex"),
+                        expected_etag: &etag_of("a1\n"),
+                        new_content: "a2\n",
+                    },
+                    FileChange {
+                        path: Path::new("b.tex"),
+                        expected_etag: &etag_of("b1\n"),
+                        new_content: "b2\n",
+                    },
                 ],
                 "x",
                 "agent-apply",
@@ -781,8 +818,18 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, StorageError::EtagConflict { .. }), "{err:?}");
-        assert_eq!(std::fs::read_to_string(dir.path().join("a.tex")).unwrap(), "a1\n", "a.tex must not change");
-        assert!(store.recent_history(None, false, 10).await.unwrap().is_empty());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.tex")).unwrap(),
+            "a1\n",
+            "a.tex must not change"
+        );
+        assert!(
+            store
+                .recent_history(None, false, 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -796,8 +843,16 @@ mod tests {
         let err = store
             .apply_file_set(
                 &[
-                    FileChange { path: Path::new("a.tex"), expected_etag: &etag_of("a1\n"), new_content: "a2\n" },
-                    FileChange { path: Path::new("b.tex"), expected_etag: &etag_of(""), new_content: "b2\n" },
+                    FileChange {
+                        path: Path::new("a.tex"),
+                        expected_etag: &etag_of("a1\n"),
+                        new_content: "a2\n",
+                    },
+                    FileChange {
+                        path: Path::new("b.tex"),
+                        expected_etag: &etag_of(""),
+                        new_content: "b2\n",
+                    },
                 ],
                 "x",
                 "agent-apply",
@@ -805,9 +860,23 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(err, StorageError::Io(_) | StorageError::NotFound), "{err:?}");
-        assert_eq!(std::fs::read_to_string(dir.path().join("a.tex")).unwrap(), "a1\n", "a.tex must be put back");
-        assert!(store.recent_history(None, false, 10).await.unwrap().is_empty(), "rows must roll back");
+        assert!(
+            matches!(err, StorageError::Io(_) | StorageError::NotFound),
+            "{err:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.tex")).unwrap(),
+            "a1\n",
+            "a.tex must be put back"
+        );
+        assert!(
+            store
+                .recent_history(None, false, 10)
+                .await
+                .unwrap()
+                .is_empty(),
+            "rows must roll back"
+        );
     }
 
     #[tokio::test]
@@ -816,13 +885,23 @@ mod tests {
         std::fs::write(dir.path().join("a.tex"), "same\n").unwrap();
         let out = store
             .apply_file_set(
-                &[FileChange { path: Path::new("a.tex"), expected_etag: &etag_of("same\n"), new_content: "same\n" }],
+                &[FileChange {
+                    path: Path::new("a.tex"),
+                    expected_etag: &etag_of("same\n"),
+                    new_content: "same\n",
+                }],
                 "x",
                 "agent-apply",
             )
             .await
             .unwrap();
         assert!(out.is_empty());
-        assert!(store.recent_history(None, false, 10).await.unwrap().is_empty());
+        assert!(
+            store
+                .recent_history(None, false, 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

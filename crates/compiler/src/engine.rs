@@ -6,6 +6,7 @@
 //! test). Only the artefacts we choose are written, into `out_dir`.
 
 use crate::worker::{BLG, LOG, PDF, SYNCTEX, WorkerRequest, WorkerResult};
+use std::fmt::Write as _;
 use std::path::Path;
 use tectonic::driver::{OutputFormat, ProcessingSessionBuilder};
 use tectonic::status::{MessageKind, StatusBackend};
@@ -17,11 +18,16 @@ struct Collect {
 }
 
 impl StatusBackend for Collect {
-    fn report(&mut self, kind: MessageKind, args: std::fmt::Arguments, err: Option<&anyhow::Error>) {
+    fn report(
+        &mut self,
+        kind: MessageKind,
+        args: std::fmt::Arguments,
+        err: Option<&anyhow::Error>,
+    ) {
         if matches!(kind, MessageKind::Error) && self.errors.len() < 20 {
             let mut line = args.to_string();
             if let Some(e) = err {
-                line.push_str(&format!(": {e}"));
+                let _ = write!(line, ": {e}");
             }
             self.errors.push(line);
         }
@@ -45,7 +51,10 @@ pub(crate) fn run(req: &WorkerRequest) -> WorkerResult {
     let mut status = Collect::default();
 
     let main_path = req.root.join(&req.main);
-    let Some(main_name) = main_path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+    let Some(main_name) = main_path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+    else {
         return failed(format!("`{}` is not a file name", req.main));
     };
     let main_dir = main_path.parent().unwrap_or(&req.root).to_path_buf();

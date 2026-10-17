@@ -30,7 +30,9 @@ use thiserror::Error;
 const MAX_SESSIONS: usize = 10;
 
 /// Files copied rather than linked.
-const COPIED_EXTENSIONS: &[&str] = &["tex", "bib", "sty", "cls", "tikz", "bst", "def", "cfg", "clo"];
+const COPIED_EXTENSIONS: &[&str] = &[
+    "tex", "bib", "sty", "cls", "tikz", "bst", "def", "cfg", "clo",
+];
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -114,11 +116,11 @@ impl ScratchProject {
         for edit in edits {
             let rel = checked(&edit.file_path)?;
             let key = rel.to_string_lossy().into_owned();
-            if !files.contains_key(&key) {
+            if let std::collections::btree_map::Entry::Vacant(slot) = files.entry(key) {
                 let content = tokio::fs::read_to_string(self.root.join(&rel))
                     .await
                     .map_err(|_| ScratchpadError::BadPath(edit.file_path.clone()))?;
-                files.insert(key, content);
+                slot.insert(content);
             }
         }
 
@@ -279,21 +281,37 @@ mod tests {
 
     #[tokio::test]
     async fn mirrors_the_whole_project_and_edits_only_the_mirror() {
-        let p = project(&[("main.tex", "hello world\n"), ("ch/a.tex", "a\n"), ("fig.png", "png")]);
+        let p = project(&[
+            ("main.tex", "hello world\n"),
+            ("ch/a.tex", "a\n"),
+            ("fig.png", "png"),
+        ]);
         let scratch = tempfile::tempdir().unwrap();
         let pad = ScratchProject::create(scratch.path(), "s1", p.path()).unwrap();
 
         assert_eq!(pad.read("ch/a.tex").await.unwrap(), "a\n");
-        assert!(pad.root().join("fig.png").exists(), "non-source files are linked in");
+        assert!(
+            pad.root().join("fig.png").exists(),
+            "non-source files are linked in"
+        );
 
         let changed = pad
-            .apply(&[replace("main.tex", "world", "scratch"), replace("ch/a.tex", "a", "A")])
+            .apply(&[
+                replace("main.tex", "world", "scratch"),
+                replace("ch/a.tex", "a", "A"),
+            ])
             .await
             .unwrap();
         assert_eq!(changed, ["ch/a.tex", "main.tex"]);
         assert_eq!(pad.read("main.tex").await.unwrap(), "hello scratch\n");
-        assert_eq!(std::fs::read_to_string(p.path().join("main.tex")).unwrap(), "hello world\n");
-        assert_eq!(std::fs::read_to_string(p.path().join("ch/a.tex")).unwrap(), "a\n");
+        assert_eq!(
+            std::fs::read_to_string(p.path().join("main.tex")).unwrap(),
+            "hello world\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(p.path().join("ch/a.tex")).unwrap(),
+            "a\n"
+        );
     }
 
     #[tokio::test]
@@ -302,13 +320,24 @@ mod tests {
         let scratch = tempfile::tempdir().unwrap();
         let pad = ScratchProject::create(scratch.path(), "s2", p.path()).unwrap();
 
-        pad.apply(&[replace("main.tex", "one", "two")]).await.unwrap();
+        pad.apply(&[replace("main.tex", "one", "two")])
+            .await
+            .unwrap();
         // This anchor exists only because the first batch ran.
-        pad.apply(&[replace("main.tex", "two", "three")]).await.unwrap();
+        pad.apply(&[replace("main.tex", "two", "three")])
+            .await
+            .unwrap();
 
         assert_eq!(pad.read("main.tex").await.unwrap(), "three\n");
         let changes = pad.changes().await.unwrap();
-        assert_eq!(changes, [("main.tex".to_owned(), "one\n".to_owned(), "three\n".to_owned())]);
+        assert_eq!(
+            changes,
+            [(
+                "main.tex".to_owned(),
+                "one\n".to_owned(),
+                "three\n".to_owned()
+            )]
+        );
     }
 
     #[tokio::test]
@@ -318,26 +347,51 @@ mod tests {
         let pad = ScratchProject::create(scratch.path(), "s3", p.path()).unwrap();
 
         let err = pad
-            .apply(&[replace("main.tex", "keep", "changed"), replace("b.tex", "absent", "x")])
+            .apply(&[
+                replace("main.tex", "keep", "changed"),
+                replace("b.tex", "absent", "x"),
+            ])
             .await
             .unwrap_err();
         assert!(matches!(err, ScratchpadError::Apply(_)), "{err:?}");
-        assert_eq!(pad.read("main.tex").await.unwrap(), "keep\n", "all-or-nothing across files");
-        assert!(pad.changes().await.unwrap().is_empty());
+        assert_eq!(
+            pad.read("main.tex").await.unwrap(),
+            "keep\n",
+            "all-or-nothing across files"
+        );
+        assert_eq!(pad.changes().await.unwrap().len(), 0);
     }
 
     #[tokio::test]
     async fn edits_cannot_reach_outside_the_mirror_or_non_source_files() {
-        let p = project(&[("main.tex", "x\n"), (".env", "SECRET\n"), ("fig.png", "png")]);
+        let p = project(&[
+            ("main.tex", "x\n"),
+            (".env", "SECRET\n"),
+            ("fig.png", "png"),
+        ]);
         let scratch = tempfile::tempdir().unwrap();
         let pad = ScratchProject::create(scratch.path(), "s4", p.path()).unwrap();
 
-        for bad in ["../escape.tex", "/etc/passwd", ".env", "fig.png", "", "sub/../../x.tex", "missing.tex"] {
+        for bad in [
+            "../escape.tex",
+            "/etc/passwd",
+            ".env",
+            "fig.png",
+            "",
+            "sub/../../x.tex",
+            "missing.tex",
+        ] {
             let err = pad.apply(&[replace(bad, "x", "y")]).await.unwrap_err();
-            assert!(matches!(err, ScratchpadError::BadPath(_)), "{bad:?}: {err:?}");
+            assert!(
+                matches!(err, ScratchpadError::BadPath(_)),
+                "{bad:?}: {err:?}"
+            );
         }
         assert!(!scratch.path().join("escape.tex").exists());
-        assert!(!pad.root().join(".env").exists(), "secrets are not mirrored");
+        assert!(
+            !pad.root().join(".env").exists(),
+            "secrets are not mirrored"
+        );
     }
 
     #[tokio::test]
@@ -350,8 +404,13 @@ mod tests {
         std::fs::remove_file(pad.root().join("main.tex")).unwrap();
         std::os::unix::fs::symlink(p.path().join("main.tex"), pad.root().join("main.tex")).unwrap();
 
-        pad.apply(&[replace("main.tex", "orig", "edited")]).await.unwrap();
-        assert_eq!(std::fs::read_to_string(p.path().join("main.tex")).unwrap(), "orig\n");
+        pad.apply(&[replace("main.tex", "orig", "edited")])
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(p.path().join("main.tex")).unwrap(),
+            "orig\n"
+        );
         assert_eq!(pad.read("main.tex").await.unwrap(), "edited\n");
     }
 
@@ -371,7 +430,10 @@ mod tests {
         let pad = ScratchProject::create(scratch.path(), "s7", p.path()).unwrap();
         let root = pad.root().to_owned();
         drop(pad);
-        assert!(!root.exists(), "drop must clean up (cancel/panic paths rely on it)");
+        assert!(
+            !root.exists(),
+            "drop must clean up (cancel/panic paths rely on it)"
+        );
     }
 
     #[tokio::test]
@@ -381,13 +443,26 @@ mod tests {
         // Keep each alive: dropping would delete them before the cap matters.
         let mut keep = Vec::new();
         for i in 0..(MAX_SESSIONS + 3) {
-            keep.push(ScratchProject::create(scratch.path(), &format!("s{i:02}"), p.path()).unwrap());
+            keep.push(
+                ScratchProject::create(scratch.path(), &format!("s{i:02}"), p.path()).unwrap(),
+            );
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
 
         let remaining = std::fs::read_dir(scratch.path()).unwrap().count();
-        assert!(remaining <= MAX_SESSIONS, "expected <= {MAX_SESSIONS} sessions, found {remaining}");
-        assert!(!scratch.path().join("s00").exists(), "oldest session should have been evicted");
-        assert!(scratch.path().join(format!("s{:02}", MAX_SESSIONS + 2)).exists());
+        assert!(
+            remaining <= MAX_SESSIONS,
+            "expected <= {MAX_SESSIONS} sessions, found {remaining}"
+        );
+        assert!(
+            !scratch.path().join("s00").exists(),
+            "oldest session should have been evicted"
+        );
+        assert!(
+            scratch
+                .path()
+                .join(format!("s{:02}", MAX_SESSIONS + 2))
+                .exists()
+        );
     }
 }

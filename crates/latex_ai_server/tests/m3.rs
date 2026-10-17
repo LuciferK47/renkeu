@@ -12,7 +12,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest, PlanRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, PlanRequest, VisualFixRequest};
 use latex_ai_core::compile::{AgentEdit, AgentOp};
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
@@ -74,7 +74,11 @@ impl RecordingPlanner {
 }
 
 impl EditPlanner for RecordingPlanner {
-    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _cancel: CancellationToken) -> PlanFuture<'a> {
+    fn plan_edits<'a>(
+        &'a self,
+        _req: PlanRequest<'a>,
+        _cancel: CancellationToken,
+    ) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::EmptyResponse) })
     }
 
@@ -128,10 +132,12 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
     TestApp {
         state: AppState {
             planner,
-            compiler: Arc::new(latex_ai_compiler::Compiler::new(latex_ai_compiler::CompilerConfig::new(
-                env!("CARGO_BIN_EXE_latex-ai").into(),
-                tempfile::tempdir().unwrap().keep(),
-            ))),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(
+                latex_ai_compiler::CompilerConfig::new(
+                    env!("CARGO_BIN_EXE_latex-ai").into(),
+                    tempfile::tempdir().unwrap().keep(),
+                ),
+            )),
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(JobRegistry::default()),
             proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
@@ -486,7 +492,8 @@ async fn traversal_paths_are_rejected_before_any_work() {
 }
 
 #[tokio::test]
-async fn compiling_through_the_api_stores_a_build_with_a_synctex_map_and_leaves_the_project_alone() {
+async fn compiling_through_the_api_stores_a_build_with_a_synctex_map_and_leaves_the_project_alone()
+{
     // The visual-fix flow depends on POST /api/compile leaving a map in the
     // build store, and nothing may be written beside the user's sources.
     let (planner, _) = RecordingPlanner::new(Ok(vec![]));
@@ -523,9 +530,20 @@ async fn compiling_through_the_api_stores_a_build_with_a_synctex_map_and_leaves_
     let build_id = stream
         .lines()
         .find_map(|l| l.strip_prefix("data:").filter(|d| d.contains("build_id")))
-        .map(|d| serde_json::from_str::<Value>(d.trim()).unwrap()["build_id"].as_str().unwrap().to_owned())
+        .map(|d| {
+            serde_json::from_str::<Value>(d.trim()).unwrap()["build_id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
         .expect("the compiled event names the build");
-    let build = app.state.compiler.builds().get(&build_id).await.expect("build stored");
+    let build = app
+        .state
+        .compiler
+        .builds()
+        .get(&build_id)
+        .await
+        .expect("build stored");
 
     assert!(build.pdf_path().exists(), "PDF stored");
     assert!(
@@ -535,8 +553,14 @@ async fn compiling_through_the_api_stores_a_build_with_a_synctex_map_and_leaves_
             .contains_key(&1),
         "the stored map parses and has page 1"
     );
-    assert!(!app.root.join("main.pdf").exists(), "no PDF beside the source");
-    assert!(!app.root.join("main.synctex.gz").exists(), "no map beside the source");
+    assert!(
+        !app.root.join("main.pdf").exists(),
+        "no PDF beside the source"
+    );
+    assert!(
+        !app.root.join("main.synctex.gz").exists(),
+        "no map beside the source"
+    );
 }
 
 #[tokio::test]
@@ -548,23 +572,46 @@ async fn pdf_pages_are_addressed_by_build_and_cached_only_when_they_cannot_chang
     let get = |uri: String| Request::builder().uri(uri).body(Body::empty()).unwrap();
 
     // By build: an image that names one compile, so it may be cached for good.
-    let res = router.clone().oneshot(get(format!("/api/pdf/page?build={}&n=1", build.id()))).await.unwrap();
+    let res = router
+        .clone()
+        .oneshot(get(format!("/api/pdf/page?build={}&n=1", build.id())))
+        .await
+        .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(res.headers()["content-type"], "image/png");
-    assert!(res.headers()["cache-control"].to_str().unwrap().contains("immutable"));
+    assert!(
+        res.headers()["cache-control"]
+            .to_str()
+            .unwrap()
+            .contains("immutable")
+    );
 
     // By file: "the newest build", which a recompile can replace.
-    let res = router.clone().oneshot(get("/api/pdf/page?file=main.tex&n=1".to_owned())).await.unwrap();
+    let res = router
+        .clone()
+        .oneshot(get("/api/pdf/page?file=main.tex&n=1".to_owned()))
+        .await
+        .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     assert_eq!(res.headers()["cache-control"], "no-cache");
 
     // Unknown, malformed, and neither-given are clean client errors.
     let missing = format!("/api/pdf/page?build={}&n=1", "0".repeat(32));
-    assert_eq!(router.clone().oneshot(get(missing)).await.unwrap().status(), StatusCode::NOT_FOUND);
-    let bad = "/api/pdf/page?build=../../etc&n=1".to_owned();
-    assert_eq!(router.clone().oneshot(get(bad)).await.unwrap().status(), StatusCode::BAD_REQUEST);
     assert_eq!(
-        router.oneshot(get("/api/pdf/page?n=1".to_owned())).await.unwrap().status(),
+        router.clone().oneshot(get(missing)).await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+    let bad = "/api/pdf/page?build=../../etc&n=1".to_owned();
+    assert_eq!(
+        router.clone().oneshot(get(bad)).await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        router
+            .oneshot(get("/api/pdf/page?n=1".to_owned()))
+            .await
+            .unwrap()
+            .status(),
         StatusCode::BAD_REQUEST
     );
 }
@@ -577,7 +624,11 @@ async fn a_box_drawn_on_an_out_of_date_pdf_is_refused_without_calling_the_model(
 
     // The user edits the source after the PDF was made: the box no longer
     // corresponds to these lines.
-    std::fs::write(app.root.join("main.tex"), format!("% a new first line\n{FIGURE_DOC}")).unwrap();
+    std::fs::write(
+        app.root.join("main.tex"),
+        format!("% a new first line\n{FIGURE_DOC}"),
+    )
+    .unwrap();
 
     let res = build_router(app.state.clone())
         .unwrap()
@@ -590,6 +641,12 @@ async fn a_box_drawn_on_an_out_of_date_pdf_is_refused_without_calling_the_model(
 
     assert_eq!(res.status(), StatusCode::CONFLICT);
     let body = body_json(res).await;
-    assert!(body["message"].as_str().unwrap().contains("compile again"), "{body}");
-    assert!(seen.lock().unwrap().is_none(), "the model must not be asked about stale geometry");
+    assert!(
+        body["message"].as_str().unwrap().contains("compile again"),
+        "{body}"
+    );
+    assert!(
+        seen.lock().unwrap().is_none(),
+        "the model must not be asked about stale geometry"
+    );
 }

@@ -9,7 +9,6 @@ license.workspace = true
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tectonic = { workspace = true }
-moka = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
@@ -21,8 +20,6 @@ latex-ai-core = { path = "../latex_ai_core" }
 
 [dev-dependencies]
 tokio = { workspace = true }
-synctex = { path = "../synctex" }
-flate2 = "1"
 tempfile = "3"
 
 [lints]

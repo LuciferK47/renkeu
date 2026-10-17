@@ -11,7 +11,6 @@ tauri = { version = "2", features = ["tray-icon"] }
 tokio = { workspace = true }
 axum = { workspace = true }
 latex-ai-server = { path = "../latex_ai_server" }
-latex-ai-core = { path = "../latex_ai_core" }
 latex-ai-compiler = { path = "../compiler" }
 anyhow = { workspace = true }
 serde_json = { workspace = true }

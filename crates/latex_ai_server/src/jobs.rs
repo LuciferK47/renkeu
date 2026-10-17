@@ -171,7 +171,10 @@ mod tests {
             registry.subscribe("running").is_some(),
             "a running job was evicted"
         );
-        assert!(registry.subscribe("done-0").is_none(), "oldest finished evicted");
+        assert!(
+            registry.subscribe("done-0").is_none(),
+            "oldest finished evicted"
+        );
         drop(running);
     }
 

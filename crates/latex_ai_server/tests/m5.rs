@@ -10,7 +10,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest, PlanRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, PlanRequest, VisualFixRequest};
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -49,7 +49,11 @@ fn with_cors_env(
 
 struct FailingPlanner;
 impl EditPlanner for FailingPlanner {
-    fn plan_edits<'a>(&'a self, _req: PlanRequest<'a>, _cancel: CancellationToken) -> PlanFuture<'a> {
+    fn plan_edits<'a>(
+        &'a self,
+        _req: PlanRequest<'a>,
+        _cancel: CancellationToken,
+    ) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::Request("provider unavailable".into())) })
     }
     fn visual_fix<'a>(
@@ -103,10 +107,12 @@ async fn test_app() -> TestApp {
     TestApp {
         state: AppState {
             planner: Arc::new(FailingPlanner),
-            compiler: Arc::new(latex_ai_compiler::Compiler::new(latex_ai_compiler::CompilerConfig::new(
-                env!("CARGO_BIN_EXE_latex-ai").into(),
-                tempfile::tempdir().unwrap().keep(),
-            ))),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(
+                latex_ai_compiler::CompilerConfig::new(
+                    env!("CARGO_BIN_EXE_latex-ai").into(),
+                    tempfile::tempdir().unwrap().keep(),
+                ),
+            )),
             store: Arc::new(latex_ai_core::storage::Store::new(
                 pool.clone(),
                 root.clone(),

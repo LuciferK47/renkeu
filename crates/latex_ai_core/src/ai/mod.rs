@@ -8,11 +8,12 @@
 use crate::compile::AgentEdit;
 use crate::config::ApiKey;
 use genai::adapter::AdapterKind;
-use genai::resolver::AuthData;
-use genai::{Client, ModelIden};
 use genai::chat::{
     ChatMessage, ChatOptions, ChatRequest, ChatResponseFormat, ContentPart, MessageContent,
 };
+use genai::resolver::AuthData;
+use genai::{Client, ModelIden};
+use std::fmt::Write as _;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -52,11 +53,7 @@ pub trait EditPlanner: Send + Sync {
     }
 
     /// Propose edits fulfilling the request against the files it shows.
-    fn plan_edits<'a>(
-        &'a self,
-        req: PlanRequest<'a>,
-        cancel: CancellationToken,
-    ) -> PlanFuture<'a>;
+    fn plan_edits<'a>(&'a self, req: PlanRequest<'a>, cancel: CancellationToken) -> PlanFuture<'a>;
 
     /// Propose edits for a visual defect shown in a PDF crop (M3).
     fn visual_fix<'a>(
@@ -108,7 +105,7 @@ impl PlanRequest<'_> {
             out.push('\n');
         }
         for file in self.files {
-            out.push_str(&format!("\nFile: {}\n```latex\n", file.path));
+            let _ = write!(out, "\nFile: {}\n```latex\n", file.path);
             out.push_str(&number_lines(file.content));
             out.push_str("```\n");
         }
@@ -138,7 +135,7 @@ fn number_lines(content: &str) -> String {
 
     let mut out = String::with_capacity(shown.len() + total * (width + 3));
     for (i, line) in shown.lines().enumerate() {
-        out.push_str(&format!("{:>width$} | {line}\n", i + 1));
+        let _ = writeln!(out, "{:>width$} | {line}", i + 1);
     }
     if shown.len() < content.len() {
         out.push_str("[... the rest of this file is not shown ...]\n");
@@ -330,11 +327,7 @@ fn extract_json(text: &str) -> &str {
 }
 
 impl EditPlanner for LlmPlanner {
-    fn plan_edits<'a>(
-        &'a self,
-        req: PlanRequest<'a>,
-        cancel: CancellationToken,
-    ) -> PlanFuture<'a> {
+    fn plan_edits<'a>(&'a self, req: PlanRequest<'a>, cancel: CancellationToken) -> PlanFuture<'a> {
         Box::pin(async move { self.request_edits(req.render_prompt(), cancel).await })
     }
 
@@ -445,24 +438,54 @@ mod tests {
         assert_eq!(edits[0].file_path, "main.tex");
     }
 
-    fn request<'a>(files: &'a [PlanFile<'a>], other: &'a [String], feedback: &'a str) -> PlanRequest<'a> {
-        PlanRequest { instruction: "fix the table", files, other_files: other, feedback }
+    fn request<'a>(
+        files: &'a [PlanFile<'a>],
+        other: &'a [String],
+        feedback: &'a str,
+    ) -> PlanRequest<'a> {
+        PlanRequest {
+            instruction: "fix the table",
+            files,
+            other_files: other,
+            feedback,
+        }
     }
 
     #[test]
     fn the_prompt_numbers_every_line_of_every_file() {
         let files = [
-            PlanFile { path: "main.tex", content: "a\nb\n" },
-            PlanFile { path: "chapters/one.tex", content: "x\n" },
+            PlanFile {
+                path: "main.tex",
+                content: "a\nb\n",
+            },
+            PlanFile {
+                path: "chapters/one.tex",
+                content: "x\n",
+            },
         ];
         let other = vec!["refs.bib".to_owned()];
         let prompt = request(&files, &other, "").render_prompt();
 
-        assert!(prompt.starts_with("Instruction: fix the table\n"), "{prompt}");
-        assert!(prompt.contains("Other project files (not shown): refs.bib"), "{prompt}");
-        assert!(prompt.contains("File: main.tex\n```latex\n1 | a\n2 | b\n```"), "{prompt}");
-        assert!(prompt.contains("File: chapters/one.tex\n```latex\n1 | x\n```"), "{prompt}");
-        assert!(!prompt.contains("previous attempt"), "no feedback on the first try");
+        assert!(
+            prompt.starts_with("Instruction: fix the table\n"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("Other project files (not shown): refs.bib"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("File: main.tex\n```latex\n1 | a\n2 | b\n```"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("File: chapters/one.tex\n```latex\n1 | x\n```"),
+            "{prompt}"
+        );
+        assert!(
+            !prompt.contains("previous attempt"),
+            "no feedback on the first try"
+        );
     }
 
     #[test]
@@ -475,13 +498,23 @@ mod tests {
 
     #[test]
     fn feedback_is_included_only_when_there_is_some() {
-        let files = [PlanFile { path: "main.tex", content: "x\n" }];
-        let prompt = request(&files, &[], "main.tex:3: Undefined control sequence.").render_prompt();
+        let files = [PlanFile {
+            path: "main.tex",
+            content: "x\n",
+        }];
+        let prompt =
+            request(&files, &[], "main.tex:3: Undefined control sequence.").render_prompt();
         assert!(
-            prompt.contains("Your previous attempt did not work:\nmain.tex:3: Undefined control sequence."),
+            prompt.contains(
+                "Your previous attempt did not work:\nmain.tex:3: Undefined control sequence."
+            ),
             "{prompt}"
         );
-        assert!(!request(&files, &[], "   ").render_prompt().contains("previous attempt"));
+        assert!(
+            !request(&files, &[], "   ")
+                .render_prompt()
+                .contains("previous attempt")
+        );
     }
 
     #[test]

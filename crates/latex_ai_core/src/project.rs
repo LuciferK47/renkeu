@@ -138,8 +138,14 @@ mod tests {
             .connect(&url)
             .await
             .unwrap();
-        sqlx::query("CREATE TABLE t (v TEXT)").execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO t VALUES ('kept')").execute(&pool).await.unwrap();
+        sqlx::query("CREATE TABLE t (v TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO t VALUES ('kept')")
+            .execute(&pool)
+            .await
+            .unwrap();
         // Deliberately not closed first: the row may still be in the WAL.
         std::mem::forget(pool);
     }
@@ -152,13 +158,19 @@ mod tests {
         let data = ProjectData::locate(home.path(), ws.path());
 
         assert!(data.import_legacy(ws.path()).await.unwrap());
-        assert!(ws.path().join(LEGACY_DB_NAME).exists(), "original must stay");
+        assert!(
+            ws.path().join(LEGACY_DB_NAME).exists(),
+            "original must stay"
+        );
 
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .connect(&format!("sqlite://{}?mode=ro", data.db_path.display()))
             .await
             .unwrap();
-        let (v,): (String,) = sqlx::query_as("SELECT v FROM t").fetch_one(&pool).await.unwrap();
+        let (v,): (String,) = sqlx::query_as("SELECT v FROM t")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(v, "kept");
 
         // Second call: new DB exists, so nothing is overwritten.
