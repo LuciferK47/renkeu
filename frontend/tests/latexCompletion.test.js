@@ -100,9 +100,12 @@ describe('registerLatex', () => {
     const providers = {}
     return {
       providers,
+      editor: { registerCommand: vi.fn((id, fn) => (providers[`cmd:${id}`] = fn)) },
       languages: {
         register: vi.fn(), setLanguageConfiguration: vi.fn(), setMonarchTokensProvider: vi.fn(),
         registerCompletionItemProvider: vi.fn((lang, p) => (providers[lang] = p)),
+        registerHoverProvider: vi.fn((lang, p) => (providers[`${lang}-hover`] = p)),
+        registerCodeActionProvider: vi.fn((lang, p) => (providers[`${lang}-actions`] = p)),
         CompletionItemKind: { Reference: 1, File: 2, Module: 3, Struct: 4, Snippet: 5, Function: 6 },
         CompletionItemInsertTextRule: { InsertAsSnippet: 4 },
       },
@@ -113,7 +116,7 @@ describe('registerLatex', () => {
 
   it('registers both languages and completes labels at the cursor with an exact range', async () => {
     const m = fakeMonaco()
-    registerLatex(m, () => index)
+    registerLatex(m, () => ({ index }))
     expect(m.languages.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'latex' }))
     expect(m.languages.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'bibtex' }))
 
@@ -125,12 +128,12 @@ describe('registerLatex', () => {
 
   it('completes nothing inside a comment or before the index exists', async () => {
     const m = fakeMonaco()
-    registerLatex(m, () => index)
+    registerLatex(m, () => ({ index }))
     expect((await m.providers.latex.provideCompletionItems(model('% \\ref{'), { lineNumber: 1, column: 8 })).suggestions).toEqual([])
     expect((await m.providers.latex.provideCompletionItems(model('50\\% \\ref{'), { lineNumber: 1, column: 11 })).suggestions).toHaveLength(1)
 
     const late = fakeMonaco()
-    registerLatex(late, () => null)
+    registerLatex(late, () => ({ index: null }))
     expect((await late.providers.latex.provideCompletionItems(model('\\ref{'), { lineNumber: 1, column: 6 })).suggestions).toEqual([])
   })
 })

@@ -9,6 +9,7 @@ const DEFAULTS = {
   sidebar: true,
   chat: true,
   problems: true,
+  spellcheck: true,
   theme: 'auto',
   /** Pane sizes in percent, as the splitter reports them. */
   sizes: { sidebar: 15, editor: 32, pdf: 31, chat: 22 }
@@ -18,6 +19,7 @@ export class UiState {
   sidebar = $state(DEFAULTS.sidebar);
   chat = $state(DEFAULTS.chat);
   problems = $state(DEFAULTS.problems);
+  spellcheck = $state(DEFAULTS.spellcheck);
   theme = $state(DEFAULTS.theme);
   sizes = $state({ ...DEFAULTS.sizes });
 
@@ -31,7 +33,7 @@ export class UiState {
 
   constructor() {
     const saved = readPref(PREFS, {});
-    for (const key of ['sidebar', 'chat', 'problems']) {
+    for (const key of ['sidebar', 'chat', 'problems', 'spellcheck']) {
       if (typeof saved[key] === 'boolean') this[key] = saved[key];
     }
     if (['light', 'dark', 'auto'].includes(saved.theme)) this.theme = saved.theme;
@@ -94,6 +96,7 @@ export class UiState {
       sidebar: this.sidebar,
       chat: this.chat,
       problems: this.problems,
+      spellcheck: this.spellcheck,
       theme: this.theme,
       sizes: this.sizes
     });

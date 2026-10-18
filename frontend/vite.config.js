@@ -9,7 +9,10 @@ export default defineConfig({
     alias: {
       // svelte-splitpanes imports SvelteKit's `$app/environment` for its `browser`
       // flag. There is no SvelteKit here, so it is answered by a one-line stand-in.
-      '$app/environment': path.resolve(__dirname, './src/app-env-mock.js')
+      '$app/environment': path.resolve(__dirname, './src/app-env-mock.js'),
+      // dictionary-en's package "exports" only exposes a Node loader; the browser
+      // fetches the two Hunspell files directly.
+      'dictionary-en-files': path.resolve(__dirname, './node_modules/dictionary-en')
     }
   },
   server: {

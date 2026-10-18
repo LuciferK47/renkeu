@@ -6,7 +6,9 @@ import { CompileState } from './state/compile.svelte.js';
 import { DocumentStore } from './state/documents.svelte.js';
 import { ProjectState } from './state/project.svelte.js';
 import { UiState } from './state/ui.svelte.js';
-import { monacoModels, useProjectIndex } from './monaco.js';
+import { monacoModels, useEditorServices } from './monaco.js';
+import { readPref, writePref } from './storage.js';
+import { SpellChecker } from './latex/spell.js';
 import { ProjectIndex } from './latex/index.js';
 
 export const documents = new DocumentStore(monacoModels);
@@ -16,4 +18,11 @@ export const ui = new UiState();
 export const commands = new CommandRegistry();
 
 export const latexIndex = new ProjectIndex({ project, documents });
-useProjectIndex(latexIndex);
+
+// The dictionary is fetched and parsed only when spell checking first runs.
+export const spell = new SpellChecker(
+  async () => (await import('./latex/spellLoader.js')).loadEnglish(),
+  { read: () => readPref('latex-ai:dictionary', []), write: (words) => writePref('latex-ai:dictionary', words) }
+);
+
+useEditorServices({ index: latexIndex, spell });

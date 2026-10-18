@@ -54,16 +54,17 @@ const commaList = (s) => s.split(',').map((x) => x.trim()).filter(Boolean);
 /**
  * @returns {{
  *   sections: {level:number, title:string, line:number, starred:boolean, command:string}[],
- *   labels: {name:string, line:number}[],
+ *   labels: {name:string, line:number, text:string}[],
  *   includes: {kind:'input'|'include'|'subfile'|'graphics'|'bib', target:string, line:number}[],
  *   packages: string[],
  *   macros: string[],
+ *   macroDefs: {name:string, line:number, text:string}[],
  *   environments: string[],
  *   root: string|null
  * }}
  */
 export function scan(text) {
-  const out = { sections: [], labels: [], includes: [], packages: [], macros: [], environments: [], root: null };
+  const out = { sections: [], labels: [], includes: [], packages: [], macros: [], macroDefs: [], environments: [], root: null };
   const lines = text.split(/\r\n|\r|\n/);
   let verbatim = false;
 
@@ -94,14 +95,18 @@ export function scan(text) {
         command: m[1]
       });
     });
-    each(LABEL, line, (m) => out.labels.push({ name: m[1].trim(), line: lineNo }));
+    each(LABEL, line, (m) => out.labels.push({ name: m[1].trim(), line: lineNo, text: line.trim() }));
     each(INCLUDE, line, (m) => out.includes.push({ kind: m[1], target: m[2].trim(), line: lineNo }));
     each(GRAPHICS, line, (m) => out.includes.push({ kind: 'graphics', target: m[1].trim(), line: lineNo }));
     each(BIB_LEGACY, line, (m) => commaList(m[1]).forEach((t) => out.includes.push({ kind: 'bib', target: t.endsWith('.bib') ? t : `${t}.bib`, line: lineNo })));
     each(BIB_RESOURCE, line, (m) => out.includes.push({ kind: 'bib', target: m[1].trim(), line: lineNo }));
     each(PACKAGE, line, (m) => out.packages.push(...commaList(m[1])));
-    each(MACRO, line, (m) => out.macros.push(m[1]));
-    each(DEF, line, (m) => out.macros.push(m[1]));
+    const defined = (m) => {
+      out.macros.push(m[1]);
+      out.macroDefs.push({ name: m[1], line: lineNo, text: line.trim() });
+    };
+    each(MACRO, line, defined);
+    each(DEF, line, defined);
     each(NEWENV, line, (m) => out.environments.push(m[1].trim()));
   });
   return out;

@@ -74,6 +74,7 @@ export class ProjectIndex {
     const labels = [];
     const bib = [];
     const macros = new Set();
+    const macroDefs = [];
     const environments = new Set();
     const live = this.#sources();
     for (const [path, text] of live) {
@@ -84,6 +85,7 @@ export class ProjectIndex {
         const s = scan(text);
         for (const l of s.labels) labels.push({ ...l, path });
         s.macros.forEach((m) => macros.add(m));
+        for (const d of s.macroDefs) macroDefs.push({ ...d, path });
         s.environments.forEach((e) => environments.add(e));
       }
     }
@@ -92,6 +94,7 @@ export class ProjectIndex {
       bib,
       files: this.#project.files().map((f) => f.path),
       macros: [...macros],
+      macroDefs,
       environments: [...environments]
     };
   }

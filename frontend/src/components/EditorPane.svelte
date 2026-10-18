@@ -5,8 +5,10 @@
   import { onMount, untrack } from 'svelte'
   import { loadMonaco } from '../lib/monaco.js'
   import { markersFor } from '../lib/diagnostics.js'
+  import { referenceAt, definitionFor } from '../lib/latex/navigate.js'
+  import { applySpellMarkers, clearSpellMarkers, isProseFile } from '../lib/latex/spellMarkers.js'
 
-  let { documents, ui, commands, compile = null, onclosetab = () => {}, oncursor = () => {} } = $props()
+  let { documents, ui, commands, compile = null, spell = null, index = null, onfollow = () => {}, onclosetab = () => {}, oncursor = () => {} } = $props()
 
   let host = $state()
   let editor = $state.raw(null)
@@ -41,6 +43,14 @@
       editor.onDidChangeCursorPosition((e) =>
         oncursor({ line: e.position.lineNumber, column: e.position.column })
       )
+      // Ctrl/Cmd+click follows a reference, like F12.
+      editor.onMouseDown((e) => {
+        const mods = e.event.ctrlKey || e.event.metaKey
+        if (mods && e.target.position && e.event.leftButton) {
+          e.event.preventDefault()
+          void followAt(e.target.position)
+        }
+      })
       // Capture phase: the editor would otherwise act on Mod+Enter and the
       // like before the command registry saw them.
       detachKeys = commands.attach(host, { capture: true })
@@ -92,6 +102,56 @@
       )
     }
   })
+
+  // Spelling: check each open prose file shortly after it stops changing.
+  $effect(() => {
+    void editor
+    const on = ui.spellcheck
+    const docs = [...documents.docs]
+    if (!monaco || !spell) return
+    if (!on) {
+      for (const doc of docs) clearSpellMarkers(monaco, doc.model)
+      return
+    }
+    const timers = new Map()
+    const subs = []
+    let alive = true
+    const check = (doc) => {
+      if (alive && isProseFile(doc.path)) applySpellMarkers(monaco, doc.model, spell)
+    }
+    const schedule = (doc) => {
+      clearTimeout(timers.get(doc.path))
+      timers.set(doc.path, setTimeout(() => check(doc), 600))
+    }
+    spell.ensureReady().then((ready) => {
+      if (!ready || !alive) return
+      docs.forEach(check)
+      docs.forEach((doc) => subs.push(doc.model.onDidChangeContent?.(() => schedule(doc))))
+    })
+    const off = spell.onChange(() => docs.forEach(check))
+    return () => {
+      alive = false
+      off()
+      timers.forEach(clearTimeout)
+      subs.forEach((s) => s?.dispose?.())
+    }
+  })
+
+  async function followAt(position) {
+    const model = editor?.getModel()
+    if (!model || !index) return false
+    const ref = referenceAt(model.getLineContent(position.lineNumber), position.column)
+    if (!ref) return false
+    await index.ensureLoaded()
+    onfollow({ ref, def: definitionFor(ref, index.snapshot()) })
+    return true
+  }
+
+  /** Go to the definition of what is under the cursor (F12). */
+  export function followReference() {
+    const position = editor?.getPosition()
+    return position ? followAt(position) : Promise.resolve(false)
+  }
 
   /** Scroll to a line and put the cursor there. */
   export function reveal(line, column = 1) {

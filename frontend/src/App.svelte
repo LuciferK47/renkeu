@@ -3,7 +3,7 @@
   import { Splitpanes, Pane } from 'svelte-splitpanes'
   import './globals.css'
 
-  import { documents, compile, project, ui, commands, latexIndex } from './lib/app.svelte.js'
+  import { documents, compile, project, ui, commands, latexIndex, spell } from './lib/app.svelte.js'
   import { chat } from './lib/chat.js'
   import { FileOps } from './lib/files.js'
   import { isDesktop, pickProject } from './lib/desktop.js'
@@ -82,6 +82,17 @@
     await openFile(file)
     await tick()
     editorPane?.reveal(line)
+  }
+
+  /** A reference was followed in the editor: open where it is defined. */
+  async function followReference({ ref, def }) {
+    if (!def) {
+      ui.toast(`No definition found for ${ref.name}`, 'info')
+      return
+    }
+    await openFile(def.path)
+    await tick()
+    editorPane?.reveal(def.line)
   }
 
   async function closeTab(path) {
@@ -188,6 +199,8 @@
       { id: 'history', title: 'Show history', keys: 'Alt+H', run: openHistory },
       { id: 'settings', title: 'Settings', keys: 'Mod+,', run: openSettings },
       { id: 'open-project', title: 'Open project folder…', enabled: isDesktop, run: openProject },
+      { id: 'go-to-definition', title: 'Go to definition', keys: 'F12', enabled: hasDoc, run: () => editorPane?.followReference() },
+      { id: 'toggle-spellcheck', title: 'Toggle spell check', run: () => ui.toggle('spellcheck') },
       { id: 'refresh-files', title: 'Refresh file list', run: () => project.refresh() },
       { id: 'focus-editor', title: 'Focus editor', enabled: hasDoc, run: () => editorPane?.focus() }
     ]
@@ -279,6 +292,9 @@
               {ui}
               {commands}
               {compile}
+              {spell}
+              index={latexIndex}
+              onfollow={followReference}
               onclosetab={closeTab}
               oncursor={(c) => (cursor = c)}
             />

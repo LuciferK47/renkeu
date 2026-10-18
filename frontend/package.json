@@ -12,7 +12,9 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
+    "dictionary-en": "^4.0.0",
     "monaco-editor": "^0.45.0",
+    "nspell": "^2.1.5",
     "svelte": "^5.1.0",
     "svelte-splitpanes": "^8.0.12"
   },

@@ -4,11 +4,14 @@
 import { registerLatex } from './latex/register.js';
 
 let loading = null;
-/** Where completion gets project facts (labels, citations, files); set by the app. */
-let projectIndex = null;
+/**
+ * What the language features draw on, set by the app: `index` (labels,
+ * citations, files) and `spell` (the dictionary).
+ */
+let services = null;
 
-export function useProjectIndex(index) {
-  projectIndex = index;
+export function useEditorServices(s) {
+  services = s;
 }
 
 export function loadMonaco() {
@@ -18,7 +21,7 @@ export function loadMonaco() {
     import('monaco-editor/esm/vs/editor/editor.all.js'),
     import('monaco-editor/esm/vs/editor/editor.api')
   ]).then(([, monaco]) => {
-    registerLatex(monaco, () => projectIndex);
+    registerLatex(monaco, () => services);
     return monaco;
   });
   return loading;

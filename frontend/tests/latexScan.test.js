@@ -77,7 +77,7 @@ Text \label{eq:a} and % \label{eq:commented}
   })
 
   it('copes with CRLF and an empty file', () => {
-    expect(scan('\\section{A}\r\n\\label{x}\r\n').labels).toEqual([{ name: 'x', line: 2 }])
+    expect(scan('\\section{A}\r\n\\label{x}\r\n').labels).toEqual([{ name: 'x', line: 2, text: '\\label{x}' }])
     expect(scan('').sections).toEqual([])
   })
 })
