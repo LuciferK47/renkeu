@@ -1393,5 +1393,5 @@ drift.
 *Document version: 2.0 (Rust Edition)*
 *Date: 2026-06-24*
 *Authors: synthesized from `idea.md`, `CONTEXT.md`, `rust.md`, existing repo audit, and peer-state-of-practice scan (TexGuardian, PaperFit, scholia, ferroleaf, XandSuite, r/tauri 2026-03 thread, genai-rs 0.7 docs, tectonic docs).*
-*Status: M1–M5 complete; M6 (paper tone-map) shipped; M7 (data-integrity and access-control hotfixes) and M8 (config, bootstrap, per-project data, reversible migrations) M9 (edit engine) M10 (compiler worker, multi-file, diagnostics, builds) M11 (verify-first agent loop, proposals) M12 (frontend foundation) and M13 (projects and files) implemented — see §15.1 for recorded deviations and §12 for the milestone record.*
+*Status: M1–M5 complete; M6 (paper tone-map) shipped; M7 (data-integrity and access-control hotfixes) and M8 (config, bootstrap, per-project data, reversible migrations) M9 (edit engine) M10 (compiler worker, multi-file, diagnostics, builds) M11 (verify-first agent loop, proposals) M12 (frontend foundation), M13 (projects and files) and M14 (LaTeX editing) implemented — see §15.1 for recorded deviations and §12 for the milestone record.*
 *Re-read this doc + `CONTEXT.md` + `idea.md` + `rust.md` at the start of every implementation session.*
