@@ -146,14 +146,20 @@ jobs:
         with:
           tool: cargo-tarpaulin
 
-      # tarpaulin rebuilds the workspace instrumented and re-runs every test
-      # under ptrace; one test thread keeps only one Tectonic engine resident.
+      # tarpaulin rebuilds the workspace instrumented and re-runs every test;
+      # one test thread keeps only one Tectonic engine resident.
+      #
+      # --engine llvm instruments at compile time instead of tracing with
+      # ptrace. The ptrace engine reported "a segfault occurred" on the runner
+      # for m15, a test that passes under the same engine on a developer machine
+      # and under plain `cargo test`: ptrace follows every child process, and
+      # these tests spawn compile workers.
       # --fail-under makes the 80% bar in rust.md I.5 an actual gate; the job
       # used to measure and report, which gates nothing.
       - name: Measure coverage
         run: |
           cargo tarpaulin --workspace --exclude latex-ai-tauri \
-            --fail-under 80 --out Xml --timeout 400 --jobs 2 -- --test-threads=1
+            --engine llvm --fail-under 80 --out Xml --timeout 400 --jobs 2 -- --test-threads=1
 
   desktop-deps:
     name: Desktop link check
