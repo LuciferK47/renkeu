@@ -110,6 +110,12 @@ pub fn etag_of(content: &str) -> String {
     hex::encode(blake3::hash(content.as_bytes()).as_bytes())
 }
 
+/// [`etag_of`] for raw bytes, so binary files get the same kind of tag.
+#[must_use]
+pub fn etag_of_bytes(content: &[u8]) -> String {
+    hex::encode(blake3::hash(content).as_bytes())
+}
+
 /// One file's part of a multi-file change.
 #[derive(Debug, Clone)]
 pub struct FileChange<'a> {
@@ -340,6 +346,104 @@ impl Store {
             return Err(e);
         }
         Ok(outcomes)
+    }
+
+    /// Hold the write lock while the caller moves or creates files, so a save
+    /// cannot land between its check and its change.
+    pub async fn lock_writes(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.write_lock.lock().await
+    }
+
+    /// Delete a file if it still has the content the caller saw, keeping the
+    /// removed text in the history row (`base_text`) so it can be restored.
+    ///
+    /// The `ETag` is the hash of the file's bytes, so images and other
+    /// non-text files can be deleted under the same rule as sources.
+    ///
+    /// # Errors
+    /// [`StorageError::EtagConflict`] when the file changed, [`StorageError::NotFound`]
+    /// when it is gone; nothing is removed in either case.
+    pub async fn delete_with_etag_history(
+        &self,
+        path: &Path,
+        expected_etag: &str,
+        command: &str,
+    ) -> Result<i64, StorageError> {
+        let _guard = self.write_lock.lock().await;
+        let full_path = self.workspace_root.join(path);
+        let bytes = match tokio::fs::read(&full_path).await {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(StorageError::NotFound);
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let actual = hex::encode(blake3::hash(&bytes).as_bytes());
+        if actual != expected_etag {
+            return Err(StorageError::EtagConflict {
+                expected: expected_etag.to_owned(),
+                actual,
+            });
+        }
+
+        let header = path.to_string_lossy();
+        let text = String::from_utf8(bytes.clone()).ok();
+        let diff = match &text {
+            Some(t) => similar::TextDiff::from_lines(t.as_str(), "")
+                .unified_diff()
+                .header(&header, &header)
+                .to_string(),
+            None => format!("(binary file {header} removed)\n"),
+        };
+
+        let mut tx = self.pool.begin().await?;
+        let history_id: i64 = sqlx::query_scalar(
+            "INSERT INTO history (file_path, command, new_text, diff, edit_type, base_text)
+             VALUES (?, ?, '', ?, 'delete', ?) RETURNING id",
+        )
+        .bind(&*header)
+        .bind(command)
+        .bind(&diff)
+        .bind(text.as_deref())
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tokio::fs::remove_file(&full_path).await?;
+        if let Err(e) = tx.commit().await {
+            if let Err(restore) = crate::fsutil::atomic_write(&full_path, &bytes).await {
+                tracing::error!(error = %restore, path = %full_path.display(), "could not restore a file after a failed delete record");
+            }
+            return Err(e.into());
+        }
+        Ok(history_id)
+    }
+
+    /// Make history follow a renamed file (or every file under a renamed
+    /// directory) so its past stays reachable under its new name.
+    ///
+    /// # Errors
+    /// Database errors.
+    pub async fn rename_history(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE history SET file_path = ? WHERE file_path = ?")
+            .bind(to)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
+        // A directory: rewrite the prefix. `substr` rather than LIKE, so the
+        // `%` and `_` in a name are not wildcards.
+        let prefix = format!("{from}/");
+        sqlx::query(
+            "UPDATE history SET file_path = ? || substr(file_path, ?) WHERE substr(file_path, 1, ?) = ?",
+        )
+        .bind(format!("{to}/"))
+        .bind(i64::try_from(prefix.chars().count()).unwrap_or(i64::MAX) + 1)
+        .bind(i64::try_from(prefix.chars().count()).unwrap_or(i64::MAX))
+        .bind(&prefix)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Recent history rows, newest first, optionally scoped to one file
@@ -1073,5 +1177,104 @@ mod tests {
 
         let b = save(&store, "v1\n", "v2\n", AUTOSAVE).await;
         assert_ne!(a, b, "an hour-old burst is closed");
+    }
+
+    #[tokio::test]
+    async fn delete_needs_the_current_etag_and_keeps_the_text_in_history() {
+        let (store, dir) = autosave_store().await;
+        std::fs::write(dir.path().join("a.tex"), "precious\n").unwrap();
+
+        let stale = store
+            .delete_with_etag_history(Path::new("a.tex"), "nope", "delete")
+            .await;
+        assert!(
+            matches!(stale, Err(StorageError::EtagConflict { .. })),
+            "{stale:?}"
+        );
+        assert!(
+            dir.path().join("a.tex").exists(),
+            "a refused delete removes nothing"
+        );
+        assert!(
+            store
+                .recent_history(None, false, 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let id = store
+            .delete_with_etag_history(Path::new("a.tex"), &etag_of("precious\n"), "delete a.tex")
+            .await
+            .unwrap();
+        assert!(!dir.path().join("a.tex").exists());
+        let base: Option<String> = sqlx::query_scalar("SELECT base_text FROM history WHERE id = ?")
+            .bind(id)
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            base.as_deref(),
+            Some("precious\n"),
+            "the removed text must be recoverable"
+        );
+        let rows = store.recent_history(None, false, 10).await.unwrap();
+        assert_eq!(rows[0].edit_type, "delete");
+        assert!(rows[0].diff.contains("-precious"));
+    }
+
+    #[tokio::test]
+    async fn deleting_a_binary_file_records_that_without_its_content() {
+        let (store, dir) = autosave_store().await;
+        std::fs::write(dir.path().join("fig.png"), [0xff, 0xfe, 0x00, 0x80]).unwrap();
+        let etag = hex::encode(blake3::hash(&[0xff, 0xfe, 0x00, 0x80]).as_bytes());
+
+        store
+            .delete_with_etag_history(Path::new("fig.png"), &etag, "delete")
+            .await
+            .unwrap();
+
+        assert!(!dir.path().join("fig.png").exists());
+        let rows = store.recent_history(None, false, 10).await.unwrap();
+        assert!(rows[0].diff.contains("binary file"), "{}", rows[0].diff);
+        assert!(matches!(
+            store
+                .delete_with_etag_history(Path::new("fig.png"), &etag, "again")
+                .await,
+            Err(StorageError::NotFound)
+        ));
+    }
+
+    #[tokio::test]
+    async fn history_follows_a_renamed_file_and_a_renamed_directory() {
+        let (store, dir) = autosave_store().await;
+        for (path, text) in [
+            ("a.tex", "1"),
+            ("ch/b.tex", "2"),
+            ("ch2/c.tex", "3"),
+            ("100%/d.tex", "4"),
+        ] {
+            sqlx::query("INSERT INTO history (file_path, command, new_text, diff, edit_type) VALUES (?, 'c', ?, 'd', 'manual-save')")
+                .bind(path).bind(text).execute(store.pool()).await.unwrap();
+        }
+        let _ = &dir;
+
+        store.rename_history("a.tex", "z.tex").await.unwrap();
+        store.rename_history("ch", "chapters").await.unwrap();
+        store.rename_history("100%", "pct").await.unwrap();
+
+        let mut paths: Vec<String> = store
+            .recent_history(None, false, 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| r.file_path)
+            .collect();
+        paths.sort();
+        assert_eq!(
+            paths,
+            ["ch2/c.tex", "chapters/b.tex", "pct/d.tex", "z.tex"],
+            "ch2 must not be caught by renaming ch"
+        );
     }
 }

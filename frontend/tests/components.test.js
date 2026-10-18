@@ -6,6 +6,7 @@ vi.mock('../src/lib/api/client.js', () => ({
     getBuildLog: vi.fn(),
     pdfPageUrl: (file, n, dpi, tone, build) => `/page?${build ? `build=${build}` : `file=${file}`}&n=${n}&dpi=${dpi}`,
     exportPdfUrl: (id) => `/export/${id}`,
+    rawUrl: (p) => `/raw?path=${encodeURIComponent(p)}`,
   },
   APIError: class extends Error {},
 }))
@@ -31,7 +32,7 @@ const tree = [
 ]
 
 function projectWith(t = tree) {
-  const p = new ProjectState({ api: {} })
+  const p = new ProjectState({ api: { setMain: async () => ({}) } })
   p.tree = t
   return p
 }
@@ -56,20 +57,103 @@ describe('ProjectTree', () => {
     expect(onopen).toHaveBeenCalledWith('chapters/one.tex')
   })
 
-  it('lists but does not open non-text files, and marks unsaved and active files', async () => {
+  it('previews an image instead of opening it as text, and marks unsaved and active files', async () => {
     const project = projectWith()
     project.expanded = new Set(['chapters'])
     const onopen = vi.fn()
     render(ProjectTree, { props: { project, documents, onopen } })
 
     const png = screen.getByRole('treeitem', { name: /fig\.png/ })
-    expect(png.disabled).toBe(true)
+    expect(png.disabled).toBe(false)
     await fireEvent.click(png)
     expect(onopen).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: /Preview of chapters\/fig\.png/ })).toBeTruthy()
+    expect(screen.getByRole('img').getAttribute('src')).toContain('/raw?path=chapters%2Ffig.png')
 
     const main = screen.getByRole('treeitem', { name: /main\.tex/ })
     expect(main.getAttribute('aria-selected')).toBe('true')
     expect(main.textContent).toContain('●') // unsaved
+  })
+
+  it('offers file actions only when a file manager is attached', async () => {
+    render(ProjectTree, { props: { project: projectWith(), documents } })
+    expect(screen.queryByRole('button', { name: 'New file' })).toBeNull()
+    await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /main\.tex/ }))
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('right-click offers rename, delete and main-file choice for a .tex file', async () => {
+    const project = projectWith()
+    const ops = { create: vi.fn(), rename: vi.fn(), remove: vi.fn(), upload: vi.fn() }
+    render(ProjectTree, { props: { project, documents, ops } })
+
+    await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /main\.tex/ }))
+    const items = screen.getAllByRole('menuitem').map((i) => i.textContent.trim())
+    expect(items).toEqual(['New file…', 'Upload files…', 'Rename…', 'Set as main file', 'Delete…'])
+
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Set as main file' }))
+    expect(project.mainOverride).toBe('main.tex')
+  })
+
+  it('renames through a prompt that rejects a path leaving the project', async () => {
+    const ops = { create: vi.fn(), rename: vi.fn(async () => true), remove: vi.fn(), upload: vi.fn() }
+    render(ProjectTree, { props: { project: projectWith(), documents, ops } })
+
+    await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /main\.tex/ }))
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Rename…' }))
+    const input = screen.getByRole('textbox', { name: 'Name' })
+    expect(input.value).toBe('main.tex')
+
+    await fireEvent.input(input, { target: { value: '../escape.tex' } })
+    expect(screen.getByRole('button', { name: 'Rename' }).disabled).toBe(true)
+
+    await fireEvent.input(input, { target: { value: 'paper.tex' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    expect(ops.rename).toHaveBeenCalledWith('main.tex', 'paper.tex')
+  })
+
+  it('new file in a folder starts from that folder', async () => {
+    const ops = { create: vi.fn(async () => 'chapters/untitled.tex'), rename: vi.fn(), remove: vi.fn(), upload: vi.fn() }
+    render(ProjectTree, { props: { project: projectWith(), documents, ops } })
+
+    await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /chapters/ }))
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'New file…' }))
+    expect(screen.getByRole('textbox', { name: 'Name' }).value).toBe('chapters/untitled.tex')
+    await fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    expect(ops.create).toHaveBeenCalledWith('chapters/untitled.tex')
+  })
+
+  it('deleting asks first, and does nothing if declined', async () => {
+    const ops = { create: vi.fn(), rename: vi.fn(), remove: vi.fn(async () => 1), upload: vi.fn() }
+    render(ProjectTree, { props: { project: projectWith(), documents, ops } })
+    const confirm = vi.spyOn(window, 'confirm')
+
+    await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /main\.tex/ }))
+    confirm.mockReturnValueOnce(false)
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete…' }))
+    expect(ops.remove).not.toHaveBeenCalled()
+
+    await fireEvent.contextMenu(screen.getByRole('treeitem', { name: /main\.tex/ }))
+    confirm.mockReturnValueOnce(true)
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete…' }))
+    expect(ops.remove).toHaveBeenCalledWith(expect.objectContaining({ path: 'main.tex' }))
+    confirm.mockRestore()
+  })
+
+  it('dropping files uploads them into the folder they were dropped on', async () => {
+    const ops = { create: vi.fn(), rename: vi.fn(), remove: vi.fn(), upload: vi.fn() }
+    render(ProjectTree, { props: { project: projectWith(), documents, ops } })
+    const file = new File(['x'], 'plot.png', { type: 'image/png' })
+
+    await fireEvent.drop(screen.getByRole('treeitem', { name: /chapters/ }), {
+      dataTransfer: { files: [file], types: ['Files'] },
+    })
+    expect(ops.upload).toHaveBeenCalledWith([file], 'chapters')
+
+    await fireEvent.drop(screen.getByRole('treeitem', { name: /main\.tex/ }), {
+      dataTransfer: { files: [file], types: ['Files'] },
+    })
+    expect(ops.upload).toHaveBeenLastCalledWith([file], '')
   })
 
   it('explains an empty project and a failed listing', () => {
@@ -319,6 +403,27 @@ describe('Toolbar', () => {
     const { project } = setup({ candidates: ['a.tex', 'b.tex'] })
     await fireEvent.change(screen.getByLabelText('Main document'), { target: { value: 'b.tex' } })
     expect(project.mainOverride).toBe('b.tex')
+  })
+
+  it('shows the project switcher only where the shell can switch (desktop)', async () => {
+    localStorage.clear()
+    const mk = (extra) => {
+      const project = projectWith()
+      project.name = 'thesis'
+      project.root = '/home/me/thesis'
+      const commands = new CommandRegistry()
+      return render(Toolbar, { props: { ui: new UiState(), documents: { active: null }, compile: new CompileState({ api: {} }), project, commands, ...extra } })
+    }
+    const { unmount } = mk({})
+    expect(screen.queryByRole('button', { name: /thesis/ })).toBeNull()
+    unmount()
+
+    const onopenproject = vi.fn()
+    mk({ onopenproject })
+    const button = screen.getByRole('button', { name: /thesis/ })
+    expect(button.getAttribute('title')).toContain('/home/me/thesis')
+    await fireEvent.click(button)
+    expect(onopenproject).toHaveBeenCalled()
   })
 
   it('panes toggle from the toolbar', async () => {

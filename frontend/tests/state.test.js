@@ -117,14 +117,34 @@ describe('ProjectState', () => {
     expect(p.expanded.has('a/b')).toBe(false)
   })
 
-  it('remembers the chosen root, but drops one that no longer exists', async () => {
-    const p = new ProjectState({ api: { getTree: async () => ({ tree }) } })
-    p.setMain('main.tex')
-    expect(new ProjectState({ api: {} }).mainOverride).toBe('main.tex')
+  it('keeps the chosen root on the server and shows it after a reload', async () => {
+    const saved = { main: null }
+    const api = {
+      getTree: async () => ({ tree }),
+      getProject: async () => ({ main: saved.main }),
+      setMain: vi.fn(async (main) => { saved.main = main; return { main } }),
+    }
+    const p = new ProjectState({ api })
+    await p.setMain('main.tex')
+    expect(api.setMain).toHaveBeenCalledWith('main.tex')
 
-    const stale = new ProjectState({ api: { getTree: async () => ({ tree: [] }) } })
+    const reloaded = new ProjectState({ api })
+    await reloaded.refresh()
+    expect(reloaded.mainOverride).toBe('main.tex')
+  })
+
+  it('drops a chosen root that no longer exists', async () => {
+    const stale = new ProjectState({ api: { getTree: async () => ({ tree: [] }), getProject: async () => ({ main: 'gone.tex' }) } })
     await stale.refresh()
     expect(stale.mainOverride).toBeNull()
+  })
+
+  it('puts the previous choice back when the server refuses the new one', async () => {
+    const p = new ProjectState({ api: { setMain: vi.fn().mockRejectedValue(new Error('not a .tex file')) } })
+    p.mainOverride = 'a.tex'
+    expect(await p.setMain('b.txt')).toBe(false)
+    expect(p.mainOverride).toBe('a.tex')
+    expect(p.error).toBe('not a .tex file')
   })
 
   it('a failed refresh keeps the old tree and reports the error', async () => {

@@ -21,6 +21,8 @@ pub enum SecurityError {
     Denied,
     #[error("forbidden file extension: {0}")]
     ForbiddenExtension(String),
+    #[error("invalid name: {0}")]
+    InvalidName(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +140,110 @@ pub fn validate_path(
     Ok(abs)
 }
 
+/// Windows device names: unusable as file names there, with or without an
+/// extension, so a project containing one cannot be shared with a Windows user.
+const RESERVED_NAMES: &[&str] = &[
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+const MAX_COMPONENT_LEN: usize = 255;
+const MAX_PATH_LEN: usize = 1024;
+const MAX_DEPTH: usize = 32;
+
+fn check_component(name: &str) -> Result<(), SecurityError> {
+    let bad = |why: &str| Err(SecurityError::InvalidName(format!("`{name}` {why}")));
+    if name.is_empty() || name.len() > MAX_COMPONENT_LEN {
+        return bad("must be 1-255 bytes");
+    }
+    if name.starts_with('.') {
+        // Hidden names are where secrets and VCS state live, and the project
+        // tree never shows them.
+        return bad("cannot start with a dot");
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
+        return bad("cannot end with a dot or a space");
+    }
+    if name
+        .chars()
+        .any(|c| c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*' | '\\'))
+    {
+        return bad("contains a character that is not allowed in file names");
+    }
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_lowercase();
+    if RESERVED_NAMES.contains(&stem.as_str()) {
+        return bad("is a reserved device name");
+    }
+    Ok(())
+}
+
+/// Validate a path that does not exist yet (a file or directory about to be
+/// created or renamed to) and return where it would live.
+///
+/// [`validate_path`] cannot be used for this because it canonicalizes, which
+/// needs the target to exist. Instead every component is checked on its own
+/// (no `..`, no hidden names, no device names, no characters that break on
+/// other platforms) and the nearest *existing* ancestor is canonicalized, so a
+/// symlinked directory pointing out of the workspace cannot be used to create
+/// files outside it.
+///
+/// The caller creates any missing directories.
+///
+/// # Errors
+/// A [`SecurityError`] naming the first check that failed.
+pub fn resolve_new_path(workspace_root: &Path, requested: &str) -> Result<PathBuf, SecurityError> {
+    if requested.contains('\0') {
+        return Err(SecurityError::NullByte);
+    }
+    if requested.len() > MAX_PATH_LEN {
+        return Err(SecurityError::InvalidName("path is too long".to_owned()));
+    }
+    let path = Path::new(requested);
+    if path.is_absolute() {
+        return Err(SecurityError::AbsoluteOutsideWorkspace);
+    }
+
+    let mut rel = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(name) => {
+                check_component(&name.to_string_lossy())?;
+                rel.push(name);
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => return Err(SecurityError::ParentDir),
+            _ => return Err(SecurityError::AbsoluteOutsideWorkspace),
+        }
+    }
+    if rel.as_os_str().is_empty() {
+        return Err(SecurityError::InvalidName("the path is empty".to_owned()));
+    }
+    if rel.components().count() > MAX_DEPTH {
+        return Err(SecurityError::InvalidName(
+            "path is nested too deeply".to_owned(),
+        ));
+    }
+    if is_denied(&rel) {
+        return Err(SecurityError::Denied);
+    }
+
+    let target = workspace_root.join(&rel);
+    let mut ancestor = target.parent();
+    while let Some(dir) = ancestor {
+        if dir.exists() {
+            let resolved = std::fs::canonicalize(dir).map_err(|_| SecurityError::NotFound)?;
+            if !resolved.starts_with(workspace_root) {
+                return Err(SecurityError::EscapesWorkspace);
+            }
+            if is_denied(resolved.strip_prefix(workspace_root).unwrap_or(&resolved)) {
+                return Err(SecurityError::Denied);
+            }
+            break;
+        }
+        ancestor = dir.parent();
+    }
+    Ok(target)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +358,92 @@ mod tests {
         assert!(matches!(
             validate_path(&root, "ghost.tex", AccessKind::Read),
             Err(SecurityError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn new_paths_nest_and_report_where_they_would_live() {
+        let (_dir, root) = workspace();
+        assert_eq!(
+            resolve_new_path(&root, "chapters/part one/intro.tex").unwrap(),
+            root.join("chapters/part one/intro.tex")
+        );
+        assert_eq!(
+            resolve_new_path(&root, "./a.tex").unwrap(),
+            root.join("a.tex")
+        );
+        // A directory that exists already is fine as a parent.
+        std::fs::create_dir(root.join("figs")).unwrap();
+        assert!(resolve_new_path(&root, "figs/new.png").is_ok());
+    }
+
+    #[test]
+    fn new_paths_reject_traversal_absolute_and_odd_names() {
+        let (_dir, root) = workspace();
+        for (bad, what) in [
+            ("../x.tex", "parent"),
+            ("a/../../x.tex", "parent"),
+            ("/etc/x.tex", "absolute"),
+            ("", "empty"),
+            (".", "empty"),
+            ("a\0b.tex", "nul"),
+            (".hidden.tex", "dot"),
+            (".git/config", "dot dir"),
+            ("a/.env", "dotenv"),
+            ("name.", "trailing dot"),
+            ("name ", "trailing space"),
+            ("co:lon.tex", "colon"),
+            ("back\\slash.tex", "backslash"),
+            ("what?.tex", "question"),
+            ("CON.tex", "reserved"),
+            ("sub/nul", "reserved"),
+            ("Lpt1.txt", "reserved"),
+        ] {
+            assert!(
+                resolve_new_path(&root, bad).is_err(),
+                "{what}: {bad:?} was accepted"
+            );
+        }
+        assert!(
+            resolve_new_path(&root, &"x".repeat(300)).is_err(),
+            "long name"
+        );
+        assert!(
+            resolve_new_path(&root, &"a/".repeat(40)).is_err(),
+            "deep path"
+        );
+        assert!(
+            resolve_new_path(&root, &format!("{}.tex", "a/".repeat(600))).is_err(),
+            "long path"
+        );
+    }
+
+    #[test]
+    fn a_denied_key_name_cannot_be_created() {
+        let (_dir, root) = workspace();
+        assert!(matches!(
+            resolve_new_path(&root, "keys/server.pem"),
+            Err(SecurityError::Denied)
+        ));
+        assert!(matches!(
+            resolve_new_path(&root, "id_rsa"),
+            Err(SecurityError::Denied)
+        ));
+    }
+
+    #[test]
+    fn creating_through_a_symlinked_directory_that_leaves_the_workspace_is_refused() {
+        let (_dir, root) = workspace();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("link")).unwrap();
+        assert!(matches!(
+            resolve_new_path(&root, "link/new.tex"),
+            Err(SecurityError::EscapesWorkspace)
+        ));
+        // Deeper than the link, where nothing exists yet, is caught too.
+        assert!(matches!(
+            resolve_new_path(&root, "link/a/b/new.tex"),
+            Err(SecurityError::EscapesWorkspace)
         ));
     }
 }

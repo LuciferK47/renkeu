@@ -44,7 +44,12 @@ pub(crate) async fn resolve_main(
     explicit: Option<&str>,
 ) -> Result<String, ApiError> {
     let root = state.workspace_root.clone();
-    let (active, explicit) = (active.to_owned(), explicit.map(str::to_owned));
+    // An explicit request wins; otherwise the project's saved choice.
+    let explicit = match explicit {
+        Some(e) => Some(e.to_owned()),
+        None => super::manage::saved_main(state).await,
+    };
+    let active = active.to_owned();
     let found =
         tokio::task::spawn_blocking(move || detect_main(&root, &active, explicit.as_deref()))
             .await

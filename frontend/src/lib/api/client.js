@@ -84,6 +84,65 @@ export class APIClient {
     });
   }
 
+  // --- file management ---------------------------------------------------
+
+  // New text file (parent folders are created). -> { path, etag }
+  createFile(path, content = '') {
+    return this.request('POST', '/files/create', { body: { path, content } });
+  }
+
+  // Move a file or folder; the server refuses to replace anything (409).
+  renameFile(from, to) {
+    return this.request('POST', '/files/rename', { body: { from, to } });
+  }
+
+  // Needs the file's current ETag, like a save (428 without, 409 if stale).
+  deleteFile(path, etag) {
+    return this.request('DELETE', '/file', { params: { path }, headers: { 'If-Match': etag } });
+  }
+
+  // ETag of any project file, binary included, without downloading it.
+  async fileEtag(path) {
+    const url = new URL(this.rawUrl(path), window.location.origin);
+    let res;
+    try {
+      res = await fetch(url, { method: 'HEAD' });
+    } catch (err) {
+      throw new APIError(err.message, 0, null);
+    }
+    if (!res.ok) throw new APIError(res.statusText || 'request failed', res.status, null);
+    return res.headers.get('etag')?.replace(/"/g, '') ?? null;
+  }
+
+  // The request body is the file itself; `file` is a File or Blob.
+  async uploadFile(path, file) {
+    const url = new URL(this.buildUrl('/upload'), window.location.origin);
+    url.searchParams.set('path', path);
+    let res;
+    try {
+      res = await fetch(url, { method: 'POST', body: file });
+    } catch (err) {
+      throw new APIError(err.message, 0, null);
+    }
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new APIError((data && (data.message || data.error)) || res.statusText, res.status, data);
+    return data;
+  }
+
+  // Bytes of a project file with their content type (for the image preview).
+  rawUrl(path) {
+    return `${this.buildUrl('/raw')}?path=${encodeURIComponent(path)}`;
+  }
+
+  // -> { main: string|null }; the root document the user picked.
+  getProject() {
+    return this.request('GET', '/project');
+  }
+
+  setMain(main) {
+    return this.request('PUT', '/project', { body: { main } });
+  }
+
   // The whole project as a nested tree: [{ name, path, kind: 'dir'|'file',
   // editable, children? }]. Secrets and dot-directories are never listed.
   getTree() {

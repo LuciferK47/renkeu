@@ -11,7 +11,8 @@
     oncancel = () => {},
     onsettings = () => {},
     onhistory = () => {},
-    onpalette = () => {}
+    onpalette = () => {},
+    onopenproject = null
   } = $props()
 
   const shortcut = (id) => {
@@ -33,6 +34,12 @@
 
 <header class="toolbar" aria-label="Toolbar">
   <button class="text" aria-pressed={ui.sidebar} title={`Files${shortcut('toggle-sidebar')}`} onclick={() => ui.toggle('sidebar')}>Files</button>
+
+  {#if onopenproject}
+    <button class="text project" onclick={onopenproject} title={project.root ? `${project.root}\nOpen another folder` : 'Open a project folder'}>
+      {project.name || 'Open folder…'} ▾
+    </button>
+  {/if}
 
   <span class="file" title={documents.active?.path ?? ''}>
     {documents.active?.path ?? 'LaTeX-AI'}
@@ -76,6 +83,7 @@
 </header>
 
 <style>
+  .project { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   .toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.6rem; background: hsl(var(--surface-1)); border-bottom: 1px solid hsl(var(--border)); }
   .file { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 32ch; }
   .spacer { flex: 1; }

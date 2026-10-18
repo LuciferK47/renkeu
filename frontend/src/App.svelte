@@ -5,6 +5,8 @@
 
   import { documents, compile, project, ui, commands } from './lib/app.svelte.js'
   import { chat } from './lib/chat.js'
+  import { FileOps } from './lib/files.js'
+  import { isDesktop, pickProject } from './lib/desktop.js'
   import { api } from './lib/api/client.js'
   import { readPref, writePref } from './lib/storage.js'
   import { setProposal } from './stores/aiStore.js'
@@ -27,6 +29,8 @@
 
   // Read before the effect below overwrites it with the (still empty) tab list.
   const lastSession = readPref(OPEN_KEY, { paths: [], active: null })
+
+  const ops = new FileOps({ documents, project, ui })
 
   let SettingsPanel = $state(null)
   let HistorySidebar = $state(null)
@@ -94,6 +98,16 @@
     const doc = conflicted
     if (!doc) return
     await documents.resolveConflict(doc.path, choice)
+  }
+
+  async function openProject() {
+    // The app restarts into the new folder: keep what has been typed.
+    if (!(await ensureSaved())) return
+    try {
+      await pickProject()
+    } catch (e) {
+      ui.toast(`Could not open the folder: ${e.message ?? e}`, 'error')
+    }
   }
 
   async function sendToAi(content) {
@@ -172,6 +186,7 @@
       { id: 'close-tab', title: 'Close tab', keys: 'Alt+W', enabled: hasDoc, run: () => closeTab(documents.active.path) },
       { id: 'history', title: 'Show history', keys: 'Alt+H', run: openHistory },
       { id: 'settings', title: 'Settings', keys: 'Mod+,', run: openSettings },
+      { id: 'open-project', title: 'Open project folder…', enabled: isDesktop, run: openProject },
       { id: 'refresh-files', title: 'Refresh file list', run: () => project.refresh() },
       { id: 'focus-editor', title: 'Focus editor', enabled: hasDoc, run: () => editorPane?.focus() }
     ]
@@ -238,6 +253,7 @@
     onsettings={openSettings}
     onhistory={openHistory}
     onpalette={() => ui.openDialog('palette')}
+    onopenproject={isDesktop() ? openProject : null}
   />
 
   <div class="workspace">
@@ -246,7 +262,7 @@
         <Splitpanes on:resized={onResized}>
           {#if ui.sidebar}
             <Pane size={ui.sizes.sidebar} minSize={8} maxSize={40}>
-              <ProjectTree {project} {documents} onopen={openFile} onrefresh={() => project.refresh()} />
+              <ProjectTree {project} {documents} {ops} onopen={openFile} onrefresh={() => project.refresh()} />
             </Pane>
           {/if}
           <Pane size={ui.sizes.editor} minSize={20}>

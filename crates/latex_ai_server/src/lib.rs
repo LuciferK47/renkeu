@@ -201,7 +201,22 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
         .route("/api/tree", get(routes::files::get_tree))
         .route(
             "/api/file",
-            get(routes::files::read_file).post(routes::files::write_file),
+            get(routes::files::read_file)
+                .post(routes::files::write_file)
+                .delete(routes::manage::delete_file),
+        )
+        .route("/api/files/create", post(routes::manage::create_file))
+        .route("/api/files/rename", post(routes::manage::rename))
+        .route(
+            "/api/upload",
+            post(routes::manage::upload).layer(axum::extract::DefaultBodyLimit::max(
+                routes::manage::MAX_UPLOAD_BYTES,
+            )),
+        )
+        .route("/api/raw", get(routes::manage::raw))
+        .route(
+            "/api/project",
+            get(routes::manage::get_project).put(routes::manage::put_project),
         )
         .route("/api/compile", post(routes::compile::compile))
         .route(

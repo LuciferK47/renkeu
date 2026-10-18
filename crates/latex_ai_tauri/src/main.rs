@@ -39,6 +39,8 @@ fn main() -> anyhow::Result<()> {
     let api_base = format!("http://127.0.0.1:{api_port}/api");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![pick_project])
         .setup(move |handle| {
             tauri::WebviewWindowBuilder::new(
                 handle,
@@ -60,10 +62,37 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Let the user choose a project folder, remember it and restart into it.
+///
+/// A restart is the whole switch: the server, its history database, the build
+/// store and every open tab belong to one project, and tearing those down and
+/// rebuilding them in place would be a second, less-tested way to start. Resolves
+/// `false` when the dialog is cancelled; on success the process restarts and
+/// this never resolves.
+#[tauri::command]
+async fn pick_project(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_folder(move |picked| {
+        // A closed receiver means the window went away; nothing to report.
+        let _ = tx.send(picked);
+    });
+    let Some(picked) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let folder = picked
+        .into_path()
+        .map_err(|e| format!("that location is not a folder on this computer: {e}"))?;
+    let home = latex_ai_core::config::default_home();
+    latex_ai_server::bootstrap::remember_project(&home, &folder).map_err(|e| format!("{e:#}"))?;
+    app.restart()
+}
+
 /// Build the app state, bind the loopback listener, and start serving on
 /// Tauri's runtime. Returns the port the OS chose.
 async fn start_api() -> anyhow::Result<u16> {
-    let opts = latex_ai_server::bootstrap::BootOptions::from_process()?;
+    let opts = latex_ai_server::bootstrap::BootOptions::for_desktop()?;
     let state = latex_ai_server::bootstrap::build_state(opts)
         .await
         .context("starting up")?;

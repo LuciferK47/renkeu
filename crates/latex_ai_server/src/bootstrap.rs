@@ -8,7 +8,7 @@ use latex_ai_core::config::{ConfiguredPlanner, EnvOverrides, Settings};
 use latex_ai_core::project::ProjectData;
 use latex_ai_core::storage::Store;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// What [`build_state`] needs to know about the environment it runs in.
@@ -37,6 +37,64 @@ impl BootOptions {
             env: EnvOverrides::from_process(),
             worker_exe: None,
         })
+    }
+}
+
+/// File in the app data directory naming the project the desktop app opens.
+const LAST_PROJECT_FILE: &str = "last_project";
+
+/// The project the user last chose, if it is still a directory.
+#[must_use]
+pub fn remembered_project(home: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(home.join(LAST_PROJECT_FILE)).ok()?;
+    let path = PathBuf::from(text.trim());
+    (path.is_absolute() && path.is_dir()).then_some(path)
+}
+
+/// Remember `project` for the next start.
+///
+/// # Errors
+/// When the app data directory cannot be written.
+pub fn remember_project(home: &Path, project: &Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(home).context("creating the app data directory")?;
+    let file = home.join(LAST_PROJECT_FILE);
+    let tmp = home.join(format!("{LAST_PROJECT_FILE}.tmp"));
+    std::fs::write(&tmp, project.to_string_lossy().as_bytes())
+        .and_then(|()| std::fs::rename(&tmp, &file))
+        .with_context(|| format!("writing {}", file.display()))
+}
+
+/// Where the desktop app opens when started: the remembered project, else the
+/// directory it was launched from, except that a launcher starts apps in `/`
+/// or the home directory and treating those as a project would index the
+/// user's whole disk. They get a private starter folder instead.
+#[must_use]
+pub fn desktop_workspace(home: &Path, cwd: &Path, user_home: Option<&Path>) -> PathBuf {
+    if let Some(p) = remembered_project(home) {
+        return p;
+    }
+    let too_broad = cwd.parent().is_none() || user_home.is_some_and(|h| h == cwd);
+    if too_broad {
+        let starter = home.join("starter-project");
+        // Best effort: build_state reports the failure with the path.
+        let _ = std::fs::create_dir_all(&starter);
+        return starter;
+    }
+    cwd.to_owned()
+}
+
+impl BootOptions {
+    /// [`Self::from_process`] for the desktop shell, which picks its project
+    /// with [`desktop_workspace`].
+    ///
+    /// # Errors
+    /// When the current directory cannot be determined.
+    pub fn for_desktop() -> anyhow::Result<Self> {
+        let mut opts = Self::from_process()?;
+        let cwd = std::env::current_dir().context("reading the current directory")?;
+        let user_home = std::env::var_os("HOME").map(PathBuf::from);
+        opts.workspace_root = desktop_workspace(&opts.home, &cwd, user_home.as_deref());
+        Ok(opts)
     }
 }
 
@@ -114,4 +172,54 @@ async fn open_database(project: &ProjectData) -> anyhow::Result<sqlx::SqlitePool
         .connect_with(options)
         .await
         .with_context(|| format!("opening the history database {}", project.db_path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_remembered_project_wins_but_only_while_it_exists() {
+        let home = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        assert_eq!(remembered_project(home.path()), None);
+
+        remember_project(home.path(), project.path()).unwrap();
+        assert_eq!(
+            remembered_project(home.path()).as_deref(),
+            Some(project.path())
+        );
+        assert_eq!(
+            desktop_workspace(home.path(), cwd.path(), None),
+            project.path()
+        );
+
+        let gone = project.path().to_owned();
+        drop(project);
+        assert_eq!(remembered_project(home.path()), None, "{gone:?} is deleted");
+        assert_eq!(desktop_workspace(home.path(), cwd.path(), None), cwd.path());
+    }
+
+    #[test]
+    fn a_launcher_start_in_root_or_home_gets_a_starter_folder_instead() {
+        let home = tempfile::tempdir().unwrap();
+        let user_home = tempfile::tempdir().unwrap();
+
+        let from_home = desktop_workspace(home.path(), user_home.path(), Some(user_home.path()));
+        assert_eq!(from_home, home.path().join("starter-project"));
+        assert!(from_home.is_dir());
+
+        let from_root = desktop_workspace(home.path(), Path::new("/"), None);
+        assert_eq!(from_root, home.path().join("starter-project"));
+    }
+
+    #[test]
+    fn a_relative_or_garbled_remembered_path_is_ignored() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join("last_project"), "relative/dir").unwrap();
+        assert_eq!(remembered_project(home.path()), None);
+        std::fs::write(home.path().join("last_project"), [0xff, 0xfe]).unwrap();
+        assert_eq!(remembered_project(home.path()), None);
+    }
 }

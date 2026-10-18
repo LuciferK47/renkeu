@@ -1,10 +1,7 @@
-// The project as the server lists it, plus the user's choice of root document.
+// The project as the server lists it, plus the user's choice of root document
+// (kept by the server, so the browser and the desktop app agree).
 
 import { api as defaultApi } from '../api/client.js';
-import { readPref, writePref } from '../storage.js';
-
-const MAIN_KEY = 'latex-ai:main-file';
-
 export class ProjectState {
   /** Nested nodes from GET /api/tree. */
   tree = $state([]);
@@ -14,23 +11,31 @@ export class ProjectState {
   expanded = $state(new Set());
   /** The root document the user chose; null means "let the server decide". */
   mainOverride = $state(null);
+  /** Folder name and full location, for the title bar. */
+  name = $state('');
+  root = $state('');
 
   #api;
 
   constructor({ api = defaultApi } = {}) {
     this.#api = api;
-    this.mainOverride = readPref(MAIN_KEY, null);
   }
 
   async refresh() {
     this.loading = true;
     try {
-      this.tree = (await this.#api.getTree()).tree;
+      const [tree, settings] = await Promise.all([
+        this.#api.getTree(),
+        // Older servers and tests without the route simply have no choice saved.
+        Promise.resolve(this.#api.getProject?.()).catch(() => null)
+      ]);
+      this.tree = tree.tree;
+      this.name = settings?.name ?? this.name;
+      this.root = settings?.root ?? this.root;
       this.error = null;
-      // A remembered root that no longer exists must not be sent to the server.
-      if (this.mainOverride && !this.files().some((f) => f.path === this.mainOverride)) {
-        this.setMain(null);
-      }
+      // The server drops a chosen root that no longer exists; mirror that.
+      const main = settings?.main ?? null;
+      this.mainOverride = main && this.files().some((f) => f.path === main) ? main : null;
     } catch (e) {
       this.error = e.message;
     } finally {
@@ -70,8 +75,20 @@ export class ProjectState {
     this.expanded = next;
   }
 
-  setMain(path) {
+  /**
+   * Choose the root document (null = detect it). Shown at once, saved on the
+   * server; if saving fails the previous choice comes back.
+   */
+  async setMain(path) {
+    const previous = this.mainOverride;
     this.mainOverride = path;
-    writePref(MAIN_KEY, path);
+    try {
+      await this.#api.setMain(path);
+      return true;
+    } catch (e) {
+      this.mainOverride = previous;
+      this.error = e.message;
+      return false;
+    }
   }
 }

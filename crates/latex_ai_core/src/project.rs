@@ -32,6 +32,57 @@ pub fn project_id(canonical_root: &Path) -> String {
     hex::encode(&hash.as_bytes()[..8])
 }
 
+/// The user's choices about one project, kept beside its history (not in the
+/// project itself, so nothing appears in their working tree or their git
+/// status).
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ProjectSettings {
+    /// The document to compile, project-relative. `None` means "detect".
+    pub main: Option<String>,
+}
+
+impl ProjectSettings {
+    /// Read the settings; a missing file is the defaults.
+    ///
+    /// # Errors
+    /// A file that exists but cannot be read or parsed.
+    pub fn load(path: &Path) -> Result<Self, ProjectError> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(source) => {
+                return Err(ProjectError::Io {
+                    path: path.to_owned(),
+                    source,
+                });
+            }
+        };
+        toml::from_str(&text).map_err(|e| ProjectError::Io {
+            path: path.to_owned(),
+            source: std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()),
+        })
+    }
+
+    /// Write the settings atomically.
+    ///
+    /// # Errors
+    /// IO errors creating the directory or writing.
+    pub async fn save(&self, path: &Path) -> Result<(), ProjectError> {
+        let io = |source| ProjectError::Io {
+            path: path.to_owned(),
+            source,
+        };
+        if let Some(dir) = path.parent() {
+            tokio::fs::create_dir_all(dir).await.map_err(io)?;
+        }
+        let text = toml::to_string(self).map_err(|e| io(std::io::Error::other(e.to_string())))?;
+        crate::fsutil::atomic_write(path, text.as_bytes())
+            .await
+            .map_err(io)
+    }
+}
+
 /// Locations of one project's app-side data.
 #[derive(Debug, Clone)]
 pub struct ProjectData {
@@ -41,6 +92,12 @@ pub struct ProjectData {
 }
 
 impl ProjectData {
+    /// Where [`ProjectSettings`] live.
+    #[must_use]
+    pub fn settings_path(&self) -> PathBuf {
+        self.dir.join("project.toml")
+    }
+
     #[must_use]
     pub fn locate(home: &Path, canonical_root: &Path) -> Self {
         let id = project_id(canonical_root);
@@ -184,5 +241,34 @@ mod tests {
         let data = ProjectData::locate(home.path(), ws.path());
         assert!(!data.import_legacy(ws.path()).await.unwrap());
         assert!(!data.db_path.exists());
+    }
+
+    #[tokio::test]
+    async fn settings_round_trip_and_a_missing_file_is_the_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub/project.toml");
+        assert_eq!(
+            ProjectSettings::load(&path).unwrap(),
+            ProjectSettings::default()
+        );
+
+        let s = ProjectSettings {
+            main: Some("thesis/main.tex".into()),
+        };
+        s.save(&path).await.unwrap();
+        assert_eq!(ProjectSettings::load(&path).unwrap(), s);
+
+        ProjectSettings::default().save(&path).await.unwrap();
+        assert_eq!(ProjectSettings::load(&path).unwrap().main, None);
+    }
+
+    #[test]
+    fn unknown_keys_and_garbage_are_errors_not_silently_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("project.toml");
+        std::fs::write(&path, "mian = \"typo.tex\"\n").unwrap();
+        assert!(ProjectSettings::load(&path).is_err());
+        std::fs::write(&path, "not toml at all [[[").unwrap();
+        assert!(ProjectSettings::load(&path).is_err());
     }
 }
