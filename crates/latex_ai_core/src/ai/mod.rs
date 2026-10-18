@@ -164,10 +164,12 @@ Each AgentEdit looks like one of:
 { "file_path": "main.tex", "op": "replace_range", "text": "exact text currently in the file", "insert_text": "replacement text" }
 { "file_path": "main.tex", "op": "replace_range", "start_line": 12, "end_line": 14, "insert_text": "replacement lines" }
 { "file_path": "main.tex", "op": "insert", "line": 5, "insert_text": "new lines" }
+{ "file_path": "main.tex", "op": "rewrite_file", "payload": "the complete new contents of the file" }
 Rules:
 - "file_path" must be one of the files shown, spelled exactly as shown.
 - Line numbers always refer to the files as shown to you, even when several edits are in one answer.
 - "text" must be copied verbatim from the file WITHOUT the line numbers or the ` | `.
+- Your answer is JSON, so every backslash in LaTeX must be written as two (`\\section`, `\\textbf`), and a line break inside a string as `\n`. A single backslash before `t`, `n`, `r`, `b` or `f` silently becomes a control character and breaks the document.
 - Use op "rewrite_file" with "payload" holding the full new file only when a targeted replacement is impossible.
 - Do not add \input or \include of files outside the project, and never use \openout, \write18 or \catcode.
 - Propose the smallest edits that satisfy the instruction.
@@ -273,7 +275,12 @@ impl LlmPlanner {
         let Some(MessageContent::Text(text)) = res.content else {
             return Err(AiError::EmptyResponse);
         };
-        parse_edits(&text)
+        parse_edits(&text).inspect_err(|e| {
+            // Without the reply, "did not parse" cannot be told apart from a
+            // model that needs a better prompt. Local log only, and cut short.
+            let shown: String = text.chars().take(600).collect();
+            tracing::warn!(error = %e, reply = %shown, "the model's reply was not usable edits");
+        })
     }
 }
 
@@ -394,6 +401,35 @@ impl EditPlanner for LlmPlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_prompt_warns_that_latex_backslashes_must_be_doubled_in_json() {
+        // A model that writes `\text` in a JSON string gets a tab and `ext`;
+        // seen with a real model, so the prompt has to say it.
+        assert!(SYSTEM_PROMPT.contains("every backslash"));
+        assert!(SYSTEM_PROMPT.contains("two"));
+    }
+
+    #[test]
+    fn the_prompt_shows_the_shape_of_every_operation_it_allows() {
+        // A real model answered `{"payload": …}` alone: it had been told about
+        // rewrite_file but never shown what one looks like.
+        for op in ["replace_range", "insert", "rewrite_file"] {
+            assert!(
+                SYSTEM_PROMPT.contains(&format!(r#""op": "{op}""#)),
+                "no example of {op}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_backslash_before_t_becomes_a_tab_in_json_and_a_doubled_one_does_not() {
+        // Why the prompt rule matters: this is what the model's slip does.
+        let single: serde_json::Value = serde_json::from_str(r#"{"s":"\text"}"#).unwrap();
+        assert_eq!(single["s"], "\u{9}ext");
+        let doubled: serde_json::Value = serde_json::from_str(r#"{"s":"\\text"}"#).unwrap();
+        assert_eq!(doubled["s"], "\\text");
+    }
 
     #[test]
     fn extract_json_strips_fences_and_whitespace() {

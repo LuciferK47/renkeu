@@ -6,7 +6,7 @@
 // with E2E_SERVER_BIN) and, for the PDF preview, libpdfium on the loader path or
 // in E2E_PDFIUM_DIR. E2E_CHROME points at an installed Chrome instead of
 // Playwright's own Chromium.
-import { defineConfig } from '@playwright/test'
+import { defineConfig, devices } from '@playwright/test'
 import path from 'node:path'
 
 const here = import.meta.dirname
@@ -27,9 +27,21 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
-    launchOptions: process.env.E2E_CHROME ? { executablePath: process.env.E2E_CHROME, args: ['--no-sandbox'] } : { args: ['--no-sandbox'] }
+    screenshot: 'only-on-failure'
   },
+  // `--project=firefox` / `--project=webkit` for the others; with none named,
+  // all three run.
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: process.env.E2E_CHROME ? { executablePath: process.env.E2E_CHROME, args: ['--no-sandbox'] } : { args: ['--no-sandbox'] }
+      }
+    },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } }
+  ],
   webServer: [
     {
       // Fresh workspace and data directory every run, then the real server.

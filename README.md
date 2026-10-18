@@ -302,7 +302,15 @@ npm run build && npm run e2e                    # Playwright against the real se
 The end-to-end tests start `latex-ai serve` and `vite preview` themselves; they
 need the server binary built (`cargo build -p latex-ai-server`, or set
 `E2E_SERVER_BIN`), libpdfium (on the loader path or `E2E_PDFIUM_DIR`), and a
-browser (`npx playwright install chromium`, or set `E2E_CHROME`).
+browser (`npx playwright install chromium firefox webkit`, or set `E2E_CHROME` for Chromium; `--project=firefox` picks one engine).
+
+To drive the assistant against a real model instead of a scripted stream
+(slow and not deterministic, so never part of CI), name one `genai` can reach —
+for example a local Ollama model — and run the live spec:
+
+```sh
+E2E_LLM_MODEL=qwen2.5:7b npm run e2e -- --project=chromium assistant-live
+```
 
 ### Resource limits
 
