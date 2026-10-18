@@ -168,14 +168,21 @@ cd frontend && npm ci && npm run dev   # :5173, proxies /api to :3000
 The desktop shell bundles the same server and the built SPA into one binary.
 
 ```sh
-cd frontend && npm ci && npm run build && cd ..
+cd frontend && npm ci && cd ..
+scripts/fetch-pdfium.sh      # libpdfium for the PDF preview, verified, into the bundle's resources
 cargo tauri build --config crates/latex_ai_tauri/tauri.conf.json --bundles deb
 # -> target/release/bundle/deb/*.deb   (also: appimage; dmg/msi need macOS/Windows)
 sudo dpkg -i target/release/bundle/deb/*.deb && latex-ai-tauri
 ```
 
-The bundle is **6.5 MB** (15.4 MB binary) — the whole LaTeX engine is in there;
-no TeX Live install.
+The whole LaTeX engine is in the binary (no TeX Live install) and the package
+carries its own libpdfium under `usr/lib/Latex-AI/pdfium/`. Without the
+`fetch-pdfium.sh` step the app still builds, but PDF preview then needs a
+system libpdfium.
+
+To check a package really works, `scripts/smoke-desktop.sh PACKAGE.deb` unpacks
+it, starts the unpacked app with no other libpdfium available, compiles a
+document and renders a page (it needs a display; CI runs it under `xvfb-run`).
 
 > **Note on `external-harfbuzz`.** The workspace enables Tectonic's
 > `external-harfbuzz` feature so it links the *system* harfbuzz. Without it the

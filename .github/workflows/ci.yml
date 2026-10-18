@@ -318,7 +318,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
             pkg-config libfontconfig1-dev libgraphite2-dev libharfbuzz-dev \
             libicu-dev libfreetype-dev libssl-dev zlib1g-dev
 
@@ -336,3 +336,22 @@ jobs:
       # never held to the deny-level lints everything else is.
       - name: Lint the desktop crate
         run: cargo clippy -p latex-ai-tauri --all-targets -- -D warnings
+
+      # Compiling the crate does not show that the shipped package works: the
+      # bundle must carry libpdfium and the app must run its own compile worker
+      # from inside it. Build the real .deb, unpack it, start the unpacked app
+      # (no system pdfium on this runner) and render a page through it.
+      - name: Fetch libpdfium for the bundle
+        run: scripts/fetch-pdfium.sh
+
+      - name: Build the .deb
+        run: >
+          npx --yes @tauri-apps/cli@2.12.3 build --debug
+          --config crates/latex_ai_tauri/tauri.conf.json --bundles deb
+
+      - name: The package compiles a document and renders a page
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb
+          xvfb-run -a scripts/smoke-desktop.sh target/debug/bundle/deb/*.deb
