@@ -217,6 +217,12 @@ jobs:
           # dependency drift without letting a distro base back in.
           [ "$mb" -lt 90 ] || { echo "image grew to ${mb} MB (limit 90)"; exit 1; }
 
+      # The preview and visual fix need libpdfium at runtime, and the image has
+      # no shell to discover it is missing. `doctor` binds it exactly as the
+      # server will, so a broken or absent library fails here, not for a user.
+      - name: PDF rendering works in the image
+        run: docker run --rm latex-ai:ci /usr/local/bin/latex-ai doctor
+
       # Building is not enough: the daemon bound loopback only, which Docker
       # cannot route a published port to, while the in-container healthcheck
       # still passed. Assert reachability from *outside* the container.

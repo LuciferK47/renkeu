@@ -86,8 +86,9 @@ sudo apt-get install -y pkg-config libfontconfig1-dev libgraphite2-dev \
     libharfbuzz-dev libicu-dev libfreetype-dev libssl-dev zlib1g-dev
 ```
 
-PDF preview additionally needs **libpdfium** on the loader path (no distro
-package exists; grab a prebuilt binary):
+PDF preview additionally needs **libpdfium** (no distro package exists; grab a
+prebuilt binary). The Docker image and the desktop bundle carry their own; for a
+source build either install it system-wide:
 
 ```sh
 # Pinned to the same build CI uses; `latest` moves and has broken this before.
@@ -95,6 +96,13 @@ curl -L -o /tmp/pdfium.tgz \
   https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7961/pdfium-linux-x64.tgz
 mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
 sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/ && sudo ldconfig
+```
+
+or keep it anywhere and point at the folder with `LATEX_AI_PDFIUM_DIR=/path/to/dir`
+(`scripts/fetch-pdfium.sh DIR` downloads and verifies it for you). Check it with:
+
+```sh
+cargo run -p latex-ai-server -- doctor    # -> pdfium: ok (<where it was found>)
 ```
 
 Then:

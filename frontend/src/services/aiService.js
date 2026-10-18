@@ -75,7 +75,3 @@ export async function applySelectedHunks(
 ) {
   return api.applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag, null, options);
 }
-
-export async function requestVisualFix(region) {
-  return api.repairVisualCrop(region);
-}

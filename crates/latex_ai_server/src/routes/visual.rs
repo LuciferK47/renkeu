@@ -17,21 +17,21 @@ use latex_ai_core::security::{AccessKind, validate_path};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-/// DPI the frontend renders pages at, and therefore the space its bbox
-/// coordinates live in. Kept explicit in the payload so a zoomed viewer can
-/// send the DPI it actually used.
+/// Resolution the region sent to the model is rasterized at. Independent of
+/// whatever zoom the viewer is at: boxes arrive in PDF points, which do not
+/// change with zoom, device pixel ratio or the DPI a page image was served at.
+const CROP_DPI: u16 = 200;
+
+/// DPI a page image is served at when the request does not say.
 const DEFAULT_DPI: u16 = 150;
 
 /// Source context sent with the crop, in lines either side of the hit
 /// (masterplan §6.4).
 const SNIPPET_CONTEXT_LINES: u32 = 30;
 
-/// Guard against absurd crops long before pdfium sees them.
-const MAX_BBOX_PX: u32 = 20_000;
-
-fn default_dpi() -> u16 {
-    DEFAULT_DPI
-}
+/// Guard against absurd crops long before pdfium sees them. A page larger
+/// than this in either direction is not a page.
+const MAX_BBOX_PT: f64 = 5_000.0;
 
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -46,13 +46,13 @@ pub struct VisualFixPayload {
     pub build: Option<String>,
     /// 1-based page number.
     pub page: u32,
-    /// Bounding box in **pixels** of the page image rendered at `dpi`.
-    pub x: u32,
-    pub y: u32,
-    pub w: u32,
-    pub h: u32,
-    #[serde(default = "default_dpi")]
-    pub dpi: u16,
+    /// Bounding box in **PDF points** (1/72 inch) from the page's top-left
+    /// corner: the unit `SyncTeX` answers in, and one that does not depend on
+    /// how the page was displayed.
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
     /// What the user wants changed. Optional: an empty box still means "fix
     /// whatever is wrong here".
     #[serde(default)]
@@ -89,7 +89,7 @@ pub async fn visual_fix(
 ) -> Result<Json<VisualFixResponse>, ApiError> {
     super::agent::ensure_ai_available(&state)?;
     validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?;
-    let dpi = validate_bbox(&req)?;
+    validate_bbox(&req)?;
 
     let build = resolve_build(&state, req.build.as_deref(), Some(&req.file_path)).await?;
     ensure_build_is_current(&state, &build).await?;
@@ -111,10 +111,9 @@ pub async fn visual_fix(
             message: format!("reading the SyncTeX map: {e}"),
         })?;
 
-    // The bbox is in page-image pixels; SyncTeX answers in PDF points. Probe
-    // the centre of the box — that is what the user pointed at.
-    let probe_x = px_to_bp(req.x + req.w / 2, dpi);
-    let probe_y = px_to_bp(req.y + req.h / 2, dpi);
+    // Probe the centre of the box — that is what the user pointed at.
+    let probe_x = req.x + req.w / 2.0;
+    let probe_y = req.y + req.h / 2.0;
 
     let hit = data
         .backward_search(req.page, probe_x, probe_y)
@@ -139,7 +138,7 @@ pub async fn visual_fix(
     let (snippet, snippet_start_line) = snippet_around(&source, hit.line, SNIPPET_CONTEXT_LINES);
 
     // --- crop -----------------------------------------------------------
-    let base64_crop = render_crop(pdf_path, &req, dpi).await?;
+    let base64_crop = render_crop(pdf_path, &req).await?;
 
     // --- ask the model --------------------------------------------------
     let instruction = sanitized_instruction(req.instruction.as_deref())?;
@@ -191,21 +190,17 @@ pub async fn visual_fix(
     }))
 }
 
-/// Pixels at `dpi` -> PDF points (1/72 inch).
-fn px_to_bp(px: u32, dpi: u16) -> f64 {
-    f64::from(px) * 72.0 / f64::from(dpi)
-}
-
-/// Reject nonsensical boxes up front; returns the clamped DPI.
-fn validate_bbox(req: &VisualFixPayload) -> Result<u16, ApiError> {
-    if req.w == 0 || req.h == 0 {
+/// Reject nonsensical boxes up front.
+fn validate_bbox(req: &VisualFixPayload) -> Result<(), ApiError> {
+    let sane = |v: f64| v.is_finite() && (0.0..=MAX_BBOX_PT).contains(&v);
+    if !(sane(req.x) && sane(req.y) && sane(req.w) && sane(req.h)) {
         return Err(ApiError::Unprocessable {
-            message: "bounding box has zero width or height".to_owned(),
+            message: format!("bounding box must be finite and within 0..{MAX_BBOX_PT} points"),
         });
     }
-    if req.w > MAX_BBOX_PX || req.h > MAX_BBOX_PX {
+    if req.w <= 0.0 || req.h <= 0.0 {
         return Err(ApiError::Unprocessable {
-            message: format!("bounding box exceeds {MAX_BBOX_PX}px"),
+            message: "bounding box has zero width or height".to_owned(),
         });
     }
     if req.page == 0 {
@@ -213,7 +208,17 @@ fn validate_bbox(req: &VisualFixPayload) -> Result<u16, ApiError> {
             message: "page numbers are 1-based".to_owned(),
         });
     }
-    Ok(req.dpi.clamp(36, 600))
+    Ok(())
+}
+
+/// Points -> pixels at [`CROP_DPI`], rounded; at least 1 for sizes.
+fn pt_to_px(pt: f64) -> u32 {
+    let px = (pt * f64::from(CROP_DPI) / 72.0).round();
+    // Bounded by MAX_BBOX_PT * 200/72, far below u32::MAX.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    {
+        px.max(0.0) as u32
+    }
 }
 
 /// Rasterize the page and crop the bbox, returning base64 PNG. The crop is
@@ -224,14 +229,15 @@ fn validate_bbox(req: &VisualFixPayload) -> Result<u16, ApiError> {
 async fn render_crop(
     pdf_path: std::path::PathBuf,
     req: &VisualFixPayload,
-    dpi: u16,
 ) -> Result<String, ApiError> {
-    let (page, x, y, w, h) = (req.page, req.x, req.y, req.w, req.h);
+    let page = req.page;
+    let (x, y) = (pt_to_px(req.x), pt_to_px(req.y));
+    let (w, h) = (pt_to_px(req.w).max(1), pt_to_px(req.h).max(1));
 
     let crop = tokio::task::spawn_blocking(
         move || -> Result<std::sync::Arc<[u8]>, ::visual::VisualError> {
             let renderer = ::visual::render::renderer()?;
-            let img = renderer.render_page(&pdf_path, page - 1, dpi)?;
+            let img = renderer.render_page(&pdf_path, page - 1, CROP_DPI)?;
             // Deliberately not tone-mapped. The model is being asked what is
             // wrong with the document as it will print, so it gets the true
             // colours; toning is a reading comfort for the human viewer only.
@@ -278,7 +284,7 @@ fn sanitized_instruction(raw: Option<&str>) -> Result<String, ApiError> {
 ///
 /// `SyncTeX` records absolute paths for the project's files; a name that is
 /// empty, a placeholder, or outside the workspace means "the main file".
-fn resolve_hit_path(
+pub(crate) fn resolve_hit_path(
     state: &AppState,
     main: &str,
     hit: &synctex::SourceHit,
@@ -297,6 +303,21 @@ async fn ensure_build_is_current(
     state: &AppState,
     build: &latex_ai_compiler::builds::Build,
 ) -> Result<(), ApiError> {
+    if build_is_current(state, build).await? {
+        Ok(())
+    } else {
+        Err(ApiError::Conflict {
+            message: "the document changed since this PDF was compiled; compile again, then select the region"
+                .to_owned(),
+        })
+    }
+}
+
+/// Whether the project still hashes to this build's id.
+pub(crate) async fn build_is_current(
+    state: &AppState,
+    build: &latex_ai_compiler::builds::Build,
+) -> Result<bool, ApiError> {
     let (root, main) = (state.workspace_root.clone(), build.manifest.main.clone());
     let current = tokio::task::spawn_blocking(move || {
         latex_ai_compiler::project::fingerprint(&root, &main, true)
@@ -308,14 +329,7 @@ async fn ensure_build_is_current(
     .map_err(|e| ApiError::Internal {
         message: format!("reading the project: {e}"),
     })?;
-    if current == build.id() {
-        Ok(())
-    } else {
-        Err(ApiError::Conflict {
-            message: "the document changed since this PDF was compiled; compile again, then select the region"
-                .to_owned(),
-        })
-    }
+    Ok(current == build.id())
 }
 
 /// Find the build a request is about: the one it names, else the newest
@@ -464,11 +478,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pixels_convert_to_points_by_dpi() {
-        // 150dpi: 150px == 1 inch == 72bp.
-        assert!((px_to_bp(150, 150) - 72.0).abs() < 1e-9);
-        assert!((px_to_bp(300, 300) - 72.0).abs() < 1e-9);
-        assert!((px_to_bp(0, 150) - 0.0).abs() < 1e-9);
+    fn points_convert_to_crop_pixels() {
+        // One inch is 72 points and CROP_DPI pixels.
+        assert_eq!(pt_to_px(72.0), u32::from(CROP_DPI));
+        assert_eq!(pt_to_px(0.0), 0);
+        assert_eq!(pt_to_px(-5.0), 0, "negative never wraps");
+    }
+
+    fn payload(x: f64, y: f64, w: f64, h: f64, page: u32) -> VisualFixPayload {
+        VisualFixPayload {
+            file_path: "main.tex".into(),
+            build: None,
+            page,
+            x,
+            y,
+            w,
+            h,
+            instruction: None,
+        }
+    }
+
+    #[test]
+    fn boxes_must_be_finite_positive_and_bounded() {
+        assert!(validate_bbox(&payload(10.0, 10.0, 50.0, 50.0, 1)).is_ok());
+        for bad in [
+            payload(10.0, 10.0, 0.0, 50.0, 1),
+            payload(10.0, 10.0, 50.0, 0.0, 1),
+            payload(10.0, 10.0, 50.0, 50.0, 0),
+            payload(f64::NAN, 10.0, 50.0, 50.0, 1),
+            payload(10.0, f64::INFINITY, 50.0, 50.0, 1),
+            payload(-1.0, 10.0, 50.0, 50.0, 1),
+            payload(10.0, 10.0, MAX_BBOX_PT + 1.0, 50.0, 1),
+        ] {
+            assert!(validate_bbox(&bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

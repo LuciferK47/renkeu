@@ -230,8 +230,6 @@ async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line(
         .next()
         .expect("line 7 (the includegraphics) must typeset something");
 
-    // PDF points -> page-image pixels at 150dpi.
-    let to_px = |bp: f64| (bp * 150.0 / 72.0).round() as u32;
     let res = build_router(app.state.clone())
         .unwrap()
         .oneshot(post(
@@ -239,11 +237,11 @@ async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line(
             &json!({
                 "file_path": "main.tex",
                 "page": figure.page,
-                "x": to_px(figure.x),
-                "y": to_px(figure.y),
-                "w": to_px(figure.width).max(1),
-                "h": to_px(figure.height).max(1),
-                "dpi": 150,
+                // Boxes are in PDF points, exactly as SyncTeX reports them.
+                "x": figure.x,
+                "y": figure.y,
+                "w": figure.width.max(1.0),
+                "h": figure.height.max(1.0),
                 "instruction": "shrink this image to fit the column"
             }),
         ))
@@ -416,12 +414,12 @@ async fn a_bbox_outside_the_page_is_422_not_500() {
     let app = test_app(Arc::new(planner)).await;
     compile_fixture(&app, FIGURE_DOC).await;
 
-    // Well beyond a Letter page at 150dpi (1275x1650).
+    // Well beyond a Letter page (612 x 792 points), but a plausible number.
     let res = build_router(app.state.clone())
         .unwrap()
         .oneshot(post(
             "/api/visual-fix",
-            &json!({"file_path": "main.tex", "page": 1, "x": 9000, "y": 9000, "w": 50, "h": 50}),
+            &json!({"file_path": "main.tex", "page": 1, "x": 2000, "y": 2000, "w": 50, "h": 50}),
         ))
         .await
         .unwrap();

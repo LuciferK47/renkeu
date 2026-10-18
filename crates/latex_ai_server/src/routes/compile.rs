@@ -309,14 +309,33 @@ async fn find_build(state: &AppState, id: &str) -> Result<Build, ApiError> {
         })
 }
 
+/// A stored build as the API describes it: the manifest plus what is cheap to
+/// learn from the PDF, so a reloaded page can show the last result again.
+#[derive(serde::Serialize)]
+pub struct BuildInfo {
+    #[serde(flatten)]
+    manifest: latex_ai_compiler::builds::Manifest,
+    /// 0 when there is no PDF or it cannot be read.
+    page_count: u16,
+}
+
 /// `GET /api/builds/{id}` — what the compile found: success, main file and
-/// every diagnostic with its file and line.
+/// every diagnostic with its file and line, and how many pages it has.
 #[instrument(skip(state))]
 pub async fn get_build(
     Path(id): Path<String>,
     State(state): State<AppState>,
-) -> Result<Json<latex_ai_compiler::builds::Manifest>, ApiError> {
-    Ok(Json(find_build(&state, &id).await?.manifest))
+) -> Result<Json<BuildInfo>, ApiError> {
+    let build = find_build(&state, &id).await?;
+    let page_count = if build.manifest.has_pdf {
+        count_pages(build.pdf_path()).await.unwrap_or(0)
+    } else {
+        0
+    };
+    Ok(Json(BuildInfo {
+        manifest: build.manifest,
+        page_count,
+    }))
 }
 
 /// `GET /api/builds/{id}/pdf` — the finished PDF as a download. This is the

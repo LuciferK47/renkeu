@@ -105,3 +105,7 @@ history.db
 # Design scratch: screenshots and the published plan page live outside the build
 .design/
 .playwright-mcp/
+
+# Downloaded by scripts/fetch-pdfium.sh for the desktop bundle.
+crates/latex_ai_tauri/resources/pdfium/*
+!crates/latex_ai_tauri/resources/pdfium/README.md

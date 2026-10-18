@@ -9,36 +9,109 @@
 
 use crate::VisualError;
 use pdfium_render::prelude::*;
-use std::path::Path;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 /// Process-global pdfium binding. Stays `None` if binding failed, so we do not
 /// retry (and re-fail) on every request.
 static PDFIUM: OnceLock<Option<Pdfium>> = OnceLock::new();
+
+/// Where the binding came from, for `doctor` and for the log line.
+static SOURCE: OnceLock<String> = OnceLock::new();
+
+/// Directories the application added before the first render, searched after
+/// `LATEX_AI_PDFIUM_DIR`. The desktop shell adds its bundled-resources folder.
+static EXTRA_DIRS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Environment variable naming a directory that holds the pdfium library.
+pub const DIR_ENV: &str = "LATEX_AI_PDFIUM_DIR";
+
+/// Add a directory to search for the pdfium library. Only effective before the
+/// first call to [`renderer`] (the binding is made once per process).
+pub fn add_search_dir(dir: impl Into<PathBuf>) {
+    if let Ok(mut dirs) = EXTRA_DIRS.lock() {
+        dirs.push(dir.into());
+    }
+}
+
+/// Directories to look in, most specific first: the environment, anything the
+/// application registered, then beside the executable (a portable install).
+fn search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(d) = std::env::var_os(DIR_ENV).filter(|d| !d.is_empty()) {
+        dirs.push(PathBuf::from(d));
+    }
+    if let Ok(extra) = EXTRA_DIRS.lock() {
+        dirs.extend(extra.iter().cloned());
+    }
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+    {
+        dirs.push(exe_dir.join("lib"));
+        dirs.push(exe_dir);
+    }
+    dirs
+}
+
+fn bind() -> Option<Pdfium> {
+    for dir in search_dirs() {
+        let path = Pdfium::pdfium_platform_library_name_at_path(&dir);
+        if !path.is_file() {
+            continue;
+        }
+        match Pdfium::bind_to_library(&path) {
+            Ok(bindings) => {
+                let _ = SOURCE.set(path.display().to_string());
+                return Some(Pdfium::new(bindings));
+            }
+            // Found but unusable (wrong architecture, missing dependency):
+            // say so, and keep looking rather than hiding it.
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = ?e, "pdfium found but could not be loaded");
+            }
+        }
+    }
+    match Pdfium::bind_to_system_library().or_else(|_| Pdfium::bind_to_library("pdfium")) {
+        Ok(bindings) => {
+            let _ = SOURCE.set("the system library path".to_owned());
+            Some(Pdfium::new(bindings))
+        }
+        Err(e) => {
+            tracing::error!(error = ?e, "failed to bind pdfium; PDF rendering disabled");
+            None
+        }
+    }
+}
 
 /// Borrow the shared renderer, binding pdfium on first use. Cheap to call.
 ///
 /// # Errors
 /// [`VisualError::Pdf`] if no pdfium library can be bound.
 pub fn renderer() -> Result<PdfRenderer, VisualError> {
-    let bound = PDFIUM.get_or_init(|| {
-        match Pdfium::bind_to_system_library().or_else(|_| Pdfium::bind_to_library("pdfium")) {
-            Ok(bindings) => Some(Pdfium::new(bindings)),
-            Err(e) => {
-                tracing::error!(error = ?e, "failed to bind pdfium; PDF rendering disabled");
-                None
-            }
-        }
-    });
+    let bound = PDFIUM.get_or_init(bind);
 
     bound.as_ref().map_or_else(
         || {
-            Err(VisualError::Pdf(
-                "pdfium library unavailable (install libpdfium)".to_owned(),
-            ))
+            Err(VisualError::Pdf(format!(
+                "pdfium library unavailable: set {DIR_ENV} to the folder holding it, \
+                 or install libpdfium (see the README)"
+            )))
         },
         |pdfium| Ok(PdfRenderer { pdfium }),
     )
+}
+
+/// Bind pdfium now and say where it came from.
+///
+/// # Errors
+/// As [`renderer`].
+pub fn library_source() -> Result<String, VisualError> {
+    renderer()?;
+    Ok(SOURCE
+        .get()
+        .cloned()
+        .unwrap_or_else(|| "an unknown location".to_owned()))
 }
 
 /// Renders pages from PDF files. Obtain one with [`renderer`]; it borrows the

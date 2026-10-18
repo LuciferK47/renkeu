@@ -27,6 +27,7 @@
 
   const OPEN_KEY = 'latex-ai:open-files'
   const RECENT_KEY = 'latex-ai:recent-files'
+  const BUILD_KEY = 'latex-ai:last-build'
 
   // Read before the effect below overwrites it with the (still empty) tab list.
   const lastSession = readPref(OPEN_KEY, { paths: [], active: null })
@@ -36,6 +37,7 @@
   let SettingsPanel = $state(null)
   let HistorySidebar = $state(null)
   let editorPane = $state()
+  let pdfPane = $state()
   let aiEnabled = $state(true)
   let cursor = $state(null)
   let recent = $state(readPref(RECENT_KEY, []))
@@ -82,6 +84,40 @@
     await openFile(file)
     await tick()
     editorPane?.reveal(line)
+  }
+
+  // ---- SyncTeX -------------------------------------------------------
+
+  const staleNote = 'The PDF is older than your edits, so the position may be off. Compile to refresh.'
+
+  /** Source line under the cursor -> its place in the PDF. */
+  async function showInPdf() {
+    const doc = documents.active
+    if (!doc) return
+    if (!compile.buildId) {
+      ui.toast('Compile first: there is no PDF to point into yet.', 'info')
+      return
+    }
+    try {
+      const found = await api.synctexForward({ file: doc.path, line: cursor?.line ?? 1, build: compile.buildId })
+      const where = found.region ?? found.hits[0]
+      if (!where) {
+        ui.toast('That line produced nothing in the PDF.', 'info')
+        return
+      }
+      pdfPane?.showHit(where)
+      if (found.stale) ui.toast(staleNote, 'info')
+    } catch (e) {
+      ui.toast(e.status === 404 ? 'This file is not part of the compiled PDF.' : `Could not locate the line: ${e.message}`, 'error')
+    }
+  }
+
+  /** A spot on the PDF was double-clicked: open the source behind it. */
+  async function jumpToSource({ file, line, stale }) {
+    await openFile(file)
+    await tick()
+    editorPane?.reveal(line)
+    if (stale) ui.toast(staleNote, 'info')
   }
 
   /** A reference was followed in the editor: open where it is defined. */
@@ -199,6 +235,7 @@
       { id: 'history', title: 'Show history', keys: 'Alt+H', run: openHistory },
       { id: 'settings', title: 'Settings', keys: 'Mod+,', run: openSettings },
       { id: 'open-project', title: 'Open project folder…', enabled: isDesktop, run: openProject },
+      { id: 'forward-search', title: 'Show this line in the PDF', keys: 'Mod+Alt+J', enabled: hasDoc, run: showInPdf },
       { id: 'go-to-definition', title: 'Go to definition', keys: 'F12', enabled: hasDoc, run: () => editorPane?.followReference() },
       { id: 'toggle-spellcheck', title: 'Toggle spell check', run: () => ui.toggle('spellcheck') },
       { id: 'refresh-files', title: 'Refresh file list', run: () => project.refresh() },
@@ -216,6 +253,8 @@
     // Reopen what was open last time, then show the tree.
     ;(async () => {
       await project.refresh()
+      // Show the PDF of the previous session instead of an empty pane.
+      if (project.root) await compile.restore(readPref(`${BUILD_KEY}:${project.root}`, null))
       for (const path of lastSession.paths ?? []) {
         if (project.files().some((f) => f.path === path)) await openFile(path)
       }
@@ -247,6 +286,13 @@
   // Remember the open tabs.
   $effect(() => {
     writePref(OPEN_KEY, { paths: documents.docs.map((d) => d.path), active: documents.activePath })
+  })
+
+  // Remember the latest build so a reload can show it again.
+  $effect(() => {
+    if (project.root && compile.buildId && (compile.status === 'success' || compile.status === 'error')) {
+      writePref(`${BUILD_KEY}:${project.root}`, compile.buildId)
+    }
   })
 
   // A resolved conflict no longer needs its "decide later" mark.
@@ -300,7 +346,16 @@
             />
           </Pane>
           <Pane size={ui.sizes.pdf} minSize={15}>
-            <PdfPane {compile} sourcePath={documents.active?.path ?? ''} oncompile={compileNow} onvisualproposal={onVisualProposal} />
+            <PdfPane
+              bind:this={pdfPane}
+              {compile}
+              sourcePath={documents.active?.path ?? ''}
+              oncompile={compileNow}
+              onvisualproposal={onVisualProposal}
+              onjump={jumpToSource}
+              onlocate={showInPdf}
+              onnotice={(m) => ui.toast(m, 'info')}
+            />
           </Pane>
           {#if ui.chat}
             <Pane size={ui.sizes.chat} minSize={12}>

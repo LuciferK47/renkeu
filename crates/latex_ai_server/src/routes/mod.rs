@@ -5,4 +5,5 @@ pub mod files;
 pub mod history;
 pub mod manage;
 pub mod metrics;
+pub mod synctex;
 pub mod visual;

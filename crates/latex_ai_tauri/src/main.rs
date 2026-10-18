@@ -42,6 +42,11 @@ fn main() -> anyhow::Result<()> {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![pick_project])
         .setup(move |handle| {
+            // The bundle carries its own libpdfium (see tauri.conf.json); tell
+            // the renderer where, before the first page is asked for.
+            if let Ok(resources) = tauri::Manager::path(handle).resource_dir() {
+                latex_ai_server::bootstrap::add_pdfium_search_dir(resources.join("pdfium"));
+            }
             tauri::WebviewWindowBuilder::new(
                 handle,
                 "main",

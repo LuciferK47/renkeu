@@ -30,6 +30,9 @@
       "icons/icon.ico"
     ],
     "category": "Productivity",
-    "shortDescription": "Local-first LaTeX editor with a self-healing AI compile loop"
+    "shortDescription": "Local-first LaTeX editor with a self-healing AI compile loop",
+    "resources": {
+      "resources/pdfium/": "pdfium/"
+    }
   }
 }

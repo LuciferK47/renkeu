@@ -239,6 +239,8 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
         )
         .route("/api/visual-fix", post(routes::visual::visual_fix))
         .route("/api/pdf/page", get(routes::visual::get_pdf_page))
+        .route("/api/synctex/forward", get(routes::synctex::forward))
+        .route("/api/synctex/backward", get(routes::synctex::backward))
         .route("/api/metrics", get(routes::metrics::get_metrics))
         // Counting sits inside CORS/trace so it sees exactly the requests
         // that reach a route, once each (§12 M5 audit: logic correctness).

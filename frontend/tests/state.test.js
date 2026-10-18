@@ -94,6 +94,45 @@ describe('CompileState', () => {
   })
 })
 
+describe('CompileState.restore', () => {
+  const manifest = (over = {}) => ({ build_id: 'a'.repeat(32), main: 'main.tex', success: true, has_pdf: true, page_count: 4, diagnostics: [diag('warning')], ...over })
+
+  it('shows the previous compile again without running one', async () => {
+    const api = { getBuild: vi.fn(async () => manifest()), compile: vi.fn() }
+    const c = new CompileState({ api })
+    expect(await c.restore('a'.repeat(32))).toBe(true)
+    expect(c.status).toBe('success')
+    expect(c.pageCount).toBe(4)
+    expect(c.buildId).toBe('a'.repeat(32))
+    expect(c.mainFile).toBe('main.tex')
+    expect(c.warnings).toHaveLength(1)
+    expect(api.compile).not.toHaveBeenCalled()
+  })
+
+  it('restores a failed build as its errors', async () => {
+    const c = new CompileState({ api: { getBuild: async () => manifest({ success: false, has_pdf: false, page_count: 0, diagnostics: [diag('error', { line: 9 })] }) } })
+    await c.restore('a'.repeat(32))
+    expect(c.status).toBe('error')
+    expect(c.errors).toEqual([expect.objectContaining({ line: 9 })])
+  })
+
+  it('does nothing for a build that is gone, with no id, or once something has already run', async () => {
+    expect(await new CompileState({ api: { getBuild: async () => { throw new Error('404') } } }).restore('a'.repeat(32))).toBe(false)
+    expect(await new CompileState({ api: {} }).restore(null)).toBe(false)
+
+    const busy = new CompileState({ api: { getBuild: vi.fn() } })
+    busy.status = 'compiling'
+    expect(await busy.restore('a'.repeat(32))).toBe(false)
+
+    // A compile that starts while the request is in flight wins.
+    const c = new CompileState({ api: { getBuild: async () => manifest() } })
+    const pending = c.restore('a'.repeat(32))
+    c.status = 'compiling'
+    expect(await pending).toBe(false)
+    expect(c.status).toBe('compiling')
+  })
+})
+
 describe('ProjectState', () => {
   const tree = [
     { name: 'ch', path: 'ch', kind: 'dir', editable: false, children: [{ name: 'a.tex', path: 'ch/a.tex', kind: 'file', editable: true }, { name: 'p.png', path: 'ch/p.png', kind: 'file', editable: false }] },

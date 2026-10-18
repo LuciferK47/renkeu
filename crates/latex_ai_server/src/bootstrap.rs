@@ -98,6 +98,20 @@ impl BootOptions {
     }
 }
 
+/// Tell the PDF renderer about an extra folder that may hold libpdfium (the
+/// desktop bundle's resources). Call before the first request.
+pub fn add_pdfium_search_dir(dir: impl Into<PathBuf>) {
+    visual::render::add_search_dir(dir);
+}
+
+/// Bind pdfium now and report where it was found, for `latex-ai doctor`.
+///
+/// # Errors
+/// When no usable library can be found.
+pub fn check_pdfium() -> anyhow::Result<String> {
+    visual::render::library_source().map_err(anyhow::Error::from)
+}
+
 /// Load settings, open and migrate the project database, and wire the state.
 ///
 /// # Errors

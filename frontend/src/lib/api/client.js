@@ -250,8 +250,9 @@ export class APIClient {
     });
   }
 
-  // Region coordinates are pixels of the page image rendered at `dpi`.
-  repairVisualCrop({ filePath, buildId, page, x, y, w, h, dpi, instruction }) {
+  // The region is in PDF points from the page's top-left corner, so it means
+  // the same thing at any zoom.
+  repairVisualCrop({ filePath, buildId, page, x, y, w, h, instruction }) {
     return this.request('POST', '/visual-fix', {
       body: {
         file_path: filePath,
@@ -261,10 +262,23 @@ export class APIClient {
         y,
         w,
         h,
-        ...(dpi ? { dpi } : {}),
         ...(instruction ? { instruction } : {})
       }
     });
+  }
+
+  // --- SyncTeX -----------------------------------------------------------
+
+  // Source line -> where it landed in the PDF.
+  // -> { build, stale, hits: [{ page, x, y, width, height, line }] } (points)
+  synctexForward({ file, line, build }) {
+    return this.request('GET', '/synctex/forward', { params: { file, line, build } });
+  }
+
+  // A point on a page (PDF points) -> the source line behind it.
+  // -> { file, line, column, exact, stale }
+  synctexBackward({ build, page, x, y }) {
+    return this.request('GET', '/synctex/backward', { params: { build, page, x, y } });
   }
 
   getConfig() {

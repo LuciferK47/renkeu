@@ -98,6 +98,36 @@ export class CompileState {
     }
   }
 
+  /**
+   * Show the result of an earlier compile again (after a page reload) without
+   * running one. Does nothing if a compile is running or has finished, or if
+   * the build is gone.
+   */
+  async restore(buildId) {
+    if (!buildId || this.status !== 'idle') return false;
+    try {
+      const build = await this.#api.getBuild(buildId);
+      if (this.status !== 'idle') return false; // a compile started meanwhile
+      const { errors, warnings } = splitDiagnostics(build.diagnostics);
+      this.buildId = buildId;
+      this.mainFile = build.main ?? null;
+      this.warnings = warnings;
+      if (build.success && build.page_count > 0) {
+        this.status = 'success';
+        this.pageCount = build.page_count;
+        this.errors = [];
+        this.message = 'Showing the last compile';
+      } else {
+        this.status = 'error';
+        this.errors = errors.length > 0 ? errors : [{ message: 'The last compile failed' }];
+        this.message = 'Showing the last compile';
+      }
+      return true;
+    } catch {
+      return false; // pruned or unreachable: start from a clean slate
+    }
+  }
+
   /** Forget the last result (a different project, say). */
   reset() {
     this.status = 'idle';

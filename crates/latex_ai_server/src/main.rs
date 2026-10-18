@@ -48,6 +48,12 @@ enum Command {
         #[arg(long, default_value_t = 3000)]
         port: u16,
     },
+    /// Check that PDF rendering can start: bind libpdfium and say where it
+    /// came from. Exits non-zero if it cannot.
+    ///
+    /// The container has no shell to inspect, and a missing library otherwise
+    /// shows up only as a 500 on the first page request.
+    Doctor,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -70,7 +76,17 @@ async fn run() -> anyhow::Result<()> {
         Command::Serve { port, host } => serve(&host, port).await,
         Command::Compile { file, out } => compile(&file, &out).await,
         Command::Healthcheck { port } => healthcheck(port).await,
+        Command::Doctor => doctor(),
     }
+}
+
+// The report is this command's output, not a log line.
+#[allow(clippy::print_stdout)]
+fn doctor() -> anyhow::Result<()> {
+    let source =
+        latex_ai_server::bootstrap::check_pdfium().context("PDF rendering is unavailable")?;
+    println!("pdfium: ok ({source})");
+    Ok(())
 }
 
 async fn serve(host: &str, port: u16) -> anyhow::Result<()> {

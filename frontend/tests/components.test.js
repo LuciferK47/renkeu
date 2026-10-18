@@ -6,6 +6,8 @@ vi.mock('../src/lib/api/client.js', () => ({
     getBuildLog: vi.fn(),
     pdfPageUrl: (file, n, dpi, tone, build) => `/page?${build ? `build=${build}` : `file=${file}`}&n=${n}&dpi=${dpi}`,
     exportPdfUrl: (id) => `/export/${id}`,
+    synctexBackward: vi.fn(),
+    repairVisualCrop: vi.fn(),
     rawUrl: (p) => `/raw?path=${encodeURIComponent(p)}`,
   },
   APIError: class extends Error {},
@@ -453,5 +455,114 @@ describe('OutlinePanel', () => {
     const model = { onDidChangeContent: vi.fn(() => ({ dispose() {} })) }
     render(OutlinePanel, { props: { documents: { active: { path: 'refs.bib', model, text: '\\section{x}' } } } })
     expect(await screen.findByText(/No headings/)).toBeTruthy()
+  })
+})
+
+describe('PdfPane: SyncTeX and visual fix', () => {
+  const built = () => {
+    const c = new CompileState({ api: {} })
+    Object.assign(c, { status: 'success', buildId: 'b'.repeat(32), pageCount: 2, mainFile: 'main.tex' })
+    return c
+  }
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.clearAllMocks()
+  })
+
+  it('double-click asks the server which source line is under the pointer, in points', async () => {
+    api.synctexBackward.mockResolvedValue({ file: 'ch/a.tex', line: 12, stale: false })
+    const onjump = vi.fn()
+    render(PdfPane, { props: { compile: built(), sourcePath: 'main.tex', onjump } })
+
+    // 96 css px at 100% zoom is 72 points (1 inch).
+    await fireEvent.dblClick(document.querySelector('[data-page="2"]'), { clientX: 96, clientY: 192 })
+
+    await waitFor(() => expect(onjump).toHaveBeenCalledWith({ file: 'ch/a.tex', line: 12, stale: false }))
+    expect(api.synctexBackward).toHaveBeenCalledWith({ build: 'b'.repeat(32), page: 2, x: 72, y: 144 })
+  })
+
+  it('says so when a spot has no source, instead of failing silently', async () => {
+    api.synctexBackward.mockRejectedValue(Object.assign(new Error('miss'), { status: 404 }))
+    const onnotice = vi.fn()
+    render(PdfPane, { props: { compile: built(), sourcePath: 'main.tex', onnotice } })
+    await fireEvent.dblClick(document.querySelector('[data-page="1"]'), { clientX: 10, clientY: 10 })
+    await waitFor(() => expect(onnotice).toHaveBeenCalledWith(expect.stringMatching(/No source position/)))
+  })
+
+  it('shows a forward-search hit as a box placed by points at the current zoom', async () => {
+    Element.prototype.scrollTo = vi.fn() // jsdom does not implement scrolling
+    const { component } = render(PdfPane, { props: { compile: built(), sourcePath: 'main.tex' } })
+    component.showHit({ page: 2, x: 72, y: 36, width: 144, height: 12, line: 5 })
+
+    await waitFor(() => expect(document.querySelector('[data-page="2"] .hit')).toBeTruthy())
+    const hit = document.querySelector('[data-page="2"] .hit')
+    expect(hit.style.left).toBe('96px')
+    expect(hit.style.top).toBe('48px')
+    expect(hit.style.width).toBe('192px')
+    expect(document.querySelector('[data-page="1"] .hit')).toBeNull()
+
+    // At 200% the same region is twice as many pixels.
+    await fireEvent.click(screen.getByRole('button', { name: 'Zoom in' })) // 125%
+    await waitFor(() => expect(document.querySelector('.hit').style.left).toBe('120px'))
+  })
+
+  it('Ctrl+wheel zooms and a plain wheel scrolls', async () => {
+    render(PdfPane, { props: { compile: built(), sourcePath: 'main.tex' } })
+    const scroller = document.querySelector('.scroller')
+
+    const plain = new WheelEvent('wheel', { deltaY: -100, cancelable: true })
+    scroller.dispatchEvent(plain)
+    expect(plain.defaultPrevented).toBe(false)
+    expect(screen.getByText('100%')).toBeTruthy()
+
+    const ctrl = new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, cancelable: true })
+    scroller.dispatchEvent(ctrl)
+    expect(ctrl.defaultPrevented).toBe(true)
+    await waitFor(() => expect(screen.getByText('110%')).toBeTruthy())
+  })
+
+  it('offers "Find line" only where the app can answer it', () => {
+    const onlocate = vi.fn()
+    const { unmount } = render(PdfPane, { props: { compile: built(), sourcePath: 'main.tex' } })
+    expect(screen.queryByRole('button', { name: 'Find line' })).toBeNull()
+    unmount()
+    render(PdfPane, { props: { compile: built(), sourcePath: 'main.tex', onlocate } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find line' }))
+    expect(onlocate).toHaveBeenCalled()
+  })
+
+  it('a region drawn in visual-fix mode is sent in points, zoom-independent, and handed up for review', async () => {
+    api.repairVisualCrop.mockResolvedValue({ edits: [{}], etag: 'e', file: 'main.tex' })
+    const onvisualproposal = vi.fn()
+    render(PdfPane, { props: { compile: built(), sourcePath: 'main.tex', onvisualproposal } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Visual fix' }))
+    await fireEvent.input(screen.getByLabelText('What should change'), { target: { value: 'shrink it' } })
+
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: 816 })
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: 1056 })
+    const layer = document.querySelector('[data-page="1"] .layer')
+    await fireEvent.pointerDown(layer, { clientX: 96, clientY: 96, button: 0, pointerId: 1 })
+    await fireEvent.pointerMove(layer, { clientX: 288, clientY: 192, pointerId: 1 })
+    await fireEvent.pointerUp(layer, { clientX: 288, clientY: 192, pointerId: 1 })
+
+    await waitFor(() => expect(onvisualproposal).toHaveBeenCalled())
+    expect(api.repairVisualCrop).toHaveBeenCalledWith({
+      filePath: 'main.tex', buildId: 'b'.repeat(32), page: 1, x: 72, y: 72, w: 144, h: 72, instruction: 'shrink it',
+    })
+    // Review-first: the mode closes and nothing was applied here.
+    expect(document.querySelector('.layer')).toBeNull()
+  })
+
+  it('keeps visual-fix mode open and shows the error when the request fails', async () => {
+    api.repairVisualCrop.mockRejectedValue(new Error('The document changed since this PDF was compiled'))
+    render(PdfPane, { props: { compile: built(), sourcePath: 'main.tex' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Visual fix' }))
+    const layer = document.querySelector('[data-page="1"] .layer')
+    await fireEvent.pointerDown(layer, { clientX: 10, clientY: 10, button: 0, pointerId: 1 })
+    await fireEvent.pointerMove(layer, { clientX: 200, clientY: 200, pointerId: 1 })
+    await fireEvent.pointerUp(layer, { clientX: 200, clientY: 200, pointerId: 1 })
+    expect((await screen.findByRole('alert')).textContent).toContain('changed since this PDF')
+    expect(document.querySelector('.layer')).toBeTruthy()
   })
 })

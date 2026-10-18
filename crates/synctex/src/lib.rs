@@ -80,6 +80,11 @@ pub struct Node {
     pub width: i64,
     pub height: i64,
     pub depth: i64,
+    /// Index (within the same page's node list) of the box this node sits
+    /// directly inside; `None` at the top of the page. Lets a search tell a
+    /// line's own kerns and glue from vertical glue that merely shares its
+    /// baseline.
+    pub parent: Option<usize>,
 }
 
 impl Node {
@@ -240,6 +245,22 @@ impl SyncTexData {
             .min()
     }
 
+    /// The input tag for a project file, for forward search.
+    ///
+    /// `rel` is project-relative. Inputs are matched through
+    /// [`resolve_input_name`], so absolute names recorded by a file-based
+    /// compile and relative ones both work. A main file recorded only as the
+    /// `texput` placeholder is found through [`Self::primary_tag`].
+    #[must_use]
+    pub fn tag_for_file(&self, rel: &Path, root: &Path, main: &Path) -> Option<u32> {
+        self.inputs
+            .iter()
+            .filter(|(_, name)| resolve_input_name(name, root).as_deref() == Some(rel))
+            .map(|(tag, _)| *tag)
+            .min()
+            .or_else(|| (rel == main).then(|| self.primary_tag()).flatten())
+    }
+
     /// PDF position -> source position. `x`/`y` are PDF points from the page's
     /// top-left corner. Returns `None` when the page is absent or has no
     /// usable nodes.
@@ -306,5 +327,50 @@ mod resolve_tests {
         ] {
             assert_eq!(resolve_input_name(name, root), None, "{name:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tag_tests {
+    use super::*;
+
+    fn data(inputs: &[(u32, &str)]) -> SyncTexData {
+        SyncTexData {
+            version: 1,
+            magnification: 1000,
+            unit: 1,
+            x_offset: 0,
+            y_offset: 0,
+            inputs: inputs.iter().map(|(t, n)| (*t, (*n).to_owned())).collect(),
+            pages: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn finds_a_file_by_its_project_relative_path() {
+        let d = data(&[(1, "/work/p/main.tex"), (2, "/work/p/ch/a.tex"), (3, "")]);
+        let root = Path::new("/work/p");
+        let main = Path::new("main.tex");
+        assert_eq!(d.tag_for_file(Path::new("ch/a.tex"), root, main), Some(2));
+        assert_eq!(d.tag_for_file(Path::new("main.tex"), root, main), Some(1));
+        assert_eq!(d.tag_for_file(Path::new("other.tex"), root, main), None);
+    }
+
+    #[test]
+    fn a_main_recorded_only_as_the_placeholder_is_the_primary_input() {
+        let d = data(&[(1, "texput"), (2, "/work/p/ch/a.tex")]);
+        let (root, main) = (Path::new("/work/p"), Path::new("main.tex"));
+        assert_eq!(d.tag_for_file(Path::new("main.tex"), root, main), Some(1));
+        // Only the main file gets the fallback.
+        assert_eq!(d.tag_for_file(Path::new("x.tex"), root, main), None);
+    }
+
+    #[test]
+    fn a_file_outside_the_root_never_matches() {
+        let d = data(&[(1, "/elsewhere/a.tex")]);
+        assert_eq!(
+            d.tag_for_file(Path::new("a.tex"), Path::new("/work/p"), Path::new("m.tex")),
+            None
+        );
     }
 }
