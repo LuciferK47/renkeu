@@ -198,6 +198,7 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
         )
         .route("/api/history", get(routes::history::list_history))
         .route("/api/files", get(routes::files::list_files))
+        .route("/api/tree", get(routes::files::get_tree))
         .route(
             "/api/file",
             get(routes::files::read_file).post(routes::files::write_file),

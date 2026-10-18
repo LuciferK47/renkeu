@@ -79,7 +79,7 @@ async fn every_migration_has_a_down() {
         .iter()
         .filter(|m| m.migration_type.is_down_migration())
         .count();
-    assert_eq!(ups, ORIGINAL_CHECKSUMS.len());
+    assert!(ups >= ORIGINAL_CHECKSUMS.len());
     assert_eq!(ups, downs, "each .up.sql needs a matching .down.sql");
 }
 
@@ -118,4 +118,35 @@ async fn undoing_only_the_latest_restores_the_previous_shape() {
     assert!(!cols.contains(&"job_id".to_owned()), "{cols:?}");
 
     MIGRATOR.run(&pool).await.unwrap();
+}
+
+#[tokio::test]
+async fn the_history_base_column_comes_and_goes_with_its_migration() {
+    let pool = pool().await;
+    MIGRATOR.run(&pool).await.unwrap();
+    let columns = || async {
+        sqlx::query_scalar::<_, String>("SELECT name FROM pragma_table_info('history')")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+    };
+    assert!(columns().await.contains(&"base_text".to_owned()));
+
+    // Existing rows survive the column being added and removed.
+    sqlx::query(
+        "INSERT INTO history (file_path, command, new_text, diff, edit_type) VALUES ('a.tex','c','t','d','manual-save')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    MIGRATOR.undo(&pool, 20_260_802_000_000).await.unwrap();
+    assert!(!columns().await.contains(&"base_text".to_owned()));
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM history")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 1);
+
+    MIGRATOR.run(&pool).await.unwrap();
+    assert!(columns().await.contains(&"base_text".to_owned()));
 }

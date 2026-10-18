@@ -56,6 +56,15 @@ pub enum Precondition<'a> {
 /// "agent only" filter matches exactly these.
 pub const AGENT_EDIT_TYPES: &[&str] = &["agent-apply", "apply-selected"];
 
+/// `edit_type` of a save the editor made on its own timer.
+pub const AUTOSAVE: &str = "autosave";
+
+/// An autosave within this many seconds of the previous autosave of the same
+/// file, with nothing else written in between, is folded into that history
+/// row instead of adding a new one. Typing a paragraph would otherwise leave
+/// dozens of near-identical rows and bury the saves that matter.
+pub const AUTOSAVE_MERGE_WINDOW_SECS: i64 = 300;
+
 /// Result of a successful save.
 #[derive(Debug)]
 pub struct SaveOutcome {
@@ -373,11 +382,6 @@ impl Store {
         edit_type: &str,
     ) -> Result<SaveOutcome, StorageError> {
         let header = rel_path.to_string_lossy();
-        let diff = similar::TextDiff::from_lines(old_content, new_content)
-            .unified_diff()
-            .header(&header, &header)
-            .to_string();
-
         let new_etag = etag_of(new_content);
         let path_str = rel_path.to_string_lossy();
 
@@ -387,16 +391,52 @@ impl Store {
         // (previously the rename happened first: a DB error returned 500
         // for a file that had in fact changed, and the next save 409'd).
         let mut tx = self.pool.begin().await?;
-        let history_id: i64 = sqlx::query_scalar!(
-            "INSERT INTO history (file_path, command, new_text, diff, edit_type) VALUES (?, ?, ?, ?, ?) RETURNING id",
-            path_str,
-            command,
-            new_content,
-            diff,
-            edit_type
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+
+        // A burst of autosaves is one history entry whose diff runs from
+        // where the burst started to where it is now.
+        let merge = if edit_type == AUTOSAVE {
+            mergeable_autosave(&mut tx, &path_str, old_content).await?
+        } else {
+            None
+        };
+        let base = merge.as_ref().map_or(old_content, |m| m.base.as_str());
+        let diff = similar::TextDiff::from_lines(base, new_content)
+            .unified_diff()
+            .header(&header, &header)
+            .to_string();
+
+        let history_id: i64 = if let Some(m) = &merge {
+            sqlx::query(
+                "UPDATE history SET new_text = ?, diff = ?, command = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?",
+            )
+            .bind(new_content)
+            .bind(&diff)
+            .bind(command)
+            .bind(m.id)
+            .execute(&mut *tx)
+            .await?;
+            m.id
+        } else {
+            let id: i64 = sqlx::query_scalar!(
+                "INSERT INTO history (file_path, command, new_text, diff, edit_type) VALUES (?, ?, ?, ?, ?) RETURNING id",
+                path_str,
+                command,
+                new_content,
+                diff,
+                edit_type
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if edit_type == AUTOSAVE {
+                // Remember where this burst started, for the next merge.
+                sqlx::query("UPDATE history SET base_text = ? WHERE id = ?")
+                    .bind(old_content)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            id
+        };
 
         crate::fsutil::atomic_write(full_path, new_content.as_bytes()).await?;
 
@@ -415,6 +455,36 @@ impl Store {
             diff,
         })
     }
+}
+
+/// The previous autosave row of this file, if a new autosave may join it.
+struct Mergeable {
+    id: i64,
+    base: String,
+}
+
+/// A row is joinable when it is an autosave of this file that is recent, that
+/// holds exactly what is on disk now (so nothing else touched the file since),
+/// and that remembers where its burst began.
+async fn mergeable_autosave(
+    tx: &mut sqlx::SqliteConnection,
+    path: &str,
+    current_content: &str,
+) -> Result<Option<Mergeable>, StorageError> {
+    let last: Option<(i64, String, String, Option<String>, i64)> = sqlx::query_as(
+        "SELECT id, edit_type, new_text, base_text,
+                CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s', created_at) AS INTEGER)
+         FROM history WHERE file_path = ? ORDER BY id DESC LIMIT 1",
+    )
+    .bind(path)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    Ok(last.and_then(|(id, kind, new_text, base, age)| {
+        let joinable =
+            kind == AUTOSAVE && new_text == current_content && age <= AUTOSAVE_MERGE_WINDOW_SECS;
+        base.filter(|_| joinable).map(|base| Mergeable { id, base })
+    }))
 }
 
 #[cfg(test)]
@@ -903,5 +973,105 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    // ---- autosave merging ------------------------------------------------
+
+    async fn autosave_store() -> (Store, tempfile::TempDir) {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL,
+                command TEXT NOT NULL,
+                new_text TEXT NOT NULL,
+                diff TEXT NOT NULL,
+                edit_type TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                base_text TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        (Store::new(pool, dir.path().to_path_buf()), dir)
+    }
+
+    async fn save(store: &Store, old: &str, new: &str, kind: &str) -> i64 {
+        store
+            .save_with_etag_history(
+                Path::new("a.tex"),
+                new,
+                Precondition::Etag(&etag_of(old)),
+                "save",
+                kind,
+            )
+            .await
+            .unwrap()
+            .history_id
+    }
+
+    #[tokio::test]
+    async fn a_burst_of_autosaves_is_one_row_whose_diff_spans_the_burst() {
+        let (store, dir) = autosave_store().await;
+        std::fs::write(dir.path().join("a.tex"), "v0\n").unwrap();
+
+        let first = save(&store, "v0\n", "v1\n", AUTOSAVE).await;
+        let second = save(&store, "v1\n", "v2\n", AUTOSAVE).await;
+        let third = save(&store, "v2\n", "v3\n", AUTOSAVE).await;
+        assert_eq!((first, second), (first, first));
+        assert_eq!(third, first, "one row for the whole burst");
+
+        let rows = store.recent_history(None, false, 10).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        // From where the burst began (v0) to where it ended (v3), not v2 -> v3.
+        assert!(
+            rows[0].diff.contains("-v0") && rows[0].diff.contains("+v3"),
+            "{}",
+            rows[0].diff
+        );
+        assert!(!rows[0].diff.contains("v2"), "{}", rows[0].diff);
+    }
+
+    #[tokio::test]
+    async fn a_manual_save_or_someone_elses_write_ends_the_burst() {
+        let (store, dir) = autosave_store().await;
+        std::fs::write(dir.path().join("a.tex"), "v0\n").unwrap();
+
+        let a = save(&store, "v0\n", "v1\n", AUTOSAVE).await;
+        let manual = save(&store, "v1\n", "v2\n", "manual-save").await;
+        let b = save(&store, "v2\n", "v3\n", AUTOSAVE).await;
+        assert!(
+            a != manual && manual != b,
+            "a manual save is its own row, and the next autosave starts afresh"
+        );
+
+        // The file changed behind the autosave's back (another process).
+        std::fs::write(dir.path().join("a.tex"), "elsewhere\n").unwrap();
+        let c = save(&store, "elsewhere\n", "v4\n", AUTOSAVE).await;
+        assert_ne!(b, c, "must not merge over a change it did not make");
+        assert_eq!(
+            store.recent_history(None, false, 10).await.unwrap().len(),
+            4
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stale_burst_is_not_merged_into() {
+        let (store, dir) = autosave_store().await;
+        std::fs::write(dir.path().join("a.tex"), "v0\n").unwrap();
+        let a = save(&store, "v0\n", "v1\n", AUTOSAVE).await;
+        sqlx::query("UPDATE history SET created_at = datetime('now', '-1 hour') WHERE id = ?")
+            .bind(a)
+            .execute(store.pool())
+            .await
+            .unwrap();
+
+        let b = save(&store, "v1\n", "v2\n", AUTOSAVE).await;
+        assert_ne!(a, b, "an hour-old burst is closed");
     }
 }

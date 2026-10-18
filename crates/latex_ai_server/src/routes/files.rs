@@ -7,7 +7,7 @@ use crate::error::ApiError;
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
-use latex_ai_core::security::{AccessKind, is_denied, validate_path};
+use latex_ai_core::security::{AccessKind, has_writable_extension, is_denied, validate_path};
 use latex_ai_core::storage::{Precondition, etag_of};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -75,6 +75,112 @@ pub async fn list_files(State(state): State<AppState>) -> Json<FileList> {
     Json(FileList { files })
 }
 
+/// One entry of the project tree.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct TreeNode {
+    pub name: String,
+    /// Project-relative, `/`-separated.
+    pub path: String,
+    pub kind: NodeKind,
+    /// Whether the editor may open and save this file as text.
+    pub editable: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<TreeNode>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeKind {
+    Dir,
+    File,
+}
+
+#[derive(Serialize)]
+pub struct Tree {
+    pub tree: Vec<TreeNode>,
+}
+
+/// Turn a sorted list of project-relative file paths into a nested tree,
+/// directories first, each level alphabetical (case-insensitive).
+pub(crate) fn build_tree(files: &[PathBuf]) -> Vec<TreeNode> {
+    fn insert(level: &mut Vec<TreeNode>, parts: &[String], prefix: &str, editable: bool) {
+        let Some((first, rest)) = parts.split_first() else {
+            return;
+        };
+        let path = if prefix.is_empty() {
+            first.clone()
+        } else {
+            format!("{prefix}/{first}")
+        };
+        if rest.is_empty() {
+            level.push(TreeNode {
+                name: first.clone(),
+                path,
+                kind: NodeKind::File,
+                editable,
+                children: Vec::new(),
+            });
+            return;
+        }
+        let existing = level
+            .iter()
+            .position(|n| n.kind == NodeKind::Dir && n.name == *first);
+        let at = existing.unwrap_or_else(|| {
+            level.push(TreeNode {
+                name: first.clone(),
+                path: path.clone(),
+                kind: NodeKind::Dir,
+                editable: false,
+                children: Vec::new(),
+            });
+            level.len() - 1
+        });
+        insert(&mut level[at].children, rest, &path, editable);
+    }
+
+    fn order(level: &mut Vec<TreeNode>) {
+        level.sort_by(|a, b| {
+            (a.kind == NodeKind::File)
+                .cmp(&(b.kind == NodeKind::File))
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        for node in level {
+            order(&mut node.children);
+        }
+    }
+
+    let mut root = Vec::new();
+    for file in files {
+        let parts: Vec<String> = file
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        insert(&mut root, &parts, "", has_writable_extension(file));
+    }
+    order(&mut root);
+    root
+}
+
+/// `GET /api/tree` — every file the project holds (secrets, dot-directories
+/// and symlinks excluded) as a nested tree. Unlike `/api/files` this includes
+/// images and other non-text files, marked `editable: false`.
+#[instrument(skip(state))]
+pub async fn get_tree(State(state): State<AppState>) -> Result<Json<Tree>, ApiError> {
+    let root = state.workspace_root.clone();
+    let files =
+        tokio::task::spawn_blocking(move || latex_ai_compiler::project::project_files(&root))
+            .await
+            .map_err(|e| ApiError::Internal {
+                message: e.to_string(),
+            })?
+            .map_err(|e| ApiError::Internal {
+                message: format!("reading the project: {e}"),
+            })?;
+    Ok(Json(Tree {
+        tree: build_tree(&files),
+    }))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileQuery {
@@ -122,6 +228,10 @@ pub async fn read_file(
 pub struct WriteFileRequest {
     pub path: String,
     pub content: String,
+    /// The editor saved on its own timer. Such saves are folded into one
+    /// history row per burst instead of adding a row each.
+    #[serde(default)]
+    pub autosave: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -156,7 +266,11 @@ pub async fn write_file(
             &req.content,
             Precondition::Etag(&if_match),
             "save",
-            "manual-save",
+            if req.autosave {
+                latex_ai_core::storage::AUTOSAVE
+            } else {
+                "manual-save"
+            },
         )
         .await?;
 
@@ -164,4 +278,51 @@ pub async fn write_file(
         etag: outcome.new_etag,
         history_id: outcome.history_id,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn paths(list: &[&str]) -> Vec<PathBuf> {
+        list.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn files_nest_under_their_directories_dirs_first_then_alphabetical() {
+        let tree = build_tree(&paths(&[
+            "b.tex",
+            "A.tex",
+            "chapters/two.tex",
+            "chapters/One.tex",
+            "chapters/figs/a.png",
+            "zeta/x.tex",
+        ]));
+
+        let names: Vec<&str> = tree.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, ["chapters", "zeta", "A.tex", "b.tex"]);
+
+        let chapters = &tree[0];
+        assert_eq!(chapters.kind, NodeKind::Dir);
+        assert_eq!(chapters.path, "chapters");
+        let inner: Vec<&str> = chapters.children.iter().map(|n| n.path.as_str()).collect();
+        assert_eq!(
+            inner,
+            ["chapters/figs", "chapters/One.tex", "chapters/two.tex"]
+        );
+        assert_eq!(chapters.children[0].children[0].path, "chapters/figs/a.png");
+    }
+
+    #[test]
+    fn only_source_files_are_editable() {
+        let tree = build_tree(&paths(&["main.tex", "fig.png", "refs.bib", "notes.txt"]));
+        let by_name = |n: &str| tree.iter().find(|x| x.name == n).unwrap().editable;
+        assert!(by_name("main.tex") && by_name("refs.bib"));
+        assert!(!by_name("fig.png") && !by_name("notes.txt"));
+    }
+
+    #[test]
+    fn an_empty_project_is_an_empty_tree() {
+        assert_eq!(build_tree(&[]).len(), 0);
+    }
 }
