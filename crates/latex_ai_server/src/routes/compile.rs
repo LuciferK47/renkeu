@@ -369,3 +369,35 @@ pub async fn export_pdf(
     )
         .into_response())
 }
+
+/// Cap on the log we return: a runaway document can write megabytes of it.
+const MAX_LOG_BYTES: usize = 1024 * 1024;
+
+/// `GET /api/builds/{id}/log` — the TeX log of a build, as plain text, for
+/// the Log panel. Cut to the last [`MAX_LOG_BYTES`] if longer (the end is
+/// where the error is).
+#[instrument(skip(state))]
+pub async fn get_build_log(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Response, ApiError> {
+    let build = find_build(&state, &id).await?;
+    let bytes = tokio::fs::read(build.log_path())
+        .await
+        .map_err(|_| ApiError::NotFound {
+            message: "this build has no log".to_owned(),
+        })?;
+    let tail = &bytes[bytes.len().saturating_sub(MAX_LOG_BYTES)..];
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/plain; charset=utf-8".to_owned()),
+            (
+                header::CACHE_CONTROL,
+                "public, max-age=31536000, immutable".to_owned(),
+            ),
+        ],
+        String::from_utf8_lossy(tail).into_owned(),
+    )
+        .into_response())
+}

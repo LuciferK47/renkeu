@@ -141,3 +141,109 @@ async fn autosaves_fold_into_one_history_row_and_manual_saves_do_not() {
         "v4\n"
     );
 }
+
+#[tokio::test]
+async fn preview_shows_each_hunk_against_its_own_file() {
+    let a = app(&[("main.tex", "main text\n"), ("ch.tex", "chapter text\n")]).await;
+    let body = json!({
+        "file_path": "main.tex",
+        "edits": [
+            {"file_path": "main.tex", "op": "replace_range", "text": "main text", "insert_text": "MAIN"},
+            {"file_path": "ch.tex", "op": "replace_range", "text": "chapter text", "insert_text": "CHAPTER"},
+            {"file_path": "ch.tex", "op": "replace_range", "text": "absent", "insert_text": "x"},
+            {"file_path": "gone.tex", "op": "insert", "insert_text": "x"},
+        ]
+    });
+    let (status, resp) = call(
+        &a,
+        Request::builder()
+            .method("POST")
+            .uri("/api/agent/preview")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resp}");
+
+    let hunks = resp["hunks"].as_array().unwrap();
+    assert_eq!(hunks[0]["applies"], true);
+    assert!(hunks[0]["diff"].as_str().unwrap().contains("+MAIN"));
+    assert_eq!(
+        hunks[1]["applies"], true,
+        "a hunk for ch.tex is judged against ch.tex"
+    );
+    assert!(hunks[1]["diff"].as_str().unwrap().contains("+CHAPTER"));
+    assert!(hunks[1]["diff"].as_str().unwrap().contains("ch.tex"));
+    assert_eq!(hunks[2]["applies"], false);
+    assert_eq!(hunks[3]["applies"], false);
+    assert!(
+        hunks[3]["error"]
+            .as_str()
+            .unwrap()
+            .contains("could not be read")
+    );
+}
+
+#[tokio::test]
+async fn a_builds_log_is_served_as_text_and_bad_ids_are_refused() {
+    let a = app(&[(
+        "main.tex",
+        "\\documentclass{article}\n\\begin{document}\nhi\n\\end{document}\n",
+    )])
+    .await;
+    let build = a
+        .state
+        .compiler
+        .compile(
+            &latex_ai_compiler::CompileJob {
+                root: a.root.clone(),
+                main: "main.tex".to_owned(),
+                synctex: true,
+                timeout: std::time::Duration::from_secs(120),
+            },
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+    let res = a
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/builds/{}/log", build.id()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(
+        res.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain")
+    );
+    let text = String::from_utf8(
+        axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(text.contains("LaTeX2e"), "{text}");
+
+    let (status, _) = call(
+        &a,
+        Request::builder()
+            .uri("/api/builds/..%2F..%2Fetc/log")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        status == StatusCode::BAD_REQUEST || status == StatusCode::NOT_FOUND,
+        "{status}"
+    );
+}

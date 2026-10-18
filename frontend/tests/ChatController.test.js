@@ -6,43 +6,44 @@ vi.mock('../src/services/aiService.js', () => ({
   streamAIPlan: vi.fn(),
   applySelectedHunks: vi.fn(),
 }))
-vi.mock('../src/services/fileService.js', () => ({
-  loadFile: vi.fn(),
-  saveFile: vi.fn(),
-  listFiles: vi.fn(),
-  searchWorkspace: vi.fn(),
-}))
-vi.mock('../src/controllers/CompileController.js', () => ({
-  compileDocument: vi.fn(),
-}))
 
 import * as aiService from '../src/services/aiService.js'
-import * as fileService from '../src/services/fileService.js'
-import { compileDocument } from '../src/controllers/CompileController.js'
-import {
-  handleChatMessage,
-  requestAIPlan,
-  handleApplyHunks,
-} from '../src/controllers/ChatController.js'
+import { createChatController } from '../src/controllers/ChatController.js'
 import { aiStore } from '../src/stores/aiStore.js'
-import { fileStore } from '../src/stores/fileStore.js'
-import { uiStore } from '../src/stores/uiStore.js'
 
-const openFile = (path = 'main.tex') =>
-  fileStore.set({
-    filePath: path,
-    content: 'original',
-    savedContent: 'original',
-    etag: 'v1',
-    dirty: false,
-    lastSavedAt: null,
-  })
+/** Stand-ins for the app state the controller is built around. */
+function makeCtx(path = 'main.tex') {
+  const ui = {
+    status: '',
+    toasts: [],
+    chat: false,
+    setStatus(s) { this.status = s },
+    toast(message, type) { this.toasts.push({ message, type }) },
+    show(pane) { this[pane] = true },
+  }
+  const doc = { path }
+  const documents = {
+    active: path ? doc : null,
+    open: new Set([path]),
+    get(p) { return this.open.has(p) ? doc : null },
+    reload: vi.fn(async () => {}),
+  }
+  const compile = { start: vi.fn() }
+  const project = { mainOverride: null, refresh: vi.fn(async () => {}) }
+  return { ui, documents, compile, project }
+}
+
+let ctx
+let chat
+const handleChatMessage = (...a) => chat.handleChatMessage(...a)
+const requestAIPlan = (...a) => chat.requestAIPlan(...a)
+const handleApplyHunks = (...a) => chat.handleApplyHunks(...a)
 
 describe('ChatController', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    openFile()
-    uiStore.update((ui) => ({ ...ui, status: '', toasts: [], activeRightTab: 'diff' }))
+    ctx = makeCtx()
+    chat = createChatController(ctx)
     aiStore.update((a) => ({
       ...a,
       status: 'idle',
@@ -56,7 +57,7 @@ describe('ChatController', () => {
 
   describe('handleChatMessage', () => {
     it('refuses without an open file', async () => {
-      fileStore.update((f) => ({ ...f, filePath: null }))
+      ctx.documents.active = null
       await handleChatMessage('fix my table')
       expect(aiService.agentLoopStream).not.toHaveBeenCalled()
     })
@@ -90,7 +91,7 @@ describe('ChatController', () => {
 
       await handleChatMessage('fix it')
 
-      expect(get(uiStore).activeRightTab).toBe('ai')
+      expect(ctx.ui.chat).toBe(true)
       expect(get(aiStore).currentProposal).toBeTruthy()
     })
 
@@ -114,7 +115,7 @@ describe('ChatController', () => {
       const a = get(aiStore)
       expect(a.status).not.toBe('streaming')
       expect(a.streamingMessage).toBe('')
-      expect(get(uiStore).status).toBe('Ready')
+      expect(ctx.ui.status).toBe('Ready')
     })
 
     // A rejected call is not the same as a stream error, and App.svelte invokes
@@ -125,11 +126,11 @@ describe('ChatController', () => {
 
       await expect(handleChatMessage('fix it')).resolves.toBeUndefined()
 
-      const toasts = get(uiStore).toasts ?? []
+      const toasts = ctx.ui.toasts
       expect(toasts.some((t) => /connection refused/i.test(t.message))).toBe(true)
       expect(get(aiStore).messages.at(-1).content).toContain('connection refused')
       expect(get(aiStore).status).not.toBe('streaming')
-      expect(get(uiStore).status).toBe('Ready')
+      expect(ctx.ui.status).toBe('Ready')
     })
   })
 
@@ -142,11 +143,11 @@ describe('ChatController', () => {
       const proposal = await requestAIPlan('expand macros')
 
       expect(proposal).toEqual({ edit_count: 1 })
-      expect(get(uiStore).activeRightTab).toBe('ai')
+      expect(ctx.ui.chat).toBe(true)
     })
 
     it('returns null without an open file', async () => {
-      fileStore.update((f) => ({ ...f, filePath: null }))
+      ctx.documents.active = null
       expect(await requestAIPlan('expand macros')).toBeNull()
     })
 
@@ -155,7 +156,7 @@ describe('ChatController', () => {
 
       await expect(requestAIPlan('expand macros')).resolves.toBeNull()
 
-      const toasts = get(uiStore).toasts ?? []
+      const toasts = ctx.ui.toasts
       expect(toasts.some((t) => /connection refused/i.test(t.message))).toBe(true)
     })
 
@@ -166,7 +167,7 @@ describe('ChatController', () => {
 
       await requestAIPlan('expand macros')
 
-      expect(get(uiStore).status).toContain('model unavailable')
+      expect(ctx.ui.status).toContain('model unavailable')
     })
   })
 
@@ -188,26 +189,23 @@ describe('ChatController', () => {
       expect(aiService.applySelectedHunks).not.toHaveBeenCalled()
     })
 
-    it('reloads from disk after applying rather than trusting local state', async () => {
-      aiService.applySelectedHunks.mockResolvedValue({ success: true })
-      fileService.loadFile.mockResolvedValue({ content: 'patched', eTag: 'v2' })
+    it('re-reads every open file it wrote, rather than trusting local state', async () => {
+      aiService.applySelectedHunks.mockResolvedValue({ success: true, files: [{ path: 'main.tex' }, { path: 'ch.tex' }] })
+      ctx.documents.open.add('ch.tex')
 
       expect(await handleApplyHunks(proposal)).toBe(true)
 
-      const f = get(fileStore)
-      // The server applied the edit; re-reading is what keeps the editor and
-      // the file on disk from drifting apart.
-      expect(f.content).toBe('patched')
-      expect(f.savedContent).toBe('patched')
-      expect(f.etag).toBe('v2')
-      expect(f.dirty).toBe(false)
+      // The server wrote the files; re-reading is what keeps the editor and
+      // the files on disk from drifting apart.
+      const reloaded = ctx.documents.reload.mock.calls.map((c) => c[0]).sort()
+      expect(reloaded).toEqual(['ch.tex', 'main.tex'])
       expect(get(aiStore).currentProposal).toBeNull()
-      expect(compileDocument).toHaveBeenCalledWith('main.tex')
+      expect(ctx.project.refresh).toHaveBeenCalled()
+      expect(ctx.compile.start).toHaveBeenCalledWith('main.tex', { main: null })
     })
 
     it('passes the review etag so the write is conditional', async () => {
       aiService.applySelectedHunks.mockResolvedValue({ success: true })
-      fileService.loadFile.mockResolvedValue({ content: 'patched', eTag: 'v2' })
 
       await handleApplyHunks(proposal)
 
@@ -233,10 +231,9 @@ describe('ChatController', () => {
       expect(await handleApplyHunks(proposal)).toBe(false)
 
       expect(get(aiStore).currentProposal).toEqual({ edit_count: 1 })
-      expect(get(fileStore).content).toBe('original')
-      expect(fileService.loadFile).not.toHaveBeenCalled()
-      expect(compileDocument).not.toHaveBeenCalled()
-      expect(get(uiStore).status).toMatch(/changed during review/i)
+      expect(ctx.documents.reload).not.toHaveBeenCalled()
+      expect(ctx.compile.start).not.toHaveBeenCalled()
+      expect(ctx.ui.status).toMatch(/changed during review/i)
     })
 
     it('tells the user to re-plan after a conflict, not merely to retry', async () => {
@@ -245,7 +242,7 @@ describe('ChatController', () => {
       )
       await handleApplyHunks(proposal)
 
-      const toasts = get(uiStore).toasts ?? []
+      const toasts = ctx.ui.toasts
       expect(toasts.some((t) => /re-plan/i.test(t.message))).toBe(true)
     })
 
@@ -254,8 +251,8 @@ describe('ChatController', () => {
 
       expect(await handleApplyHunks(proposal)).toBe(false)
 
-      expect(compileDocument).not.toHaveBeenCalled()
-      expect(get(uiStore).status).toContain('hunk is stale')
+      expect(ctx.compile.start).not.toHaveBeenCalled()
+      expect(ctx.ui.status).toContain('hunk is stale')
     })
   })
 })

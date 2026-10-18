@@ -1,0 +1,152 @@
+<script>
+  // Tabs plus one Monaco editor. The editor is created once; switching tabs
+  // swaps the *model* (each document owns its own, so undo history and the
+  // saved/unsaved state survive a switch) and restores the cursor and scroll.
+  import { onMount, untrack } from 'svelte'
+  import { loadMonaco } from '../lib/monaco.js'
+
+  let { documents, ui, commands, onclosetab = () => {}, oncursor = () => {} } = $props()
+
+  let host = $state()
+  let editor = $state.raw(null)
+  let monaco = null
+  let current = null
+  const viewStates = new Map()
+
+  const isDark = () =>
+    ui.theme === 'dark' ||
+    (ui.theme === 'auto' && !!globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches)
+
+  onMount(() => {
+    let detachKeys = () => {}
+    let disposed = false
+
+    loadMonaco().then((m) => {
+      if (disposed) return
+      monaco = m
+      editor = m.editor.create(host, {
+        model: null,
+        theme: isDark() ? 'vs-dark' : 'vs',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 14,
+        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        wordWrap: 'on',
+        lineNumbers: 'on',
+        scrollBeyondLastLine: false,
+        accessibilitySupport: 'on',
+        ariaLabel: 'LaTeX editor'
+      })
+      editor.onDidChangeCursorPosition((e) =>
+        oncursor({ line: e.position.lineNumber, column: e.position.column })
+      )
+      // Capture phase: the editor would otherwise act on Mod+Enter and the
+      // like before the command registry saw them.
+      detachKeys = commands.attach(host, { capture: true })
+    })
+
+    return () => {
+      disposed = true
+      detachKeys()
+      editor?.dispose()
+      editor = null
+    }
+  })
+
+  // Follow the active document.
+  $effect(() => {
+    const doc = documents.active
+    const ed = editor
+    if (!ed) return
+    untrack(() => {
+      if (current) viewStates.set(current, ed.saveViewState())
+      current = doc?.path ?? null
+      ed.setModel(doc?.model ?? null)
+      if (doc) {
+        const saved = viewStates.get(doc.path)
+        if (saved) ed.restoreViewState(saved)
+        ed.focus()
+      }
+    })
+  })
+
+  $effect(() => {
+    void ui.theme
+    monaco?.editor.setTheme(isDark() ? 'vs-dark' : 'vs')
+  })
+
+  /** Scroll to a line and put the cursor there. */
+  export function reveal(line, column = 1) {
+    if (!editor || !line) return
+    const target = Math.max(1, Number(line))
+    editor.revealLineInCenter(target)
+    editor.setPosition({ lineNumber: target, column })
+    editor.focus()
+  }
+
+  export function focus() {
+    editor?.focus()
+  }
+
+  function closeOnMiddleClick(event, path) {
+    if (event.button === 1) {
+      event.preventDefault()
+      onclosetab(path)
+    }
+  }
+</script>
+
+<section class="editor-pane" aria-label="Editor">
+  <div class="tabs" role="tablist" aria-label="Open files">
+    {#each documents.docs as doc (doc.path)}
+      <div
+        class="tab"
+        class:active={doc.path === documents.activePath}
+        onauxclick={(e) => closeOnMiddleClick(e, doc.path)}
+        role="presentation"
+      >
+        <button
+          class="tab-label"
+          role="tab"
+          aria-selected={doc.path === documents.activePath}
+          title={doc.path}
+          onclick={() => documents.setActive(doc.path)}
+        >
+          {doc.path.split('/').pop()}
+          {#if doc.conflict}<span class="mark bad" title="Conflict" aria-label="conflict">!</span>
+          {:else if doc.dirty}<span class="mark" title="Unsaved changes" aria-label="unsaved changes">●</span>{/if}
+        </button>
+        <button class="tab-close" aria-label={`Close ${doc.path}`} onclick={() => onclosetab(doc.path)}>×</button>
+      </div>
+    {/each}
+  </div>
+
+  <div class="surface">
+    <div class="host" bind:this={host} hidden={!documents.active}></div>
+    {#if !documents.active}
+      <div class="empty">
+        <p>No file open</p>
+        <p class="hint">Pick one from the project tree, or press <kbd>Ctrl</kbd>+<kbd>P</kbd>.</p>
+      </div>
+    {/if}
+  </div>
+</section>
+
+<style>
+  .editor-pane { display: flex; flex-direction: column; height: 100%; min-width: 0; background: hsl(var(--surface-1)); }
+  .tabs { display: flex; overflow-x: auto; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--surface-2)); flex-shrink: 0; }
+  .tab { display: flex; align-items: center; border-right: 1px solid hsl(var(--border)); white-space: nowrap; }
+  .tab.active { background: hsl(var(--surface-1)); box-shadow: inset 0 -2px 0 hsl(var(--primary)); }
+  .tab-label { padding: 0.45rem 0.4rem 0.45rem 0.75rem; background: none; border: none; color: hsl(var(--text-dim)); font: inherit; font-size: 13px; cursor: pointer; }
+  .tab.active .tab-label { color: hsl(var(--foreground)); }
+  .tab-close { background: none; border: none; color: hsl(var(--text-faint)); cursor: pointer; padding: 0 0.5rem; font-size: 15px; line-height: 1; border-radius: var(--radius-xs); }
+  .tab-close:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+  .mark { margin-left: 0.3rem; font-size: 10px; color: hsl(var(--warn)); }
+  .mark.bad { color: hsl(var(--err)); font-weight: 700; font-size: 12px; }
+  .surface { position: relative; flex: 1; min-height: 0; }
+  .host { position: absolute; inset: 0; }
+  .host[hidden] { display: none; }
+  .empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: hsl(var(--text-dim)); }
+  .hint { font-size: 13px; color: hsl(var(--text-faint)); }
+  kbd { padding: 0 0.3rem; border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); font-size: 11px; }
+</style>

@@ -169,7 +169,7 @@
           </label>
 
           {#if preview.applies}
-            <pre class="diff">{#each diffLines(preview.diff) as line}<span class={line.kind}>{line.text}
+            <pre class="diff">{#each diffLines(preview.diff) as line, i (i)}<span class={line.kind}>{line.text}
 </span>{/each}</pre>
           {/if}
         </li>

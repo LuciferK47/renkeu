@@ -144,8 +144,8 @@ export class APIClient {
     else params.set('file', filePath);
     if (dpi) params.set('dpi', String(dpi));
     if (tone) {
-      if (tone.paper != null) params.set('paper', String(tone.paper));
-      if (tone.warmth != null) params.set('warmth', String(tone.warmth));
+      if (tone.paper !== undefined && tone.paper !== null) params.set('paper', String(tone.paper));
+      if (tone.warmth !== undefined && tone.warmth !== null) params.set('warmth', String(tone.warmth));
     }
     return `${this.buildUrl('/pdf/page')}?${params.toString()}`;
   }
@@ -222,6 +222,11 @@ export class APIClient {
   // What a compile found: success, main file, diagnostics with file and line.
   getBuild(buildId) {
     return this.request('GET', `/builds/${encodeURIComponent(buildId)}`);
+  }
+
+  // The TeX log of a build, as text (the tail, if it is very long).
+  getBuildLog(buildId) {
+    return this.request('GET', `/builds/${encodeURIComponent(buildId)}/log`);
   }
 
   // URL that downloads the finished PDF ("Export PDF").

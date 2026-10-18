@@ -8,12 +8,13 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { api } from '../lib/api/client.js';
   import { activeTone } from '../stores/paperStore.js';
-  import { compileStore } from '../stores/compileStore.js';
   import { normalizeDrag, isMeaningfulDrag, toImagePixels } from '../utils/bbox.js';
 
   const dispatch = createEventDispatcher();
 
   export let filePath = '';
+  /** The build the page image comes from; the box means nothing on another. */
+  export let buildId = null;
   export let page = 1;
   /** Must match the DPI the page image was rendered at. */
   export let dpi = 150;
@@ -53,7 +54,7 @@
   onDestroy(() => themeObserver?.disconnect());
 
   $: tone = isDark ? $activeTone : { paper: 1, warmth: 0 };
-  $: pageUrl = filePath ? api.pdfPageUrl(filePath, page, dpi, tone, $compileStore.buildId) : '';
+  $: pageUrl = filePath ? api.pdfPageUrl(filePath, page, dpi, tone, buildId) : '';
   // Changing page/file invalidates any in-progress selection.
   $: if (page || filePath) resetSelection();
 
@@ -113,7 +114,7 @@
     try {
       result = await api.repairVisualCrop({
         filePath,
-        buildId: $compileStore.buildId,
+        buildId: buildId,
         page,
         dpi,
         instruction: instruction.trim() || undefined,
@@ -156,7 +157,6 @@
   {/if}
 
   <div class="page-wrap" class:selecting={active}>
-    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
     <img
       bind:this={imgEl}
       src={pageUrl}

@@ -11,7 +11,7 @@ const DEFAULTS = {
   problems: true,
   theme: 'auto',
   /** Pane sizes in percent, as the splitter reports them. */
-  sizes: { sidebar: 16, editor: 38, pdf: 34, chat: 12 }
+  sizes: { sidebar: 15, editor: 32, pdf: 31, chat: 22 }
 };
 
 export class UiState {
@@ -38,6 +38,11 @@ export class UiState {
     if (saved.sizes && Object.values(saved.sizes).every((n) => Number.isFinite(n))) {
       this.sizes = { ...this.sizes, ...saved.sizes };
     }
+  }
+
+  /** Make sure a pane is visible. */
+  show(pane) {
+    if (!this[pane]) this.toggle(pane);
   }
 
   toggle(pane) {

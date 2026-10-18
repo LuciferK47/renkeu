@@ -307,7 +307,7 @@
               bind:value={selectedModelId}
               aria-label="Select AI model for this run"
             >
-              {#each availableModels as m}
+              {#each availableModels as m (m.id)}
                 <option value={m.id}>{m.label} {m.tier ? `(${m.tier})` : ''}</option>
               {/each}
             </select>
@@ -338,7 +338,7 @@
 
   {#if suggestions.length > 0}
     <div id="command-suggestions" class="suggestions" role="listbox" aria-label="Command suggestions" aria-expanded="true">
-      {#each suggestions as cmd, idx}
+      {#each suggestions as cmd, idx (cmd.name)}
         <button
           on:click={() => selectCommand(cmd)}
           on:mouseenter={() => selectedIndex = idx}
@@ -353,7 +353,7 @@
           <div class="cmd-desc">{cmd.description}</div>
           {#if cmd.tags}
             <div class="cmd-tags">
-              {#each cmd.tags as tag}
+              {#each cmd.tags as tag (tag)}
                 <span class="tag">{tag}</span>
               {/each}
             </div>

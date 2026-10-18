@@ -92,6 +92,9 @@
             {#if msg.role === 'assistant'}
               <!-- Render LaTeX code blocks specially -->
               {#if msg.content.includes('```latex') || msg.content.includes('\\documentclass')}
+                <!-- Safe: formatAssistantMessage escapes everything before adding markup
+                     (tests/m7Safety.test.js). -->
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                 {@html formatAssistantMessage(msg.content)}
               {:else}
                 {msg.content}
@@ -111,6 +114,7 @@
         <div class="message-avatar"><Icon name="sparkle" /></div>
         <div class="message-content">
           <div class="message-text">
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             {@html formatAssistantMessage(streamingMessage)}
             <span class="cursor">▌</span>
           </div>

@@ -5,7 +5,7 @@
 export function readPref(key, fallback) {
   try {
     const raw = globalThis.localStorage?.getItem(key);
-    return raw == null ? fallback : JSON.parse(raw);
+    return raw === null || raw === undefined ? fallback : JSON.parse(raw);
   } catch {
     return fallback;
   }

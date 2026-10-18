@@ -210,6 +210,7 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
         )
         .route("/api/builds/{id}", get(routes::compile::get_build))
         .route("/api/builds/{id}/pdf", get(routes::compile::export_pdf))
+        .route("/api/builds/{id}/log", get(routes::compile::get_build_log))
         .route(
             "/api/compile/stream/{id}",
             get(routes::compile::compile_stream),

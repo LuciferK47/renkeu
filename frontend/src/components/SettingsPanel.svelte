@@ -386,7 +386,7 @@
               <h3>Keyboard Shortcuts</h3>
               <p class="help-text">Edit keyboard shortcuts (e.g., ctrl+s, alt+enter)</p>
 
-              {#each Object.entries(config.keyboard_shortcuts) as [action, shortcut]}
+              {#each Object.entries(config.keyboard_shortcuts) as [action] (action)}
                 <div class="setting-group">
                   <label for={`shortcut-${action}`}>{action.replace(/_/g, ' ')}</label>
                   <input

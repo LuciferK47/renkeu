@@ -99,6 +99,15 @@ jobs:
     name: Coverage
     runs-on: ubuntu-latest
     steps:
+      # The instrumented build of the whole workspace (Tectonic, pdfium-render,
+      # the image codecs) plus its test binaries outgrew the runner's disk:
+      # the job died with "No space left on device" mid-link. These preinstalled
+      # toolchains are never used here.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -274,6 +283,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Correctness rules only (frontend/eslint.config.js); errors fail the job.
+      - name: Lint
+        run: npx eslint .
 
       - name: Run tests
         run: npx vitest run

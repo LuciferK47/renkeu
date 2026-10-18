@@ -147,7 +147,7 @@ describe('UiState', () => {
     const again = new UiState()
     expect(again.chat).toBe(false)
     expect(again.sizes.editor).toBe(50)
-    expect(again.sizes.pdf).toBe(34)
+    expect(again.sizes.pdf).toBe(31)
   })
 
   it('ignores corrupt saved preferences', () => {
@@ -155,7 +155,7 @@ describe('UiState', () => {
     const ui = new UiState()
     expect(ui.sidebar).toBe(true)
     expect(ui.theme).toBe('auto')
-    expect(ui.sizes.editor).toBe(38)
+    expect(ui.sizes.editor).toBe(32)
     localStorage.setItem('latex-ai:ui', 'not json')
     expect(new UiState().sidebar).toBe(true)
   })

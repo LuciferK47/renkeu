@@ -1,97 +1,43 @@
 <script>
-  import Icon from './Icon.svelte'
-  import { compileStore } from '../stores/compileStore.js'
-  import { fileStore } from '../stores/fileStore.js'
-  
-  export let status = ''
+  // Bottom bar: what the app is doing, whether the open file is saved, and
+  // where the cursor is. Reads state; owns none.
+  let { status = '', doc = null, compile = null, cursor = null } = $props()
 
-  $: statusColor = status.startsWith('Error') ? 'text-destructive' : 'text-foreground'
-  
-  // Auto-save indicator
-  $: autoSaveStatus = $fileStore.saving ? 'Saving...' : 
-                      $fileStore.lastSaved ? `Saved ${formatTime($fileStore.lastSaved)}` : ''
-  
-  // Pending compile indicator
-  $: pendingCompile = $compileStore.pendingAutoCompile ? 'Compile pending' : ''
-  
-  function formatTime(date) {
-    if (!date) return ''
-    const now = new Date()
-    const diff = Math.floor((now - date) / 1000) // seconds
-    
-    if (diff < 5) return 'just now'
-    if (diff < 60) return `${diff}s ago`
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-    return date.toLocaleTimeString()
-  }
+  const save = $derived.by(() => {
+    if (!doc) return ''
+    if (doc.conflict) return 'Conflict — choose how to resolve'
+    if (doc.error) return `Not saved: ${doc.error}`
+    if (doc.saving) return 'Saving…'
+    return doc.dirty ? 'Unsaved changes' : 'Saved'
+  })
+  const saveTone = $derived(doc?.conflict || doc?.error ? 'bad' : doc?.dirty || doc?.saving ? 'warn' : 'ok')
 </script>
 
-<div class="status-bar" role="status" aria-live="polite" aria-atomic="true">
-  <span class={statusColor}>{status}</span>
-  
-  {#if autoSaveStatus}
-    <span class="auto-save-indicator" class:saving={$fileStore.saving}>
-      {#if $fileStore.saving}
-        <span class="spinner"></span>
-      {:else}
-        <span class="checkmark"><Icon name="check" /></span>
-      {/if}
-      {autoSaveStatus}
-    </span>
+<div class="status-bar" role="status" aria-live="polite">
+  <span class="status">{status}</span>
+  {#if compile?.compiling}
+    <span class="chip warn">Compiling {compile.progress ? `${compile.progress}%` : '…'}</span>
   {/if}
-  
-  {#if pendingCompile}
-    <span class="pending-compile">
-      {pendingCompile}
-    </span>
-  {/if}
+  <span class="spacer"></span>
+  {#if cursor}<span class="chip">Ln {cursor.line}, Col {cursor.column}</span>{/if}
+  {#if doc}<span class="chip {saveTone}">{save}</span>{/if}
 </div>
 
 <style>
   .status-bar {
-    padding: 0.5rem 1rem;
-    background: hsl(var(--surface-2));
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0 0.75rem;
+    height: 24px;
+    font-size: 12px;
+    background: hsl(var(--surface-1));
     border-top: 1px solid hsl(var(--border));
-    font-size: 13px;
-    min-height: 24px;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-  
-  .auto-save-indicator {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
     color: hsl(var(--text-dim));
-    font-size: 12px;
   }
-  
-  .auto-save-indicator.saving {
-    color: hsl(var(--primary));
-  }
-  
-  .checkmark {
-    color: hsl(var(--ok));
-    font-weight: bold;
-  }
-  
-  .spinner {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    border: 2px solid hsl(var(--primary));
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-  
-  .pending-compile {
-    color: hsl(var(--warn));
-    font-size: 12px;
-  }
+  .spacer { flex: 1; }
+  .chip { padding: 0 0.4rem; border-radius: var(--radius-pill); }
+  .chip.ok { color: hsl(var(--ok)); }
+  .chip.warn { color: hsl(var(--warn)); }
+  .chip.bad { color: hsl(var(--err)); font-weight: 600; }
 </style>

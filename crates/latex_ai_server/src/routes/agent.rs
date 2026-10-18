@@ -450,32 +450,82 @@ pub async fn preview(
     validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?;
     validate_edits(&req.edits)?;
 
-    let (content, etag) = state
+    let (_, etag) = state
         .store
         .read_with_etag(std::path::Path::new(&req.file_path))
         .await?;
 
-    let header = req.file_path.as_str();
-    let hunks = latex_ai_core::compile::dedupe_hunks(&req.edits.iter().collect::<Vec<_>>())
+    // A proposal may span several files; each hunk is shown against the file
+    // it is for. (Reading only `file_path` made every other file's hunks
+    // report "does not apply".)
+    let primary = relative(
+        &state,
+        &validate_path(&state.workspace_root, &req.file_path, AccessKind::Read)?,
+        &req.file_path,
+    );
+    let mut contents: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let mut targets: Vec<(&AgentEdit, String)> = Vec::new();
+    for edit in &req.edits {
+        let file = if edit.file_path.trim().is_empty() {
+            primary.clone()
+        } else {
+            match validate_path(&state.workspace_root, &edit.file_path, AccessKind::Read) {
+                Ok(abs) => relative(&state, &abs, &edit.file_path),
+                // A file that does not exist is that hunk's problem to report,
+                // not a reason to refuse the whole preview. Anything else
+                // (traversal, a secret) still is.
+                Err(latex_ai_core::security::SecurityError::NotFound) => {
+                    edit.file_path.trim_start_matches("./").to_owned()
+                }
+                Err(e) => return Err(e.into()),
+            }
+        };
+        if !contents.contains_key(&file) {
+            let read = state
+                .store
+                .read_with_etag(Path::new(&file))
+                .await
+                .ok()
+                .map(|(c, _)| c);
+            contents.insert(file.clone(), read);
+        }
+        targets.push((edit, file));
+    }
+
+    let unique = latex_ai_core::compile::dedupe_hunks(&req.edits.iter().collect::<Vec<_>>());
+    let hunks = unique
         .into_iter()
         .map(|edit| {
-            let applied = latex_ai_core::policy::lint_edit(edit, &content)
+            let file = targets
+                .iter()
+                .find(|(e, _)| std::ptr::eq(*e, edit))
+                .map_or(primary.as_str(), |(_, f)| f.as_str());
+            let hunk_id = edit.hunk_id().0;
+            let Some(Some(content)) = contents.get(file) else {
+                return HunkPreview {
+                    hunk_id,
+                    diff: String::new(),
+                    applies: false,
+                    error: Some(format!("`{file}` could not be read")),
+                };
+            };
+            let applied = latex_ai_core::policy::lint_edit(edit, content)
                 .map_err(|v| v.to_string())
                 .and_then(|()| {
-                    latex_ai_core::apply::apply_edit(&content, edit).map_err(|e| e.to_string())
+                    latex_ai_core::apply::apply_edit(content, edit).map_err(|e| e.to_string())
                 });
             match applied {
                 Ok(updated) => HunkPreview {
-                    hunk_id: edit.hunk_id().0,
-                    diff: similar::TextDiff::from_lines(&content, &updated)
+                    hunk_id,
+                    diff: similar::TextDiff::from_lines(content, &updated)
                         .unified_diff()
-                        .header(header, header)
+                        .header(file, file)
                         .to_string(),
                     applies: true,
                     error: None,
                 },
                 Err(error) => HunkPreview {
-                    hunk_id: edit.hunk_id().0,
+                    hunk_id,
                     diff: String::new(),
                     applies: false,
                     error: Some(error),

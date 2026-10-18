@@ -1,241 +1,344 @@
 <script>
-  import { onMount } from 'svelte'
-  if (import.meta.env.DEV) window.__probe = { }
-  import { uiStore, initLayoutPreferences, toggleFileTree, toggleHistory, toggleSettings, setStatus, pushToast } from './stores/uiStore.js'
-  import { fileStore } from './stores/fileStore.js'
-  import { compileStore } from './stores/compileStore.js'
-  import { aiStore, resetAI } from './stores/aiStore.js'
-  import * as configService from './services/configService.js'
-  import { loadFile } from './controllers/FileController.js'
-  import { compileDocument } from './controllers/CompileController.js'
-  import { requestAIPlan, handleChatMessage, handleApplyHunks } from './controllers/ChatController.js'
-
-  import IdeShell from './layouts/IdeShell.svelte'
-  import WorkspaceLayout from './layouts/WorkspaceLayout.svelte'
-  import PanelManager from './layouts/PanelManager.svelte'
+  import { onMount, tick } from 'svelte'
+  import { Splitpanes, Pane } from 'svelte-splitpanes'
   import './globals.css'
-  
-  let HistorySidebar
-  let SettingsPanel
-  let settingsLoaded = false
-  let historyLoaded = false
-  
-  let shortcuts = {}
-  let editorSettings = {}
-  let themeSettings = {}
-  let autoSave = true
-  // False when the server has no API key; the chat explains how to fix it.
-  let aiEnabled = true
-  let autoSaveInterval = 30
-  let recentFiles = []
-  let pinnedFiles = []
-  
-  let editorRef = null
-  let commandPaletteRef = null
-  let conflict = null
 
-  // Everything below that reads the file from the server (switching files,
-  // compiling, the AI) sees only the last autosave. Flushing first means the
-  // user's unsaved text is neither ignored nor silently discarded. If the save
-  // cannot complete (conflict, network) the action is abandoned.
+  import { documents, compile, project, ui, commands } from './lib/app.svelte.js'
+  import { chat } from './lib/chat.js'
+  import { api } from './lib/api/client.js'
+  import { readPref, writePref } from './lib/storage.js'
+  import { setProposal } from './stores/aiStore.js'
+
+  import Toolbar from './components/Toolbar.svelte'
+  import ProjectTree from './components/ProjectTree.svelte'
+  import EditorPane from './components/EditorPane.svelte'
+  import PdfPane from './components/PdfPane.svelte'
+  import ProblemsPanel from './components/ProblemsPanel.svelte'
+  import AiPane from './components/AiPane.svelte'
+  import StatusBar from './components/StatusBar.svelte'
+  import Toasts from './components/Toasts.svelte'
+  import ConflictDialog from './components/ConflictDialog.svelte'
+  import CommandMenu from './components/CommandMenu.svelte'
+  import CommandPalette from './components/CommandPalette.svelte'
+  import FileOpener from './components/FileOpener.svelte'
+
+  const OPEN_KEY = 'latex-ai:open-files'
+  const RECENT_KEY = 'latex-ai:recent-files'
+
+  // Read before the effect below overwrites it with the (still empty) tab list.
+  const lastSession = readPref(OPEN_KEY, { paths: [], active: null })
+
+  let SettingsPanel = $state(null)
+  let HistorySidebar = $state(null)
+  let editorPane = $state()
+  let aiEnabled = $state(true)
+  let cursor = $state(null)
+  let recent = $state(readPref(RECENT_KEY, []))
+  /** Conflicts the user chose to decide later. */
+  let deferred = $state(new Set())
+
+  const conflicted = $derived(documents.docs.find((d) => d.conflict && !deferred.has(d.path)) ?? null)
+
+  // ---- actions -------------------------------------------------------
+
+  async function openFile(path) {
+    try {
+      await documents.open(path)
+      project.reveal(path)
+      recent = [path, ...recent.filter((p) => p !== path)].slice(0, 20)
+      writePref(RECENT_KEY, recent)
+    } catch (e) {
+      ui.toast(`Could not open ${path}: ${e.message}`, 'error')
+    }
+  }
+
+  /**
+   * Everything that reads the project from disk (compile, the AI) sees only
+   * what has been saved. Flushing first means unsaved text is neither ignored
+   * nor discarded; if a save cannot complete, the action is abandoned.
+   */
   async function ensureSaved() {
-    if (!editorRef) return true
-    const clean = await editorRef.flush()
-    if (!clean) pushToast('Save your changes first — they could not be saved automatically.', 'error')
+    const clean = await documents.flushAll()
+    if (!clean) ui.toast('Your changes could not be saved, so nothing was started.', 'error')
     return clean
   }
 
-  async function resolveConflict(action) {
-    const current = conflict
-    uiStore.update((ui) => ({ ...ui, showConflictDialog: false }))
-    conflict = null
-    if (!current) return
-    if (action === 'overwrite') {
-      // Keep the local text; adopt the server's ETag so the write is
-      // accepted, which is exactly the user's explicit choice.
-      editorRef?.adoptETag(current.serverETag)
-      await editorRef?.save()
-    } else if (action === 'reload') {
-      await loadFile(current.filePath)
-    }
+  async function compileNow() {
+    const active = documents.active?.path
+    if (!active || !(await ensureSaved())) return
+    ui.setStatus('Compiling…')
+    await compile.start(active, { main: project.mainOverride })
+    ui.setStatus(compile.status === 'success' ? 'Compiled' : compile.status === 'error' ? 'Compile failed' : 'Ready')
+    if (compile.status === 'error') ui.show('problems')
   }
-  
-  async function loadConfig() {
-    try {
-      const cfg = await configService.loadConfig()
-      aiEnabled = cfg.ai_enabled ?? true
-      autoSave = cfg.auto_save ?? true
-      autoSaveInterval = cfg.auto_save_interval ?? 30
-      shortcuts = cfg.keyboard_shortcuts || {}
-      editorSettings = cfg.editor || {}
-      themeSettings = cfg.theme || {}
-    } catch (e) {
-      console.error('Failed to load config:', e)
+
+  async function revealProblem({ file, line }) {
+    if (!file) return
+    await openFile(file)
+    await tick()
+    editorPane?.reveal(line)
+  }
+
+  async function closeTab(path) {
+    const doc = documents.get(path)
+    if (!doc) return
+    if (doc.dirty && !(await documents.save(path))) {
+      if (!window.confirm(`Discard unsaved changes to ${path}?`)) return
+      documents.close(path, { force: true })
+    } else {
+      documents.close(path)
     }
   }
 
-  async function loadSettingsPanel() {
-    if (!settingsLoaded) {
-      const module = await import('./components/SettingsPanel.svelte')
-      SettingsPanel = module.default
-      settingsLoaded = true
+  async function resolveConflict(choice) {
+    const doc = conflicted
+    if (!doc) return
+    await documents.resolveConflict(doc.path, choice)
+  }
+
+  async function sendToAi(content) {
+    if (await ensureSaved()) await chat.handleChatMessage(content)
+  }
+
+  async function applyHunks(payload) {
+    if (await ensureSaved()) await chat.handleApplyHunks(payload)
+  }
+
+  function onVisualProposal(result) {
+    setProposal({
+      summary: 'Visual fix',
+      edit_count: result.edits?.length ?? 0,
+      edits: result.edits ?? [],
+      etag: result.etag,
+      file: result.file
+    })
+    ui.show('chat')
+  }
+
+  async function loadConfig() {
+    try {
+      aiEnabled = (await api.getConfig()).ai_enabled ?? true
+    } catch {
+      /* the chat stays usable; the first request will say what is wrong */
     }
   }
-  
-  async function loadHistorySidebar() {
-    if (!historyLoaded) {
-      const module = await import('./components/HistorySidebar.svelte')
-      HistorySidebar = module.default
-      historyLoaded = true
-    }
+
+  async function openSettings() {
+    SettingsPanel ??= (await import('./components/SettingsPanel.svelte')).default
+    ui.openDialog('settings')
+  }
+
+  async function closeSettings() {
+    ui.closeDialog()
+    await loadConfig()
+  }
+
+  async function openHistory() {
+    HistorySidebar ??= (await import('./components/HistorySidebar.svelte')).default
+    ui.openDialog('history')
+  }
+
+  /** Splitter sizes come back in pane order; give them names. */
+  function onResized(event) {
+    const names = [ui.sidebar && 'sidebar', 'editor', 'pdf', ui.chat && 'chat'].filter(Boolean)
+    const sizes = {}
+    event.detail.forEach((pane, i) => {
+      if (names[i]) sizes[names[i]] = Math.round(pane.size * 10) / 10
+    })
+    ui.setSizes(sizes)
+  }
+
+  // ---- commands ------------------------------------------------------
+
+  function registerCommands() {
+    const hasDoc = () => !!documents.active
+    const defs = [
+      { id: 'save', title: 'Save file', keys: 'Mod+S', enabled: hasDoc, run: () => documents.save(documents.active.path) },
+      { id: 'compile', title: 'Compile', keys: 'Mod+Enter', enabled: () => hasDoc() && !compile.compiling, run: compileNow },
+      { id: 'stop-compile', title: 'Stop compiling', enabled: () => compile.compiling, run: () => compile.cancel() },
+      { id: 'quick-open', title: 'Open file…', keys: 'Mod+P', run: () => ui.openDialog('opener') },
+      { id: 'command-menu', title: 'Show all commands', keys: 'F1', run: () => ui.openDialog('commands') },
+      { id: 'palette', title: 'Ask the AI…', keys: 'Mod+K', run: () => ui.openDialog('palette') },
+      { id: 'toggle-sidebar', title: 'Toggle file tree', keys: 'Mod+B', run: () => ui.toggle('sidebar') },
+      { id: 'toggle-chat', title: 'Toggle assistant', keys: 'Mod+Shift+L', run: () => ui.toggle('chat') },
+      { id: 'toggle-problems', title: 'Toggle problems panel', keys: 'Mod+J', run: () => ui.toggle('problems') },
+      {
+        id: 'next-problem',
+        title: 'Go to first problem',
+        keys: 'F8',
+        enabled: () => compile.errors.some((e) => e.file),
+        run: () => revealProblem(compile.errors.find((e) => e.file))
+      },
+      { id: 'close-tab', title: 'Close tab', keys: 'Alt+W', enabled: hasDoc, run: () => closeTab(documents.active.path) },
+      { id: 'history', title: 'Show history', keys: 'Alt+H', run: openHistory },
+      { id: 'settings', title: 'Settings', keys: 'Mod+,', run: openSettings },
+      { id: 'refresh-files', title: 'Refresh file list', run: () => project.refresh() },
+      { id: 'focus-editor', title: 'Focus editor', enabled: hasDoc, run: () => editorPane?.focus() }
+    ]
+    return defs.map((d) => commands.register(d))
   }
 
   onMount(() => {
-    initLayoutPreferences()
+    ui.applyTheme()
+    const unregister = registerCommands()
+    const detachKeys = commands.attach(window)
     loadConfig()
-    recentFiles = JSON.parse(localStorage.getItem('recent_files') || '[]')
-    pinnedFiles = JSON.parse(localStorage.getItem('pinned_files') || '[]')
-    
-    const beforeUnload = (event) => {
-      if ($fileStore.dirty) {
-        event.preventDefault()
-        event.returnValue = ''
+
+    // Reopen what was open last time, then show the tree.
+    ;(async () => {
+      await project.refresh()
+      for (const path of lastSession.paths ?? []) {
+        if (project.files().some((f) => f.path === path)) await openFile(path)
+      }
+      if (lastSession.active) documents.setActive(lastSession.active)
+    })()
+
+    // Pick up edits made outside the editor whenever the window is used again.
+    const onFocus = () => documents.checkExternalChanges()
+    const onBeforeUnload = (e) => {
+      if (documents.anyDirty) {
+        e.preventDefault()
+        e.returnValue = ''
       }
     }
-    window.addEventListener('beforeunload', beforeUnload)
-    return () => window.removeEventListener('beforeunload', beforeUnload)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('beforeunload', onBeforeUnload)
+
+    return () => {
+      unregister.forEach((off) => off())
+      detachKeys()
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('beforeunload', onBeforeUnload)
+    }
+  })
+
+  // Remember the open tabs.
+  $effect(() => {
+    writePref(OPEN_KEY, { paths: documents.docs.map((d) => d.path), active: documents.activePath })
+  })
+
+  // A resolved conflict no longer needs its "decide later" mark.
+  $effect(() => {
+    const stillConflicted = new Set(documents.docs.filter((d) => d.conflict).map((d) => d.path))
+    if ([...deferred].some((p) => !stillConflicted.has(p))) {
+      deferred = new Set([...deferred].filter((p) => stillConflicted.has(p)))
+    }
   })
 </script>
 
-<IdeShell
-  {shortcuts}
-  filePath={$fileStore.filePath}
-  isDirty={$fileStore.dirty}
-  showFileTree={$uiStore.showFileTree}
-  showHistory={$uiStore.showHistory}
-  compiling={$compileStore.status === 'compiling'}
-  showSettings={$uiStore.showSettings}
-  selectedFiles={[]}
-  dryRun={false}
-  bulkMode={false}
-  toasts={$uiStore.toasts}
-  showConflictDialog={$uiStore.showConflictDialog}
-  conflictData={conflict}
-  showFileOpener={$uiStore.showFileOpener}
-  {recentFiles}
-  {pinnedFiles}
-  showSearch={$uiStore.showSearch}
-  searchQuery=""
-  searchResults={[]}
-  searchLoading={false}
-  status={$uiStore.status}
-  bind:commandPaletteRef
-  {SettingsPanel}
-  {settingsLoaded}
-  on:shortcut={(e) => {
-    if (e.detail.action === 'save' && editorRef) editorRef.save();
-    if (e.detail.action === 'apply_command' && commandPaletteRef) commandPaletteRef.focus();
-    if (e.detail.action === 'toggle_history') toggleHistory();
-    if (e.detail.action === 'toggle_file_tree') toggleFileTree();
-  }}
-  on:change={(e) => {
-    // Read the path the user just typed. This used to pass
-    // `$fileStore.filePath`, but the input is one-way (`value=`, not `bind:`),
-    // so the store still held the *previous* path -- null on first use. Typing
-    // a path and pressing Enter did nothing at all, and Compile stayed disabled
-    // because nothing ever opened.
-    const path = e.target.value;
-    ensureSaved().then((clean) => { if (clean) loadFile(path); });
-  }}
-  on:compile={async () => { if (await ensureSaved()) compileDocument($fileStore.filePath) }}
-  on:conflict-resolve={(e) => resolveConflict(e.detail.action)}
-  on:settings-toggle={async () => { const wasOpen = $uiStore.showSettings; if (!wasOpen) await loadSettingsPanel(); toggleSettings(); if (wasOpen) loadConfig(); }}
-  on:command={async (e) => { if (await ensureSaved()) requestAIPlan(e.detail.command ?? e.detail) }}
-  on:ai-plan={async (e) => { if (await ensureSaved()) requestAIPlan(e.detail.request ?? e.detail) }}
->
-  <svelte:fragment slot="sidebar">
-    <PanelManager
-      filePath={$fileStore.filePath}
-      showHistory={$uiStore.showHistory}
-      showFileTree={$uiStore.showFileTree}
-      onFileClick={async (path) => {
-        // Not setting filePath here: it must change together with content and
-        // etag (FileController.loadFile does all three at once), or a save
-        // landing in between would write the old file's text to the new path.
-        if (path === $fileStore.filePath) return;
-        if (await ensureSaved()) loadFile(path);
-      }}
-      onFileTreeToggle={toggleFileTree}
-      onHistoryToggle={toggleHistory}
-    />
-  </svelte:fragment>
+<div class="app" role="application" aria-label="LaTeX-AI">
+  <Toolbar
+    {ui}
+    {documents}
+    {compile}
+    {project}
+    {commands}
+    oncompile={compileNow}
+    oncancel={() => compile.cancel()}
+    onsettings={openSettings}
+    onhistory={openHistory}
+    onpalette={() => ui.openDialog('palette')}
+  />
 
-  <svelte:fragment slot="workspace">
-    <!-- The editor dispatches dirty-change, content-changed, saved, save-error
-         and save-conflict, and WorkspaceLayout forwards all five, but nothing
-         listened: the unsaved-changes dot never appeared, the status bar never
-         said "Saved", and a conflict was reported only inside the editor.
-         Saving worked; you just could not tell it had. -->
-    <WorkspaceLayout
-      filePath={$fileStore.filePath}
-      etag={$fileStore.etag}
-      bind:editorContent={$fileStore.content}
-      bind:editorRef
-      {autoSave}
-      autoSaveDelay={autoSaveInterval * 1000}
-      {editorSettings}
-      {themeSettings}
-      layoutMode={$uiStore.layoutMode}
-      isDirty={$fileStore.dirty}
-      compiling={$compileStore.status === 'compiling'}
-      bulkMode={false}
-      editorHeightPercent={$uiStore.editorHeightPercent}
-      chatHeightPercent={$uiStore.chatHeightPercent}
-      isDraggingDivider={false}
-      showChatPanel={$uiStore.showChatPanel}
-      pdfUrl={$compileStore.pdfUrl}
-      pdfPages={$compileStore.pageCount}
-      compileErrors={$compileStore.errors}
-      compileWarnings={$compileStore.warnings}
-      aiPlan={$aiStore.currentProposal}
-      compilationJobId={$compileStore.jobId}
-      activeRightTab={$uiStore.activeRightTab}
-      chatMessages={$aiStore.messages}
-      {aiEnabled}
-      chatLoading={$aiStore.status === 'streaming' || $aiStore.status === 'thinking'}
-      chatStreamingMessage={$aiStore.streamingMessage}
-      on:apply-selected={async (e) => { if (await ensureSaved()) handleApplyHunks(e.detail) }}
-      on:message-sent={async (e) => { if (await ensureSaved()) handleChatMessage(e.detail.content) }}
-      on:dirty-change={(e) => fileStore.update((f) => ({ ...f, dirty: e.detail.isDirty }))}
-      on:content-changed={(e) =>
-        fileStore.update((f) => ({
-          ...f,
-          content: e.detail.content,
-          dirty: e.detail.isDirty,
-        }))}
-      on:saved={(e) => {
-        fileStore.update((f) => ({
-          ...f,
-          dirty: false,
-          savedContent: f.content,
-          // Keep the store's ETag current: AI runs and apply read it.
-          etag: e.detail.etag ?? f.etag,
-          lastSavedAt: new Date()
-        }));
-        setStatus('Saved');
-      }}
-      on:save-error={(e) => {
-        setStatus(`Save failed: ${e.detail.error}`);
-        pushToast(`Save failed: ${e.detail.error}`, 'error');
-      }}
-      on:save-conflict={(e) => {
-        // The file moved under the edit, so the buffer stays dirty: telling the
-        // user it saved would be a lie, and a retry would clobber the other
-        // change with a stale etag.
-        setStatus('Conflict: file changed on disk');
-        conflict = { filePath: e.detail.filePath, serverETag: e.detail.serverETag };
-        uiStore.update((ui) => ({ ...ui, showConflictDialog: true }));
-      }}
+  <div class="workspace">
+    <Splitpanes horizontal class="vertical-stack">
+      <Pane minSize={30}>
+        <Splitpanes on:resized={onResized}>
+          {#if ui.sidebar}
+            <Pane size={ui.sizes.sidebar} minSize={8} maxSize={40}>
+              <ProjectTree {project} {documents} onopen={openFile} onrefresh={() => project.refresh()} />
+            </Pane>
+          {/if}
+          <Pane size={ui.sizes.editor} minSize={20}>
+            <EditorPane
+              bind:this={editorPane}
+              {documents}
+              {ui}
+              {commands}
+              onclosetab={closeTab}
+              oncursor={(c) => (cursor = c)}
+            />
+          </Pane>
+          <Pane size={ui.sizes.pdf} minSize={15}>
+            <PdfPane {compile} sourcePath={documents.active?.path ?? ''} oncompile={compileNow} onvisualproposal={onVisualProposal} />
+          </Pane>
+          {#if ui.chat}
+            <Pane size={ui.sizes.chat} minSize={12}>
+              <AiPane {aiEnabled} filePath={documents.active?.path ?? ''} onsend={sendToAi} onapply={applyHunks} />
+            </Pane>
+          {/if}
+        </Splitpanes>
+      </Pane>
+      {#if ui.problems}
+        <Pane size={22} minSize={6} maxSize={60}>
+          <ProblemsPanel {compile} onreveal={revealProblem} onclose={() => ui.toggle('problems')} />
+        </Pane>
+      {/if}
+    </Splitpanes>
+  </div>
+
+  <StatusBar status={ui.status} doc={documents.active} {compile} {cursor} />
+  <Toasts toasts={ui.toasts} />
+
+  {#if conflicted}
+    <ConflictDialog
+      doc={conflicted}
+      onresolve={resolveConflict}
+      ondismiss={() => (deferred = new Set(deferred).add(conflicted.path))}
     />
-  </svelte:fragment>
-</IdeShell>
+  {/if}
+
+  {#if ui.dialog === 'commands'}
+    <CommandMenu {commands} onclose={() => ui.closeDialog()} />
+  {/if}
+
+  {#if ui.dialog === 'palette'}
+    <div class="modal" role="presentation" onclick={(e) => e.target === e.currentTarget && ui.closeDialog()}>
+      <div class="modal-body" role="dialog" aria-modal="true" aria-label="Ask the AI">
+        <CommandPalette
+          on:command={(e) => (ui.closeDialog(), chat.requestAIPlan(e.detail))}
+          on:ai-plan={(e) => (ui.closeDialog(), chat.requestAIPlan(e.detail.request ?? e.detail))}
+        />
+      </div>
+    </div>
+  {/if}
+
+  {#if ui.dialog === 'opener'}
+    <FileOpener
+      visible={true}
+      {recent}
+      pinned={[]}
+      on:close={() => ui.closeDialog()}
+      on:open={(e) => (ui.closeDialog(), openFile(e.detail.path))}
+    />
+  {/if}
+
+  {#if ui.dialog === 'history' && HistorySidebar}
+    <div class="modal" role="presentation" onclick={(e) => e.target === e.currentTarget && ui.closeDialog()}>
+      <div class="modal-body tall" role="dialog" aria-modal="true" aria-label="History">
+        <HistorySidebar filePath={documents.active?.path ?? ''} agentOnly={false} />
+      </div>
+    </div>
+  {/if}
+
+  {#if ui.dialog === 'settings' && SettingsPanel}
+    <SettingsPanel isOpen={true} onClose={closeSettings} onSave={() => {}} />
+  {/if}
+</div>
+
+<style>
+  :global(html, body, #app) { height: 100%; margin: 0; }
+  :global(body) { background: hsl(var(--surface-0)); color: hsl(var(--foreground)); font-family: 'Outfit', system-ui, sans-serif; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .workspace { flex: 1; min-height: 0; }
+  .workspace :global(.splitpanes) { height: 100%; }
+  .workspace :global(.splitpanes__pane) { background: transparent; overflow: hidden; }
+  .workspace :global(.splitpanes__splitter) { background: hsl(var(--border)) !important; border: none !important; position: relative; flex-shrink: 0; }
+  .workspace :global(.splitpanes--vertical > .splitpanes__splitter) { width: 5px; cursor: col-resize; }
+  .workspace :global(.splitpanes--horizontal > .splitpanes__splitter) { height: 5px; cursor: row-resize; }
+  .workspace :global(.splitpanes__splitter:hover),
+  .workspace :global(.splitpanes__splitter:focus-visible) { background: hsl(var(--primary) / 0.5) !important; }
+  .modal { position: fixed; inset: 0; background: rgb(0 0 0 / 0.35); display: flex; justify-content: center; padding-top: 12vh; z-index: 700; }
+  .modal-body { align-self: flex-start; width: min(64rem, 94vw); background: hsl(var(--popover)); border: 1px solid hsl(var(--border)); border-radius: var(--radius-s); box-shadow: 0 12px 40px rgb(0 0 0 / 0.35); overflow: auto; max-height: 76vh; }
+  .modal-body.tall { width: min(40rem, 94vw); }
+</style>

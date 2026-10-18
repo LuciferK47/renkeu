@@ -6,15 +6,10 @@ vi.mock('../src/services/aiService.js', () => ({
   agentLoopStream: vi.fn(),
   streamAIPlan: vi.fn()
 }))
-vi.mock('../src/services/fileService.js', () => ({
-  loadFile: vi.fn(async () => ({ content: 'new', eTag: 'e2' }))
-}))
-vi.mock('../src/controllers/CompileController.js', () => ({ compileDocument: vi.fn() }))
 
 import * as aiService from '../src/services/aiService.js'
-import { handleApplyHunks } from '../src/controllers/ChatController.js'
+import { createChatController } from '../src/controllers/ChatController.js'
 import { aiStore } from '../src/stores/aiStore.js'
-import { fileStore } from '../src/stores/fileStore.js'
 
 describe('apply-selected request', () => {
   beforeEach(() => vi.stubGlobal('fetch', vi.fn(async () => new Response('{"success":true}', { status: 200 }))))
@@ -31,40 +26,63 @@ describe('apply-selected request', () => {
   })
 })
 
-describe('applying a reviewed proposal', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    fileStore.update((f) => ({ ...f, filePath: 'main.tex' }))
-  })
+function makeChat() {
+  const ui = { status: '', toasts: [], setStatus(s) { this.status = s }, toast(m, t) { this.toasts.push({ m, t }) }, show() {} }
+  const doc = { path: 'main.tex' }
+  const documents = { active: doc, get: () => doc, reload: vi.fn(async () => {}) }
+  const compile = { start: vi.fn() }
+  const project = { mainOverride: null, refresh: vi.fn(async () => {}) }
+  return { chat: createChatController({ ui, documents, compile, project }), ui }
+}
 
-  const args = { edits: [{ file_path: 'main.tex' }], selectedHunkIds: ['h1'], expectedEtag: 'e1' }
+describe('applying a reviewed proposal', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const args = { edits: [{ file_path: 'main.tex' }], selectedHunkIds: ['h1'], expectedEtag: 'preview-etag' }
 
   it('retries once with rebase when the file moved and the server still has the proposal', async () => {
-    aiStore.update((a) => ({ ...a, currentProposal: { proposal_id: 'p1' } }))
+    aiStore.update((a) => ({ ...a, currentProposal: { proposal_id: 'p1', etag: 'base' } }))
     aiService.applySelectedHunks
       .mockRejectedValueOnce(new APIError('conflict', 409, null))
       .mockResolvedValueOnce({ success: true })
+    const { chat, ui } = makeChat()
 
-    expect(await handleApplyHunks(args)).toBe(true)
+    expect(await chat.handleApplyHunks(args)).toBe(true)
 
     expect(aiService.applySelectedHunks).toHaveBeenCalledTimes(2)
     expect(aiService.applySelectedHunks.mock.calls[0][4]).toEqual({ proposalId: 'p1' })
     expect(aiService.applySelectedHunks.mock.calls[1][4]).toEqual({ proposalId: 'p1', rebase: true })
+    expect(ui.toasts.some((t) => /moved onto it/.test(t.m))).toBe(true)
+  })
+
+  it('checks against the proposal\'s own base, not whatever the file is now', async () => {
+    // The preview's etag is "the file as it is at preview time"; using it would
+    // make a stale proposal look fresh. The proposal's etag is what it was
+    // written against.
+    aiStore.update((a) => ({ ...a, currentProposal: { proposal_id: 'p1', etag: 'base' } }))
+    aiService.applySelectedHunks.mockResolvedValue({ success: true })
+    const { chat } = makeChat()
+
+    await chat.handleApplyHunks(args)
+
+    expect(aiService.applySelectedHunks.mock.calls[0][3]).toBe('base')
   })
 
   it('does not retry without a proposal to rebase', async () => {
     aiStore.update((a) => ({ ...a, currentProposal: { summary: 'old style, no id' } }))
     aiService.applySelectedHunks.mockRejectedValue(new APIError('conflict', 409, null))
+    const { chat } = makeChat()
 
-    expect(await handleApplyHunks(args)).toBe(false)
+    expect(await chat.handleApplyHunks(args)).toBe(false)
     expect(aiService.applySelectedHunks).toHaveBeenCalledTimes(1)
   })
 
   it('gives up when the rebase is refused too', async () => {
     aiStore.update((a) => ({ ...a, currentProposal: { proposal_id: 'p1' } }))
     aiService.applySelectedHunks.mockRejectedValue(new APIError('conflict', 409, null))
+    const { chat } = makeChat()
 
-    expect(await handleApplyHunks(args)).toBe(false)
+    expect(await chat.handleApplyHunks(args)).toBe(false)
     expect(aiService.applySelectedHunks).toHaveBeenCalledTimes(2)
   })
 })

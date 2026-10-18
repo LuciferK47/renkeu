@@ -118,7 +118,7 @@
       {#if pinned && pinned.length > 0}
         <div class="section">
           <div class="section-title">Pinned</div>
-          {#each pinned as path}
+          {#each pinned as path (path)}
             <div
               class="file"
               role="button"
@@ -136,7 +136,7 @@
       {#if recent && recent.length > 0}
         <div class="section">
           <div class="section-title">Recent</div>
-          {#each recent as path}
+          {#each recent as path (path)}
             <div
               class="file"
               role="button"
@@ -160,7 +160,7 @@
         {:else if results.length === 0}
           <div class="hint">No files found</div>
         {:else}
-          {#each results as file}
+          {#each results as file (file.path ?? file)}
             <div
               class="file"
               role="button"

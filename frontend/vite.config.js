@@ -7,6 +7,8 @@ export default defineConfig({
   plugins: [svelte()],
   resolve: {
     alias: {
+      // svelte-splitpanes imports SvelteKit's `$app/environment` for its `browser`
+      // flag. There is no SvelteKit here, so it is answered by a one-line stand-in.
       '$app/environment': path.resolve(__dirname, './src/app-env-mock.js')
     }
   },
