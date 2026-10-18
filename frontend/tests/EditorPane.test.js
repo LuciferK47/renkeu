@@ -17,6 +17,7 @@ vi.mock('../src/lib/monaco.js', () => {
       getModel: vi.fn(() => ed.model),
       getPosition: vi.fn(() => ({ lineNumber: 1, column: 8 })),
       onMouseDown: vi.fn((cb) => (ed.mouseDown = cb)),
+      updateOptions: vi.fn(),
     }
     editors.push(ed)
     return ed
@@ -104,6 +105,16 @@ describe('EditorPane', () => {
 
     ui.spellcheck = false
     await waitFor(() => expect(spellCalls().at(-1)[2]).toEqual([]))
+  })
+
+  it('applies the editor preferences from Settings, now and when they change', async () => {
+    const { documents, ui } = setup()
+    await documents.open('a.tex')
+    await waitFor(() => expect(editors).toHaveLength(1))
+    await waitFor(() => expect(editors[0].updateOptions).toHaveBeenCalledWith({ fontSize: 14, tabSize: 4, wordWrap: 'on' }))
+
+    ui.setEditor({ fontSize: 20, tabSize: 2, wordWrap: false })
+    await waitFor(() => expect(editors[0].updateOptions).toHaveBeenLastCalledWith({ fontSize: 20, tabSize: 2, wordWrap: 'off' }))
   })
 
   it('draws compile errors as markers on the files they name, including after the editor loads', async () => {
