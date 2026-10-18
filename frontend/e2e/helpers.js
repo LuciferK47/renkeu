@@ -40,3 +40,15 @@ export async function compileOk(page) {
 
 /** The text of the editor's visible lines. */
 export const editorLines = async (page) => (await page.locator('.monaco-editor .view-line').allInnerTexts()).map((l) => l.replace(/\u00a0/g, ' '))
+
+/** The editor line that contains `text`, wherever the engine put it in the DOM. */
+export const lineWith = (page, text) => page.locator('.monaco-editor .view-line', { hasText: text }).first()
+
+/**
+ * Put the cursor at the start of the line containing `text`, by clicking it.
+ * (Ctrl+Home is not delivered the same way by every engine, so tests do not use it.)
+ */
+export async function cursorToLineStart(page, text) {
+  await lineWith(page, text).click()
+  await page.keyboard.press('Home')
+}

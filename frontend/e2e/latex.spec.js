@@ -1,4 +1,4 @@
-import { test, expect, openApp, openFile, endOfEditor } from './helpers.js'
+import { test, expect, openApp, openFile, endOfEditor, lineWith } from './helpers.js'
 
 test.describe('writing LaTeX', () => {
   test('commands, math and comments are highlighted differently', async ({ page }) => {
@@ -26,7 +26,7 @@ test.describe('writing LaTeX', () => {
     await expect(row).toContainText('knuth84')
     await expect(row).toContainText('Knuth')
     await page.keyboard.press('Enter')
-    await expect(page.locator('.view-line').last()).toContainText('\\cite{knuth84}')
+    await expect(lineWith(page, '\\cite{knuth84}')).toBeVisible()
   })
 
   test('\\ref{ offers labels from every file, including ones that are not open', async ({ page }) => {
@@ -50,10 +50,11 @@ test.describe('writing LaTeX', () => {
 
     await page.keyboard.press('Home')
     for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight') // inside "sentense"
-    await page.keyboard.press('Control+.')
+    // The lightbulb rather than Ctrl+. : engines differ in how they deliver that chord.
+    await page.locator('.lightBulbWidget').click()
     await expect(page.getByText(/Change to “sentence”/)).toBeVisible()
     await page.keyboard.press('Enter') // the preferred fix is highlighted
-    await expect(page.locator('.view-line').last()).toContainText('A sentence with a typo.')
+    await expect(lineWith(page, 'A sentence with a typo.')).toBeVisible()
   })
 
   test('Ctrl+click on a citation opens the .bib entry, even though that file was not open', async ({ page }) => {

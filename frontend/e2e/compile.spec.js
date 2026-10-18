@@ -1,4 +1,4 @@
-import { test, expect, openApp, openFile, compileOk } from './helpers.js'
+import { test, expect, openApp, openFile, compileOk, cursorToLineStart } from './helpers.js'
 
 test.describe('compiling and the PDF', () => {
   test('compiling shows the pages and says it compiled', async ({ page }) => {
@@ -13,10 +13,7 @@ test.describe('compiling and the PDF', () => {
   test('an error is listed with its file and line, and clicking it goes there', async ({ page }) => {
     await openApp(page)
     await openFile(page, 'main.tex')
-    await page.locator('.monaco-editor .view-lines').click()
-    await page.keyboard.press('Control+Home')
-    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown')
-    await page.keyboard.press('Home')
+    await cursorToLineStart(page, 'The quick brown fox')
     await page.keyboard.type('\\oops ')
     // Wherever the cursor landed is the line TeX should complain about.
     const line = (await page.locator('.status-bar').innerText()).match(/Ln (\d+)/)[1]
@@ -28,7 +25,7 @@ test.describe('compiling and the PDF', () => {
     // It is also drawn on the line itself.
     await expect(page.locator('.squiggly-error').first()).toBeVisible()
 
-    await page.keyboard.press('Control+Home')
+    await cursorToLineStart(page, '\\documentclass')
     await problem.click()
     await expect(page.locator('.status-bar')).toContainText(`Ln ${line}`)
   })
@@ -64,9 +61,7 @@ test.describe('compiling and the PDF', () => {
       await compileOk(page)
 
       // Line 4 is the sentence in the main file.
-      await page.locator('.monaco-editor .view-lines').click()
-      await page.keyboard.press('Control+Home')
-      for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown')
+      await cursorToLineStart(page, 'The quick brown fox')
       await page.keyboard.press('Control+Alt+j')
       await expect(page.locator('.hit')).toBeVisible()
 
