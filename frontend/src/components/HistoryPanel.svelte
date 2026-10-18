@@ -2,12 +2,14 @@
   // Every saved change, newest first: what kind it was, which file, and the
   // diff. Any version can be put back; the restore is a normal save, so it is
   // itself recorded and can be undone the same way.
+  import { untrack } from 'svelte'
   import { api } from '../lib/api/client.js'
   import { labelFor } from '../lib/history.js'
 
   let { filePath = '', onrestore = async (_entry, _which) => false, onclose = () => {} } = $props()
 
-  let scope = $state(filePath ? 'file' : 'all')
+  // Start on this file when one is open; the user's choice then stands.
+  let scope = $state(untrack(() => (filePath ? 'file' : 'all')))
   let aiOnly = $state(false)
   let entries = $state([])
   let loading = $state(false)

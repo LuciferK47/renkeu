@@ -1,5 +1,5 @@
 <script>
-  export let toasts = []
+  let { toasts = [] } = $props()
 </script>
 
 <div class="toast-stack" aria-live="polite" aria-atomic="true">

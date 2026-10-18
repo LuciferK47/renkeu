@@ -300,6 +300,11 @@ jobs:
       - name: Lint
         run: npx eslint .
 
+      # Svelte's own analysis: accessibility, dead CSS, props that never
+      # update. Warnings fail, so they cannot accumulate.
+      - name: Svelte check
+        run: npm run check
+
       - name: Run tests
         run: npx vitest run
 

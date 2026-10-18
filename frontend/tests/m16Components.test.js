@@ -9,6 +9,7 @@ vi.mock('../src/lib/api/client.js', () => ({
     setApiKey: vi.fn(),
     clearApiKey: vi.fn(),
     getHistory: vi.fn(),
+    searchWorkspace: vi.fn(),
   },
   APIError: class extends Error {},
 }))
@@ -20,6 +21,8 @@ import ProposalReview from '../src/components/ProposalReview.svelte'
 import SettingsDialog from '../src/components/SettingsDialog.svelte'
 import HistoryPanel from '../src/components/HistoryPanel.svelte'
 import AskDialog from '../src/components/AskDialog.svelte'
+import QuickOpen from '../src/components/QuickOpen.svelte'
+import { PaperState } from '../src/lib/state/paper.svelte.js'
 import { UiState } from '../src/lib/state/ui.svelte.js'
 import { CommandRegistry } from '../src/lib/commands.js'
 
@@ -202,8 +205,9 @@ describe('SettingsDialog', () => {
     commands.register({ id: 'save', title: 'Save file', keys: 'Mod+S', run() {} })
     commands.register({ id: 'refresh', title: 'Refresh', run() {} })
     const onchange = vi.fn()
-    render(SettingsDialog, { props: { ui, documents, commands, onchange, ...extra } })
-    return { ui, documents, onchange }
+    const paper = new PaperState()
+    render(SettingsDialog, { props: { ui, documents, commands, paper, onchange, ...extra } })
+    return { ui, documents, onchange, paper }
   }
   const openTab = (name) => fireEvent.click(screen.getByRole('tab', { name }))
 
@@ -287,6 +291,65 @@ describe('SettingsDialog', () => {
     await openTab('Shortcuts')
     expect(screen.getByText('Save file')).toBeTruthy()
     expect(screen.queryByText('Refresh')).toBeNull() // no shortcut, so not listed
+  })
+})
+
+describe('SettingsDialog: page tone', () => {
+  it('drives the dark-page tone through the sliders and can reset it', async () => {
+    api.getConfig.mockResolvedValue({ ai_enabled: true, model: 'm', vision_model: null, timeout_secs: 120, key_source: 'file', env_overridden: [] })
+    const ui = new UiState()
+    const paper = new PaperState()
+    render(SettingsDialog, { props: { ui, documents: { autosave: true }, commands: new CommandRegistry(), paper } })
+
+    await fireEvent.input(screen.getByLabelText('Brightness'), { target: { value: '0.7' } })
+    await fireEvent.input(screen.getByLabelText('Warmth'), { target: { value: '30' } })
+    expect([paper.paper, paper.warmth]).toEqual([0.7, 30])
+    expect(screen.getByText('70%')).toBeTruthy()
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset page tone' }))
+    expect(paper.paper).toBe(0.88)
+  })
+})
+
+describe('QuickOpen', () => {
+  const hits = (...v) => ({ hits: v.map((value) => ({ value, score: 1 })) })
+
+  it('lists recent files first when nothing is typed, and opens one with Enter', async () => {
+    api.searchWorkspace.mockResolvedValue(hits('a.tex', 'b.tex', 'ch/c.tex'))
+    const onopen = vi.fn()
+    render(QuickOpen, { props: { recent: ['ch/c.tex'], onopen } })
+    await screen.findByText('b.tex')
+    expect(screen.getAllByRole('option').map((o) => o.textContent.replace(/\s+/g, ' ').trim())).toEqual(['ch/c.tex recent', 'a.tex', 'b.tex'])
+
+    await fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter' })
+    expect(onopen).toHaveBeenCalledWith('ch/c.tex')
+  })
+
+  it('searches as you type and moves with the arrow keys', async () => {
+    api.searchWorkspace.mockResolvedValueOnce(hits('a.tex', 'b.tex')).mockResolvedValue(hits('chapters/intro.tex', 'chapters/intro2.tex'))
+    const onopen = vi.fn()
+    render(QuickOpen, { props: { onopen } })
+    await screen.findByText('a.tex')
+    await fireEvent.input(screen.getByLabelText('Search files'), { target: { value: 'intro' } })
+    await screen.findByText('chapters/intro.tex')
+    expect(api.searchWorkspace).toHaveBeenLastCalledWith('intro')
+
+    const dialog = screen.getByRole('dialog')
+    await fireEvent.keyDown(dialog, { key: 'ArrowDown' })
+    await fireEvent.keyDown(dialog, { key: 'ArrowDown' }) // already last: stays
+    await fireEvent.keyDown(dialog, { key: 'Enter' })
+    expect(onopen).toHaveBeenCalledWith('chapters/intro2.tex')
+  })
+
+  it('says so when nothing matches, shows a failure, and Escape closes', async () => {
+    const onclose = vi.fn()
+    api.searchWorkspace.mockResolvedValueOnce(hits()).mockRejectedValueOnce(new Error('server down'))
+    render(QuickOpen, { props: { onclose } })
+    expect(await screen.findByText('No files yet.')).toBeTruthy()
+    await fireEvent.input(screen.getByLabelText('Search files'), { target: { value: 'zzz' } })
+    expect((await screen.findByRole('alert')).textContent).toContain('server down')
+    await fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(onclose).toHaveBeenCalled()
   })
 })
 

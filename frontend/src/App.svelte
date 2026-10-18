@@ -3,7 +3,7 @@
   import { Splitpanes, Pane } from 'svelte-splitpanes'
   import './globals.css'
 
-  import { documents, compile, project, ui, commands, latexIndex, spell, ai } from './lib/app.svelte.js'
+  import { documents, compile, project, ui, commands, latexIndex, spell, ai, paper } from './lib/app.svelte.js'
   import { restoreVersion } from './lib/history.js'
   import { FileOps } from './lib/files.js'
   import { isDesktop, pickProject } from './lib/desktop.js'
@@ -24,7 +24,7 @@
   import Toasts from './components/Toasts.svelte'
   import ConflictDialog from './components/ConflictDialog.svelte'
   import CommandMenu from './components/CommandMenu.svelte'
-  import FileOpener from './components/FileOpener.svelte'
+  import QuickOpen from './components/QuickOpen.svelte'
 
   const OPEN_KEY = 'latex-ai:open-files'
   const RECENT_KEY = 'latex-ai:recent-files'
@@ -333,6 +333,7 @@
             <PdfPane
               bind:this={pdfPane}
               {compile}
+              {paper}
               sourcePath={documents.active?.path ?? ''}
               oncompile={compileNow}
               onvisualproposal={onVisualProposal}
@@ -387,12 +388,10 @@
   {/if}
 
   {#if ui.dialog === 'opener'}
-    <FileOpener
-      visible={true}
+    <QuickOpen
       {recent}
-      pinned={[]}
-      on:close={() => ui.closeDialog()}
-      on:open={(e) => (ui.closeDialog(), openFile(e.detail.path))}
+      onclose={() => ui.closeDialog()}
+      onopen={(path) => (ui.closeDialog(), openFile(path))}
     />
   {/if}
 
@@ -405,7 +404,7 @@
   {/if}
 
   {#if ui.dialog === 'settings'}
-    <SettingsDialog {ui} {documents} {commands} onclose={() => ui.closeDialog()} onchange={loadConfig} />
+    <SettingsDialog {ui} {documents} {commands} {paper} onclose={() => ui.closeDialog()} onchange={loadConfig} />
   {/if}
 </div>
 
@@ -423,7 +422,4 @@
   .workspace :global(.splitpanes--horizontal > .splitpanes__splitter) { height: 5px; cursor: row-resize; }
   .workspace :global(.splitpanes__splitter:hover),
   .workspace :global(.splitpanes__splitter:focus-visible) { background: hsl(var(--primary) / 0.5) !important; }
-  .modal { position: fixed; inset: 0; background: rgb(0 0 0 / 0.35); display: flex; justify-content: center; padding-top: 12vh; z-index: 700; }
-  .modal-body { align-self: flex-start; width: min(64rem, 94vw); background: hsl(var(--popover)); border: 1px solid hsl(var(--border)); border-radius: var(--radius-s); box-shadow: 0 12px 40px rgb(0 0 0 / 0.35); overflow: auto; max-height: 76vh; }
-  .modal-body.tall { width: min(40rem, 94vw); }
 </style>

@@ -15,21 +15,16 @@
 </script>
 
 <div class="overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
-  <form
-    class="box"
-    role="dialog"
-    aria-modal="true"
-    aria-label="Ask the AI"
-    onsubmit={(e) => (e.preventDefault(), go(onplan))}
-    onkeydown={(e) => e.key === 'Escape' && onclose()}
-  >
-    <input bind:this={input} bind:value={text} placeholder="What should change in this file?" aria-label="What should change" autocomplete="off" />
-    <div class="actions">
-      <button type="submit" class="primary" disabled={!text.trim()}>Quick plan</button>
-      <button type="button" onclick={() => go(onrun)} disabled={!text.trim()} title="Tries the edits on a copy and checks they compile before showing them">Plan and verify</button>
-      <span class="hint">Enter = quick plan</span>
-    </div>
-  </form>
+  <div class="box" role="dialog" aria-modal="true" aria-label="Ask the AI" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && onclose()}>
+    <form onsubmit={(e) => (e.preventDefault(), go(onplan))}>
+      <input bind:this={input} bind:value={text} placeholder="What should change in this file?" aria-label="What should change" autocomplete="off" />
+      <div class="actions">
+        <button type="submit" class="primary" disabled={!text.trim()}>Quick plan</button>
+        <button type="button" onclick={() => go(onrun)} disabled={!text.trim()} title="Tries the edits on a copy and checks they compile before showing them">Plan and verify</button>
+        <span class="hint">Enter = quick plan</span>
+      </div>
+    </form>
+  </div>
 </div>
 
 <style>

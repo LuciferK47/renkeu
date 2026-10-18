@@ -149,12 +149,6 @@ export class APIClient {
     return this.request('GET', '/tree');
   }
 
-  // The server currently returns the whole list and ignores paging/search
-  // parameters; they are forwarded so the contract is in one place.
-  listFiles(params) {
-    return this.request('GET', '/files', { params });
-  }
-
   // -> [{ id, file_path, command, diff, edit_type, created_at }]
   getHistory(params) {
     return this.request('GET', '/history', { params });
@@ -171,11 +165,6 @@ export class APIClient {
   // Server-side nucleo fuzzy match over the workspace file list.
   searchWorkspace(q) {
     return this.request('GET', '/search', { params: { q } });
-  }
-
-  // Client supplies candidates (command palette entries).
-  searchCandidates(query, candidates) {
-    return this.request('POST', '/search', { body: { query, candidates } });
   }
 
   // --- compile -----------------------------------------------------------

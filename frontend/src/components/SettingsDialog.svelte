@@ -6,9 +6,8 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api/client.js'
   import { formatChord } from '../lib/commands.js'
-  import { paperStore } from '../stores/paperStore.js'
 
-  let { ui, documents, commands, onclose = () => {}, onchange = () => {} } = $props()
+  let { ui, documents, commands, paper, onclose = () => {}, onchange = () => {} } = $props()
 
   const TABS = [
     ['appearance', 'Appearance'],
@@ -110,15 +109,15 @@
         <p class="help">Tones the compiled page so it is not a white sheet beside a dark editor. Hold “True colours” in the PDF bar to see it as printed.</p>
         <div class="field">
           <label for="paper">Brightness</label>
-          <input id="paper" type="range" min="0.6" max="1" step="0.01" value={$paperStore.paper} oninput={(e) => paperStore.setPaper(e.currentTarget.value)} />
-          <span class="val">{Math.round($paperStore.paper * 100)}%</span>
+          <input id="paper" type="range" min="0.6" max="1" step="0.01" value={paper.paper} oninput={(e) => paper.setPaper(e.currentTarget.value)} />
+          <span class="val">{Math.round(paper.paper * 100)}%</span>
         </div>
         <div class="field">
           <label for="warmth">Warmth</label>
-          <input id="warmth" type="range" min="0" max="40" step="1" value={$paperStore.warmth} oninput={(e) => paperStore.setWarmth(e.currentTarget.value)} />
-          <span class="val">{$paperStore.warmth}</span>
+          <input id="warmth" type="range" min="0" max="40" step="1" value={paper.warmth} oninput={(e) => paper.setWarmth(e.currentTarget.value)} />
+          <span class="val">{paper.warmth}</span>
         </div>
-        <button onclick={() => paperStore.reset()}>Reset page tone</button>
+        <button onclick={() => paper.reset()}>Reset page tone</button>
       {:else if tab === 'editor'}
         <div class="field">
           <label for="font-size">Font size</label>

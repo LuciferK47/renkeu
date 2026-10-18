@@ -1,9 +1,12 @@
 <script>
   // Asks for a file or folder name. Validation that needs the server (does it
   // clash? is it allowed?) comes back as a toast; this only blocks the obvious.
+  import { untrack } from 'svelte'
+
   let { title, value = '', confirmLabel = 'OK', onsubmit = () => {}, oncancel = () => {} } = $props()
 
-  let text = $state(value)
+  // The name to start from; later changes to the prop do not overwrite typing.
+  let text = $state(untrack(() => value))
   let input = $state()
 
   const problem = $derived.by(() => {
@@ -28,15 +31,17 @@
 </script>
 
 <div class="overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && oncancel()}>
-  <form class="dialog" role="dialog" aria-modal="true" aria-labelledby="name-title" onsubmit={submit} onkeydown={(e) => e.key === 'Escape' && oncancel()}>
-    <h2 id="name-title">{title}</h2>
-    <input bind:this={input} bind:value={text} aria-label="Name" spellcheck="false" autocomplete="off" />
-    <p class="hint" class:bad={problem && text.length > 0}>{problem || 'Folders in the path are created as needed.'}</p>
-    <div class="actions">
-      <button type="submit" class="primary" disabled={!!problem}>{confirmLabel}</button>
-      <button type="button" onclick={oncancel}>Cancel</button>
-    </div>
-  </form>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="name-title" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && oncancel()}>
+    <form onsubmit={submit}>
+      <h2 id="name-title">{title}</h2>
+      <input bind:this={input} bind:value={text} aria-label="Name" spellcheck="false" autocomplete="off" />
+      <p class="hint" class:bad={problem && text.length > 0}>{problem || 'Folders in the path are created as needed.'}</p>
+      <div class="actions">
+        <button type="submit" class="primary" disabled={!!problem}>{confirmLabel}</button>
+        <button type="button" onclick={oncancel}>Cancel</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <style>

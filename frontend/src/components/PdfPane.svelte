@@ -5,7 +5,7 @@
   // browser may cache it for good.
   import { onMount } from 'svelte'
   import { api } from '../lib/api/client.js'
-  import { activeTone, paperStore } from '../stores/paperStore.js'
+  import { PaperState } from '../lib/state/paper.svelte.js'
   import { readPref, writePref } from '../lib/storage.js'
   import RegionLayer from './RegionLayer.svelte'
 
@@ -16,7 +16,8 @@
     oncompile = () => {},
     onjump = () => {},
     onlocate = null,
-    onnotice = () => {}
+    onnotice = () => {},
+    paper = new PaperState()
   } = $props()
 
   const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
@@ -46,9 +47,9 @@
   const dpi = $derived(Math.min(300, Math.max(48, Math.round(96 * zoom * dpr))))
   const pages = $derived(Array.from({ length: compile.pageCount }, (_, i) => i + 1))
   const file = $derived(compile.mainFile ?? sourcePath)
-  // Tone only applies on a dark ground (see paperStore); on light the page
+  // Tone only applies on a dark ground (see PaperState); on light the page
   // already sits on paper-coloured chrome.
-  const tone = $derived(dark ? $activeTone : { paper: 1, warmth: 0 })
+  const tone = $derived(dark ? paper.tone : { paper: 1, warmth: 0 })
   const ready = $derived(compile.buildId && compile.pageCount > 0)
 
   /** Screen px per PDF point at this zoom (CSS px are 1/96 in, points 1/72). */
@@ -236,15 +237,15 @@
     {/if}
     {#if dark && ready}
       <button
-        class:on={$paperStore.revealing}
-        onpointerdown={paperStore.startReveal}
-        onpointerup={paperStore.endReveal}
-        onpointerleave={paperStore.endReveal}
-        onblur={paperStore.endReveal}
-        onkeydown={(e) => (e.key === ' ' || e.key === 'Enter') && paperStore.startReveal()}
-        onkeyup={paperStore.endReveal}
+        class:on={paper.revealing}
+        onpointerdown={paper.startReveal}
+        onpointerup={paper.endReveal}
+        onpointerleave={paper.endReveal}
+        onblur={paper.endReveal}
+        onkeydown={(e) => (e.key === ' ' || e.key === 'Enter') && paper.startReveal()}
+        onkeyup={paper.endReveal}
         title="Hold to see the page in its true colours"
-        aria-pressed={$paperStore.revealing}
+        aria-pressed={paper.revealing}
       >True colours</button>
     {/if}
     <button class:on={visualFix} onclick={() => (visualFix = !visualFix)} disabled={!ready} title="Draw a box over the page to ask for a fix">
@@ -284,6 +285,7 @@
           use:watch={n}
           style:width={`${basePx * zoom}px`}
           style:min-height={`${basePx * zoom * 1.294}px`}
+          role="presentation"
           ondblclick={(e) => jump(e, n)}
           title={visualFix ? undefined : 'Double-click to jump to the source'}
         >
