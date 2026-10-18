@@ -3,7 +3,7 @@
   import { Splitpanes, Pane } from 'svelte-splitpanes'
   import './globals.css'
 
-  import { documents, compile, project, ui, commands } from './lib/app.svelte.js'
+  import { documents, compile, project, ui, commands, latexIndex } from './lib/app.svelte.js'
   import { chat } from './lib/chat.js'
   import { FileOps } from './lib/files.js'
   import { isDesktop, pickProject } from './lib/desktop.js'
@@ -13,6 +13,7 @@
 
   import Toolbar from './components/Toolbar.svelte'
   import ProjectTree from './components/ProjectTree.svelte'
+  import OutlinePanel from './components/OutlinePanel.svelte'
   import EditorPane from './components/EditorPane.svelte'
   import PdfPane from './components/PdfPane.svelte'
   import ProblemsPanel from './components/ProblemsPanel.svelte'
@@ -209,7 +210,10 @@
     })()
 
     // Pick up edits made outside the editor whenever the window is used again.
-    const onFocus = () => documents.checkExternalChanges()
+    const onFocus = () => {
+      latexIndex.invalidate()
+      documents.checkExternalChanges()
+    }
     const onBeforeUnload = (e) => {
       if (documents.anyDirty) {
         e.preventDefault()
@@ -262,7 +266,10 @@
         <Splitpanes on:resized={onResized}>
           {#if ui.sidebar}
             <Pane size={ui.sizes.sidebar} minSize={8} maxSize={40}>
-              <ProjectTree {project} {documents} {ops} onopen={openFile} onrefresh={() => project.refresh()} />
+              <div class="sidebar">
+                <ProjectTree {project} {documents} {ops} onopen={openFile} onrefresh={() => project.refresh()} />
+                <OutlinePanel {documents} onreveal={(line) => editorPane?.reveal(line)} />
+              </div>
             </Pane>
           {/if}
           <Pane size={ui.sizes.editor} minSize={20}>
@@ -271,6 +278,7 @@
               {documents}
               {ui}
               {commands}
+              {compile}
               onclosetab={closeTab}
               oncursor={(c) => (cursor = c)}
             />
@@ -347,6 +355,8 @@
   :global(body) { background: hsl(var(--surface-0)); color: hsl(var(--foreground)); font-family: 'Outfit', system-ui, sans-serif; }
   .app { display: flex; flex-direction: column; height: 100vh; }
   .workspace { flex: 1; min-height: 0; }
+  .sidebar { display: flex; flex-direction: column; height: 100%; }
+  .sidebar :global(.tree) { flex: 1; min-height: 0; height: auto; }
   .workspace :global(.splitpanes) { height: 100%; }
   .workspace :global(.splitpanes__pane) { background: transparent; overflow: hidden; }
   .workspace :global(.splitpanes__splitter) { background: hsl(var(--border)) !important; border: none !important; position: relative; flex-shrink: 0; }

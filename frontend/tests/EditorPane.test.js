@@ -18,7 +18,7 @@ vi.mock('../src/lib/monaco.js', () => {
     editors.push(ed)
     return ed
   }
-  const monaco = { editor: { create: vi.fn(fake), setTheme: vi.fn() } }
+  const monaco = { editor: { create: vi.fn(fake), setTheme: vi.fn(), setModelMarkers: vi.fn() }, MarkerSeverity: { Error: 8, Warning: 4 } }
   return { loadMonaco: vi.fn(async () => monaco), __monaco: monaco }
 })
 
@@ -27,6 +27,7 @@ import EditorPane from '../src/components/EditorPane.svelte'
 import { DocumentStore } from '../src/lib/state/documents.svelte.js'
 import { CommandRegistry } from '../src/lib/commands.js'
 import { UiState } from '../src/lib/state/ui.svelte.js'
+import { CompileState } from '../src/lib/state/compile.svelte.js'
 
 vi.mock('../src/lib/api/client.js', () => ({
   api: { getFile: vi.fn(async (path) => ({ content: `text of ${path}`, etag: `etag-${path}` })), saveFile: vi.fn() },
@@ -34,13 +35,15 @@ vi.mock('../src/lib/api/client.js', () => ({
 
 class Model {
   constructor(name, text) { this.name = name; this.text = text }
+  getLineCount() { return 10 }
+  getLineMaxColumn() { return 20 }
   getValue() { return this.text }
   setValue(t) { this.text = t }
   getAlternativeVersionId() { return 1 }
   onDidChangeContent() { return { dispose() {} } }
 }
 
-function setup() {
+function setup(extra = {}) {
   localStorage.clear()
   editors.length = 0
   const documents = new DocumentStore({ create: async (p, t) => new Model(p, t), dispose() {} })
@@ -48,12 +51,35 @@ function setup() {
   const ui = new UiState()
   const onclosetab = vi.fn()
   const oncursor = vi.fn()
-  const view = render(EditorPane, { props: { documents, ui, commands, onclosetab, oncursor } })
+  const view = render(EditorPane, { props: { documents, ui, commands, onclosetab, oncursor, ...extra } })
   return { documents, commands, ui, onclosetab, oncursor, ...view }
 }
 
 describe('EditorPane', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  // The effect must subscribe to the diagnostics even when it first runs before
+  // the editor exists; a compile that fails afterwards must still be drawn.
+  it('draws compile errors as markers on the files they name, including after the editor loads', async () => {
+    const compile = new CompileState({ api: {} })
+    const { documents } = setup({ compile })
+    await documents.open('a.tex')
+    await waitFor(() => expect(editors).toHaveLength(1))
+
+    compile.errors = [{ file: 'a.tex', line: 3, message: 'Undefined control sequence.' }]
+    await waitFor(() =>
+      expect(__monaco.editor.setModelMarkers).toHaveBeenLastCalledWith(
+        documents.get('a.tex').model,
+        'latex-compile',
+        [expect.objectContaining({ severity: 8, startLineNumber: 3, message: 'Undefined control sequence.' })],
+      ),
+    )
+
+    compile.errors = []
+    await waitFor(() =>
+      expect(__monaco.editor.setModelMarkers).toHaveBeenLastCalledWith(documents.get('a.tex').model, 'latex-compile', []),
+    )
+  })
 
   it('invites you to open a file when none is open', () => {
     setup()

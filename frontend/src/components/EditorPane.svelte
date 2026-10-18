@@ -4,8 +4,9 @@
   // saved/unsaved state survive a switch) and restores the cursor and scroll.
   import { onMount, untrack } from 'svelte'
   import { loadMonaco } from '../lib/monaco.js'
+  import { markersFor } from '../lib/diagnostics.js'
 
-  let { documents, ui, commands, onclosetab = () => {}, oncursor = () => {} } = $props()
+  let { documents, ui, commands, compile = null, onclosetab = () => {}, oncursor = () => {} } = $props()
 
   let host = $state()
   let editor = $state.raw(null)
@@ -73,6 +74,23 @@
   $effect(() => {
     void ui.theme
     monaco?.editor.setTheme(isDark() ? 'vs-dark' : 'vs')
+  })
+
+  // Show what the last compile found as squiggles in the files it names.
+  $effect(() => {
+    // Read everything this depends on before any early return, or an effect
+    // that first runs before the editor exists would never run again.
+    void editor
+    const found = { errors: compile?.errors ?? [], warnings: compile?.warnings ?? [] }
+    const docs = [...documents.docs]
+    if (!monaco?.editor.setModelMarkers) return
+    for (const doc of docs) {
+      monaco.editor.setModelMarkers(
+        doc.model,
+        'latex-compile',
+        markersFor(doc.path, found, doc.model, monaco.MarkerSeverity)
+      )
+    }
   })
 
   /** Scroll to a line and put the cursor there. */

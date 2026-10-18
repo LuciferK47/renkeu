@@ -432,3 +432,26 @@ describe('Toolbar', () => {
     expect(ui.chat).toBe(false)
   })
 })
+
+describe('OutlinePanel', () => {
+  it('lists headings, indents by depth, and jumps to the line', async () => {
+    const { default: OutlinePanel } = await import('../src/components/OutlinePanel.svelte')
+    const model = { onDidChangeContent: vi.fn(() => ({ dispose() {} })) }
+    const doc = { path: 'main.tex', model, text: '\\section{One}\n\\subsection{Two}\n\\section*{Three}' }
+    const onreveal = vi.fn()
+    render(OutlinePanel, { props: { documents: { active: doc }, onreveal } })
+
+    const items = await screen.findAllByRole('button', { name: /One|Two|Three/ })
+    expect(items.map((b) => b.textContent.trim())).toEqual(['One', 'Two', 'Three'])
+    expect(parseFloat(items[1].style.paddingLeft)).toBeGreaterThan(parseFloat(items[0].style.paddingLeft))
+    await fireEvent.click(items[1])
+    expect(onreveal).toHaveBeenCalledWith(2)
+  })
+
+  it('says so for a file without headings and ignores non-LaTeX files', async () => {
+    const { default: OutlinePanel } = await import('../src/components/OutlinePanel.svelte')
+    const model = { onDidChangeContent: vi.fn(() => ({ dispose() {} })) }
+    render(OutlinePanel, { props: { documents: { active: { path: 'refs.bib', model, text: '\\section{x}' } } } })
+    expect(await screen.findByText(/No headings/)).toBeTruthy()
+  })
+})

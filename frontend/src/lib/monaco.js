@@ -1,12 +1,24 @@
 // Monaco, loaded on first use so the app shell paints before the editor's
 // ~MBs are parsed, plus the text-model factory the document store uses.
 
+import { registerLatex } from './latex/register.js';
+
 let loading = null;
+/** Where completion gets project facts (labels, citations, files); set by the app. */
+let projectIndex = null;
+
+export function useProjectIndex(index) {
+  projectIndex = index;
+}
 
 export function loadMonaco() {
-  loading ??= import('monaco-editor/esm/vs/editor/editor.api').then((monaco) => {
-    // The id only; highlighting, completion and the outline attach to it in M14.
-    monaco.languages.register({ id: 'latex' });
+  // editor.api alone is the bare core: no suggest widget, snippets, comment
+  // toggling, find or folding. editor.all registers those contributions.
+  loading ??= Promise.all([
+    import('monaco-editor/esm/vs/editor/editor.all.js'),
+    import('monaco-editor/esm/vs/editor/editor.api')
+  ]).then(([, monaco]) => {
+    registerLatex(monaco, () => projectIndex);
     return monaco;
   });
   return loading;
@@ -17,7 +29,7 @@ const LANGUAGE = {
   sty: 'latex',
   cls: 'latex',
   tikz: 'latex',
-  bib: 'plaintext'
+  bib: 'bibtex'
 };
 
 export function languageFor(path) {
