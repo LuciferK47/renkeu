@@ -10,8 +10,14 @@ import { consumeSSE } from './_stream.js';
  * Stream a one-shot plan. `onEvent` receives { event, data } from the locked
  * §8.2 taxonomy: progress -> proposal -> done | error.
  */
-export async function streamAIPlan(filePath, instruction, onEvent, onError) {
-  return streamAgentEndpoint('/plan/stream', { file_path: filePath, instruction }, onEvent, onError);
+export async function streamAIPlan(filePath, instruction, onEvent, onError, options = {}) {
+  return streamAgentEndpoint(
+    '/plan/stream',
+    { file_path: filePath, instruction },
+    onEvent,
+    onError,
+    options.signal
+  );
 }
 
 /**
@@ -25,15 +31,22 @@ export async function agentLoopStream(filePath, instruction, onEvent, onError, o
     auto_apply: options.autoApply ?? false
   };
   if (options.maxIterations) body.max_iterations = options.maxIterations;
-  return streamAgentEndpoint('/agent/stream', body, onEvent, onError);
+  return streamAgentEndpoint('/agent/stream', body, onEvent, onError, options.signal);
 }
 
-async function streamAgentEndpoint(path, body, onEvent, onError) {
+/**
+ * `signal` lets the caller stop a run. Aborting closes the connection, which is
+ * what the server watches for: it cancels the planner call and any compile
+ * bound to the run. An aborted stream is the caller's own doing, so it is
+ * neither reported through `onError` nor thrown.
+ */
+async function streamAgentEndpoint(path, body, onEvent, onError, signal) {
   try {
     const response = await fetch(api.buildUrl(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal
     });
 
     if (!response.ok) {
@@ -57,6 +70,7 @@ async function streamAgentEndpoint(path, body, onEvent, onError) {
       throw new Error('Connection lost before the agent finished. It may still be running — reload to see the current state.');
     }
   } catch (error) {
+    if (error?.name === 'AbortError') return;
     if (onError) onError(error);
     else throw error;
   }

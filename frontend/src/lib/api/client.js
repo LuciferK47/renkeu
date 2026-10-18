@@ -160,6 +160,12 @@ export class APIClient {
     return this.request('GET', '/history', { params });
   }
 
+  // One entry with the text it recorded -> { id, file_path, edit_type,
+  // created_at, text_after, text_before }. Used to restore a version.
+  getHistoryEntry(id) {
+    return this.request('GET', `/history/${encodeURIComponent(id)}`);
+  }
+
   // --- search ------------------------------------------------------------
 
   // Server-side nucleo fuzzy match over the workspace file list.

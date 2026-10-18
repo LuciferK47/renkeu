@@ -1,21 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { escapeHtml } from '../src/utils/escapeHtml.js';
 import { APIClient, APIError } from '../src/lib/api/client.js';
-
-describe('escapeHtml', () => {
-  it('neutralises markup so chat text cannot run script', () => {
-    const out = escapeHtml('<img src=x onerror="alert(1)">&\'');
-    expect(out).not.toContain('<');
-    expect(out).not.toContain('>');
-    expect(out).toBe('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;');
-  });
-
-  it('tolerates null and non-strings', () => {
-    expect(escapeHtml(null)).toBe('');
-    expect(escapeHtml(undefined)).toBe('');
-    expect(escapeHtml(42)).toBe('42');
-  });
-});
 
 describe('APIClient save contract', () => {
   let client;

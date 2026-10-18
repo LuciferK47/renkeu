@@ -3,13 +3,12 @@
   import { Splitpanes, Pane } from 'svelte-splitpanes'
   import './globals.css'
 
-  import { documents, compile, project, ui, commands, latexIndex, spell } from './lib/app.svelte.js'
-  import { chat } from './lib/chat.js'
+  import { documents, compile, project, ui, commands, latexIndex, spell, ai } from './lib/app.svelte.js'
+  import { restoreVersion } from './lib/history.js'
   import { FileOps } from './lib/files.js'
   import { isDesktop, pickProject } from './lib/desktop.js'
   import { api } from './lib/api/client.js'
   import { readPref, writePref } from './lib/storage.js'
-  import { setProposal } from './stores/aiStore.js'
 
   import Toolbar from './components/Toolbar.svelte'
   import ProjectTree from './components/ProjectTree.svelte'
@@ -17,12 +16,14 @@
   import EditorPane from './components/EditorPane.svelte'
   import PdfPane from './components/PdfPane.svelte'
   import ProblemsPanel from './components/ProblemsPanel.svelte'
-  import AiPane from './components/AiPane.svelte'
+  import AssistantPane from './components/AssistantPane.svelte'
+  import SettingsDialog from './components/SettingsDialog.svelte'
+  import HistoryPanel from './components/HistoryPanel.svelte'
+  import AskDialog from './components/AskDialog.svelte'
   import StatusBar from './components/StatusBar.svelte'
   import Toasts from './components/Toasts.svelte'
   import ConflictDialog from './components/ConflictDialog.svelte'
   import CommandMenu from './components/CommandMenu.svelte'
-  import CommandPalette from './components/CommandPalette.svelte'
   import FileOpener from './components/FileOpener.svelte'
 
   const OPEN_KEY = 'latex-ai:open-files'
@@ -34,8 +35,6 @@
 
   const ops = new FileOps({ documents, project, ui })
 
-  let SettingsPanel = $state(null)
-  let HistorySidebar = $state(null)
   let editorPane = $state()
   let pdfPane = $state()
   let aiEnabled = $state(true)
@@ -158,23 +157,20 @@
     }
   }
 
-  async function sendToAi(content) {
-    if (await ensureSaved()) await chat.handleChatMessage(content)
-  }
-
-  async function applyHunks(payload) {
-    if (await ensureSaved()) await chat.handleApplyHunks(payload)
+  /** Anything that reads the project (the AI, a compile) sees saved text only. */
+  async function ask(run, instruction) {
+    ui.closeDialog()
+    if (await ensureSaved()) await run(instruction)
   }
 
   function onVisualProposal(result) {
-    setProposal({
+    ai.showProposal({
       summary: 'Visual fix',
       edit_count: result.edits?.length ?? 0,
       edits: result.edits ?? [],
       etag: result.etag,
       file: result.file
     })
-    ui.show('chat')
   }
 
   async function loadConfig() {
@@ -185,20 +181,8 @@
     }
   }
 
-  async function openSettings() {
-    SettingsPanel ??= (await import('./components/SettingsPanel.svelte')).default
-    ui.openDialog('settings')
-  }
-
-  async function closeSettings() {
-    ui.closeDialog()
-    await loadConfig()
-  }
-
-  async function openHistory() {
-    HistorySidebar ??= (await import('./components/HistorySidebar.svelte')).default
-    ui.openDialog('history')
-  }
+  const openSettings = () => ui.openDialog('settings')
+  const openHistory = () => ui.openDialog('history')
 
   /** Splitter sizes come back in pane order; give them names. */
   function onResized(event) {
@@ -359,7 +343,14 @@
           </Pane>
           {#if ui.chat}
             <Pane size={ui.sizes.chat} minSize={12}>
-              <AiPane {aiEnabled} filePath={documents.active?.path ?? ''} onsend={sendToAi} onapply={applyHunks} />
+              <AssistantPane
+                {ai}
+                {aiEnabled}
+                hasFile={!!documents.active}
+                onsend={(text) => ask((t) => ai.send(t), text)}
+                onsettings={openSettings}
+                onopenfile={openFile}
+              />
             </Pane>
           {/if}
         </Splitpanes>
@@ -388,14 +379,11 @@
   {/if}
 
   {#if ui.dialog === 'palette'}
-    <div class="modal" role="presentation" onclick={(e) => e.target === e.currentTarget && ui.closeDialog()}>
-      <div class="modal-body" role="dialog" aria-modal="true" aria-label="Ask the AI">
-        <CommandPalette
-          on:command={(e) => (ui.closeDialog(), chat.requestAIPlan(e.detail))}
-          on:ai-plan={(e) => (ui.closeDialog(), chat.requestAIPlan(e.detail.request ?? e.detail))}
-        />
-      </div>
-    </div>
+    <AskDialog
+      onclose={() => ui.closeDialog()}
+      onplan={(text) => ask((t) => ai.plan(t), text)}
+      onrun={(text) => ask((t) => ai.send(t), text)}
+    />
   {/if}
 
   {#if ui.dialog === 'opener'}
@@ -408,16 +396,16 @@
     />
   {/if}
 
-  {#if ui.dialog === 'history' && HistorySidebar}
-    <div class="modal" role="presentation" onclick={(e) => e.target === e.currentTarget && ui.closeDialog()}>
-      <div class="modal-body tall" role="dialog" aria-modal="true" aria-label="History">
-        <HistorySidebar filePath={documents.active?.path ?? ''} agentOnly={false} />
-      </div>
-    </div>
+  {#if ui.dialog === 'history'}
+    <HistoryPanel
+      filePath={documents.active?.path ?? ''}
+      onclose={() => ui.closeDialog()}
+      onrestore={(entry, which) => restoreVersion(entry, { which, documents, project, ui })}
+    />
   {/if}
 
-  {#if ui.dialog === 'settings' && SettingsPanel}
-    <SettingsPanel isOpen={true} onClose={closeSettings} onSave={() => {}} />
+  {#if ui.dialog === 'settings'}
+    <SettingsDialog {ui} {documents} {commands} onclose={() => ui.closeDialog()} onchange={loadConfig} />
   {/if}
 </div>
 

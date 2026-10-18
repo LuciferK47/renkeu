@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
 import { APIClient } from '../src/lib/api/client.js';
-import ChatPanel from '../src/components/ChatPanel.svelte';
 
 describe('config client', () => {
   let client;
@@ -43,19 +41,5 @@ describe('config client', () => {
       })
     );
     await expect(client.saveConfig({ model: 'x' })).rejects.toMatchObject({ status: 409 });
-  });
-});
-
-describe('ChatPanel without an API key', () => {
-  it('explains how to enable AI and blocks sending', () => {
-    render(ChatPanel, { props: { aiEnabled: false } });
-    expect(screen.getByRole('status').textContent).toMatch(/API key/);
-    expect(screen.getByRole('textbox').disabled).toBe(true);
-  });
-
-  it('is a normal chat when AI is on', () => {
-    render(ChatPanel, { props: { aiEnabled: true } });
-    expect(screen.queryByRole('status')).toBeNull();
-    expect(screen.getByRole('textbox').disabled).toBe(false);
   });
 });

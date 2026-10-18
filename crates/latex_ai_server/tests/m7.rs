@@ -47,7 +47,7 @@ async fn app() -> App {
             command TEXT NOT NULL,
             new_text TEXT NOT NULL,
             diff TEXT NOT NULL,
-            edit_type TEXT NOT NULL,
+            edit_type TEXT NOT NULL, base_text TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
     )

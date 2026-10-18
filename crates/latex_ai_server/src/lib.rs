@@ -197,6 +197,7 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
             put(routes::config::put_api_key).delete(routes::config::delete_api_key),
         )
         .route("/api/history", get(routes::history::list_history))
+        .route("/api/history/{id}", get(routes::history::history_entry))
         .route("/api/files", get(routes::files::list_files))
         .route("/api/tree", get(routes::files::get_tree))
         .route(

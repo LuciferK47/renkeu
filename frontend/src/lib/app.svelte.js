@@ -6,6 +6,7 @@ import { CompileState } from './state/compile.svelte.js';
 import { DocumentStore } from './state/documents.svelte.js';
 import { ProjectState } from './state/project.svelte.js';
 import { UiState } from './state/ui.svelte.js';
+import { AiState } from './state/ai.svelte.js';
 import { monacoModels, useEditorServices } from './monaco.js';
 import { readPref, writePref } from './storage.js';
 import { SpellChecker } from './latex/spell.js';
@@ -16,6 +17,7 @@ export const compile = new CompileState();
 export const project = new ProjectState();
 export const ui = new UiState();
 export const commands = new CommandRegistry();
+export const ai = new AiState({ documents, compile, project, ui });
 
 export const latexIndex = new ProjectIndex({ project, documents });
 

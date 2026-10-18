@@ -38,6 +38,23 @@ pub struct HistoryRow {
     pub diff: String,
     pub edit_type: String,
     pub created_at: Option<String>,
+    /// Whether the text this entry replaced was recorded, i.e. whether the
+    /// change can be undone from the history.
+    pub has_before: bool,
+}
+
+/// One history entry with the text it recorded, for restoring a version.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct HistoryDetail {
+    pub id: i64,
+    pub file_path: String,
+    pub edit_type: String,
+    pub created_at: Option<String>,
+    /// The file's content right after this entry.
+    pub text_after: String,
+    /// The content it replaced, when that was recorded (a delete, or an
+    /// autosave burst merged into one row); otherwise `None`.
+    pub text_before: Option<String>,
 }
 
 /// What the caller knows about the file it is about to overwrite. There is
@@ -316,6 +333,7 @@ impl Store {
                 )
                 .fetch_one(&mut *tx)
                 .await?;
+                record_before(&mut tx, history_id, old).await?;
 
                 crate::fsutil::atomic_write(full_path, change.new_content.as_bytes()).await?;
                 written.push((full_path.clone(), old.clone()));
@@ -459,7 +477,8 @@ impl Store {
     ) -> Result<Vec<HistoryRow>, StorageError> {
         let rows = sqlx::query_as::<_, HistoryRow>(
             "SELECT id, file_path, command, diff, edit_type,
-                    CAST(created_at AS TEXT) AS created_at
+                    CAST(created_at AS TEXT) AS created_at,
+                    base_text IS NOT NULL AS has_before
              FROM history
              WHERE (?1 IS NULL OR file_path = ?1)
                AND (?2 = 0 OR edit_type IN ('agent-apply', 'apply-selected'))
@@ -472,6 +491,21 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
+    }
+
+    /// One entry with its recorded text, or `None` if there is no such row.
+    ///
+    /// # Errors
+    /// Database errors.
+    pub async fn history_detail(&self, id: i64) -> Result<Option<HistoryDetail>, StorageError> {
+        Ok(sqlx::query_as::<_, HistoryDetail>(
+            "SELECT id, file_path, edit_type, CAST(created_at AS TEXT) AS created_at,
+                    new_text AS text_after, base_text AS text_before
+             FROM history WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
     /// Shared tail: diff (BEFORE writing — the old code diffed after the
@@ -531,14 +565,10 @@ impl Store {
             )
             .fetch_one(&mut *tx)
             .await?;
-            if edit_type == AUTOSAVE {
-                // Remember where this burst started, for the next merge.
-                sqlx::query("UPDATE history SET base_text = ? WHERE id = ?")
-                    .bind(old_content)
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
-            }
+            // What this row replaced: it is what "undo this change" restores,
+            // and for an autosave it also marks where a burst began, which the
+            // next autosave needs in order to join it.
+            record_before(&mut tx, id, old_content).await?;
             id
         };
 
@@ -559,6 +589,20 @@ impl Store {
             diff,
         })
     }
+}
+
+/// Keep the text a history row replaced.
+async fn record_before(
+    tx: &mut sqlx::SqliteConnection,
+    id: i64,
+    before: &str,
+) -> Result<(), StorageError> {
+    sqlx::query("UPDATE history SET base_text = ? WHERE id = ?")
+        .bind(before)
+        .bind(id)
+        .execute(tx)
+        .await?;
+    Ok(())
 }
 
 /// The previous autosave row of this file, if a new autosave may join it.
@@ -609,6 +653,7 @@ mod tests {
                 new_text TEXT NOT NULL,
                 diff TEXT NOT NULL,
                 edit_type TEXT NOT NULL,
+                base_text TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
         )
@@ -1276,5 +1321,50 @@ mod tests {
             ["ch2/c.tex", "chapters/b.tex", "pct/d.tex", "z.tex"],
             "ch2 must not be caught by renaming ch"
         );
+    }
+
+    #[tokio::test]
+    async fn history_detail_returns_the_recorded_text_and_none_for_a_missing_row() {
+        let (store, dir) = autosave_store().await;
+        std::fs::write(dir.path().join("a.tex"), "v1\n").unwrap();
+        let saved = store
+            .save_with_etag_history(
+                Path::new("a.tex"),
+                "v2\n",
+                Precondition::Etag(&etag_of("v1\n")),
+                "save",
+                "manual-save",
+            )
+            .await
+            .unwrap();
+        let detail = store
+            .history_detail(saved.history_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.file_path, "a.tex");
+        assert_eq!(detail.text_after, "v2\n");
+        assert_eq!(
+            detail.text_before.as_deref(),
+            Some("v1\n"),
+            "every save keeps what it replaced, so it can be undone"
+        );
+        let listed = store.recent_history(Some("a.tex"), false, 5).await.unwrap();
+        assert!(listed[0].has_before);
+
+        let removed = store
+            .delete_with_etag_history(Path::new("a.tex"), &etag_of("v2\n"), "delete")
+            .await
+            .unwrap();
+        let gone = store.history_detail(removed).await.unwrap().unwrap();
+        assert_eq!(gone.edit_type, "delete");
+        assert_eq!(gone.text_after, "");
+        assert_eq!(
+            gone.text_before.as_deref(),
+            Some("v2\n"),
+            "a delete keeps what was removed"
+        );
+
+        assert!(store.history_detail(9999).await.unwrap().is_none());
     }
 }

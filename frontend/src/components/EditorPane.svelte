@@ -32,9 +32,11 @@
         theme: isDark() ? 'vs-dark' : 'vs',
         automaticLayout: true,
         minimap: { enabled: false },
-        fontSize: 14,
+        fontSize: ui.editor.fontSize,
+        tabSize: ui.editor.tabSize,
+        detectIndentation: false,
         fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-        wordWrap: 'on',
+        wordWrap: ui.editor.wordWrap ? 'on' : 'off',
         lineNumbers: 'on',
         scrollBeyondLastLine: false,
         accessibilitySupport: 'on',
@@ -79,6 +81,15 @@
         ed.focus()
       }
     })
+  })
+
+  // Editor preferences from Settings, applied to the live editor and every model.
+  $effect(() => {
+    const { fontSize, tabSize, wordWrap } = ui.editor
+    const docs = [...documents.docs]
+    if (!editor) return
+    editor.updateOptions({ fontSize, tabSize, wordWrap: wordWrap ? 'on' : 'off' })
+    for (const doc of docs) doc.model.updateOptions?.({ tabSize })
   })
 
   $effect(() => {

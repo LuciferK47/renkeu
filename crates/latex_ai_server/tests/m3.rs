@@ -119,7 +119,7 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
         "CREATE TABLE history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_path TEXT NOT NULL, command TEXT NOT NULL, new_text TEXT NOT NULL,
-            diff TEXT NOT NULL, edit_type TEXT NOT NULL,
+            diff TEXT NOT NULL, edit_type TEXT NOT NULL, base_text TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
     )
     .execute(&pool)
