@@ -70,16 +70,24 @@ export class APIClient {
   // If-Match drives optimistic concurrency; a 409 carries { current_etag }.
   // The server refuses a save with no etag (428), so fail here with a clear
   // message instead of sending a request that is certain to be rejected.
-  saveFile(path, content, etag) {
+  // `autosave` marks a timer-driven save so the server folds a burst of them
+  // into one history entry.
+  saveFile(path, content, etag, { autosave = false } = {}) {
     if (!etag) {
       return Promise.reject(
         new APIError('Cannot save before the file has been loaded (no ETag).', 428, null)
       );
     }
     return this.request('POST', '/file', {
-      body: { path, content },
+      body: { path, content, ...(autosave ? { autosave: true } : {}) },
       headers: { 'If-Match': etag }
     });
+  }
+
+  // The whole project as a nested tree: [{ name, path, kind: 'dir'|'file',
+  // editable, children? }]. Secrets and dot-directories are never listed.
+  getTree() {
+    return this.request('GET', '/tree');
   }
 
   // The server currently returns the whole list and ignores paging/search
@@ -108,8 +116,13 @@ export class APIClient {
   // --- compile -----------------------------------------------------------
 
   // -> { job_id, status }
-  compile(filePath, signal) {
-    return this.request('POST', '/compile', { body: { file_path: filePath }, signal });
+  // `main` names the root document when the project has several candidates
+  // (otherwise the server picks it: \documentclass, `% !TEX root`, ...).
+  compile(filePath, signal, main = null) {
+    return this.request('POST', '/compile', {
+      body: { file_path: filePath, ...(main ? { main } : {}) },
+      signal
+    });
   }
 
   compileStreamUrl(jobId) {

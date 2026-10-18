@@ -52,6 +52,8 @@ build/
 *.pdf
 *.aux
 *.log
+# Real Tectonic logs the diagnostics parser is tested against.
+!crates/compiler/tests/fixtures/**/*.log
 *.out
 *.fls
 *.fdb_latexmk
