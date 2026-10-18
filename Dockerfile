@@ -68,7 +68,11 @@ RUN set -eux; \
     cp /opt/pdfium/LICENSE /rootfs/usr/share/licenses/pdfium/; \
     # The ELF interpreter and every DT_NEEDED library, kept at the paths ld.so
     # searches. -L because several are symlinks to versioned real files.
-    ldd /usr/local/bin/latex-ai /opt/pdfium/lib/libpdfium.so | grep -oE '/[^ ]+\.so[^ ]*' | sort -u \
+    # With two arguments ldd prints a "<file>:" header per file; the colon
+    # exclusion keeps those out of the dependency list and the grep -v keeps
+    # pdfium itself (copied separately above) from being copied twice.
+    ldd /usr/local/bin/latex-ai /opt/pdfium/lib/libpdfium.so \
+      | grep -oE '/[^ :]+\.so[^ :]*' | grep -v '^/opt/pdfium/' | sort -u \
       | while read -r lib; do \
           mkdir -p "/rootfs$(dirname "$lib")"; \
           cp -L "$lib" "/rootfs$(dirname "$lib")/"; \
