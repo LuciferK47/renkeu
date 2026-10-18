@@ -131,20 +131,19 @@ async fn long_op(cancel: CancellationToken) -> Result<()> {
 
 Neither `Drop` nor `tokio::task::JoinHandle::abort()` is the primary cancel mechanism; they're *backstops*. The primary mechanism is the explicit `CancellationToken::cancelled()` check inside the long-running future. The backstop is for "client crashed without sending FIN" cases.
 
-### Tectonic calls need `spawn_blocking` + select
+### Tectonic runs in a worker process, not a task
+
+**Amended (M10, 2026-10).** A blocking Tectonic call cannot be interrupted, and it holds a process-wide lock for the whole compile, so `spawn_blocking` plus `select!` only abandoned the *wait*: the engine, and every later compile, stayed stuck behind it. Compiles therefore run in a short-lived child process (this same binary, re-executed as `__compile-worker`). The parent selects over three things and kills and reaps the child on the first two:
 
 ```rust
-let pdf_bytes = tokio::select! {
-    r = tokio::task::spawn_blocking(move || tectonic::latex_to_pdf(&latex)) => r
-        .context("tectonic join")?
-        .map_err(CompileError::Tectonic)?,
-    _ = cancel.cancelled() => return Err(CompileError::Cancelled),
-};
+tokio::select! {
+    _ = cancel.cancelled() => { child.start_kill()?; child.wait().await?; Err(CompileError::Cancelled) }
+    _ = tokio::time::sleep(timeout) => { child.start_kill()?; child.wait().await?; Err(CompileError::Timeout) }
+    status = child.wait() => finish(status),
+}
 ```
 
-### Long mutex holdings
-
-The `TECTONIC_MUTEX` is held for the whole compile (10s±). Holding a `tokio::sync::Mutex` across `.await` on a hot path is fine here because the queue only allows one compile at a time anyway. Document it once; don't re-debate.
+`kill_on_drop` is only the backstop. Tectonic's cache writes are write-then-rename, so killing a worker cannot corrupt the bundle cache. There is no `TECTONIC_MUTEX` and no compile queue: two compiles may run at once, one process each.
 
 ## I.4 Concurrency Primitive Decision Tree
 
@@ -348,7 +347,7 @@ pub async fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
 
 - Use `tokio::fs::rename` (atomic on both POSIX and Windows when same filesystem).
 - Never `write+delete+rename` — write+rename is atomic on most platforms.
-- History entry write happens AFTER successful rename, not before (CRITICAL — context.md §4.2: state machine integrity).
+- The history row and the file must never disagree. **Amended (M7):** the row is inserted inside a transaction, then the file is written atomically, then the transaction commits; a failed write rolls the row back and a failed commit puts the old bytes back. (The earlier order, rename first, returned a 500 for a file that had in fact changed.)
 
 ## I.14 Testing Discipline
 

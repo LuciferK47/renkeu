@@ -1,6 +1,6 @@
 # LaTeX-AI — Master Architecture Document (Rust Edition)
 
-> **Purpose**: Implement the Autonomous Document Engine described in `idea.md` as a Rust-native codebase where Tectonic runs as an in-process LaTeX engine (no subprocess, no TeX Live install on host), axum serves both as standalone daemon and embedded inside a Tauri desktop shell (single binary, ≤25 MB), and `genai-rs` owns chat history via Gemini's Interactions API (we don't manage state).
+> **Purpose**: Implement the Autonomous Document Engine described in `idea.md` as a Rust-native codebase where Tectonic is the embedded LaTeX engine (since M10 run in a short-lived worker process of the same binary so it can be killed; still no TeX Live install on host), axum serves both as standalone daemon and embedded inside a Tauri desktop shell (single binary, ≤25 MB), and `genai-rs` owns chat history via Gemini's Interactions API (we don't manage state).
 > **Date**: 2026-06-24 (Rust pivot — supersedes the Python masterplan)
 > **Status**: Master reference. Supersedes README/GUIDE/incomplete architectural comments in the existing repo when those conflict. `CONTEXT.md` is the binding law; `idea.md` is the product pitch; `rust.md` is the binding coding guideline (its Part II port spec was removed at the close of M5); this doc is the engineering execution plan and reads all three as inputs.
 > **Reference sources**:
@@ -11,12 +11,69 @@
 
 ---
 
+## 0. As built (after M17) — read this first
+
+The rest of this document is the original design, kept because its rationale is
+still the reason things are the way they are. Where it disagrees with this
+section, **this section is right**; each disagreement is also recorded in §15.1
+with the reason. Sections marked *superseded* below are historical.
+
+### 0.1 What exists
+
+| Crate / folder | Role |
+|---|---|
+| `crates/compiler` | Compiles a project with Tectonic **in a worker process** (this binary, re-executed as `__compile-worker`), detects the main file, fingerprints the project, stores builds content-addressed outside the project, turns the TeX log into structured diagnostics. |
+| `crates/latex_ai_core` | No I/O framework: config and secrets (`ArcSwap` snapshot, 0600 `secrets.toml`), the edit engine (`apply`, `policy` lint), history storage (SQLite, reversible migrations), path security, the LLM planner. |
+| `crates/latex_ai_server` | The axum API, the agent loop, the proposal registry, bootstrap shared by the daemon and the desktop shell. |
+| `crates/synctex` | SyncTeX parser and forward/backward search. |
+| `crates/visual` | pdfium page rendering and region cropping (one process-wide binding; library found via `LATEX_AI_PDFIUM_DIR`, app-registered folders, beside the executable, then the system). |
+| `crates/latex_ai_tauri` | Desktop shell: the same server on an ephemeral loopback port plus the built SPA; native folder picker; bundles libpdfium. |
+| `frontend/` | Svelte 5 (runes everywhere) + Vite + Monaco. Vitest unit tests, Playwright end-to-end tests (`npm run e2e`), `svelte-check`, `knip`. |
+
+There is no LSP crate: editing support (grammar, completion, hover, go-to-definition, outline, spell check) lives in the frontend (`frontend/src/lib/latex/`) because everything it needs is already in the open buffers and the project tree.
+
+### 0.2 How the pieces behave
+
+- **Compiling.** `POST /api/compile` picks the main file (saved choice in `project.toml`, then `% !TEX root`, then the active file if it has `\documentclass`, else a unique root, else it asks). The worker is killed on cancel or timeout (`[compile] timeout_secs`, default 60); its environment is scrubbed and `PATH` empty. A build is keyed by a hash of every input file; its PDF, SyncTeX map and log live under `~/.latex-ai/projects/<id>/builds/`, and page URLs name the build so they never go stale.
+- **The agent.** Verify-first: it works on a scratch mirror of the project, feeds compile diagnostics back until the document compiles, then offers the cumulative change as per-hunk proposals across all touched files. Nothing reaches the user's files until they accept hunks (`/api/agent/apply-selected`, conditional on the file's ETag; a conflict retries once with a rebase when the server still holds the proposal). Edits are linted (`policy`): no absolute or parent paths in `\input`-family commands, no `\write18`, no `\openout` and similar. Stopping a run closes the connection and the server cancels.
+- **Files.** Create, rename, delete, upload and raw download all validate names (`resolve_new_path`), never replace (409), and deletes need `If-Match`. Every save and delete writes a history row that keeps the text it replaced, which is what makes *Undo this change* possible.
+- **Configuration.** Defaults < `~/.latex-ai/config.toml` < environment. The API key is write-only. Settings change at runtime; each request takes one snapshot.
+- **Security.** Loopback only, Host-header allowlist (DNS rebinding), a read denylist (`.env*`, keys, `.git`…) that also hides files from the tree, the agent and TeX, per-component `..` rejection, writes only to allowlisted extensions.
+- **Desktop.** Switching project folders restarts the app into the chosen folder; the last project is remembered, and a launcher start in `/` or `$HOME` opens a private starter folder instead of indexing the disk.
+
+### 0.3 API surface
+
+```
+GET  /health                                  GET  /api/metrics
+GET  /api/config   PATCH /api/config          PUT/DELETE /api/config/api-key
+GET  /api/tree     GET /api/file?path=        POST /api/file          (If-Match required)
+DELETE /api/file?path=  (If-Match required)   POST /api/files/create  POST /api/files/rename
+POST /api/upload?path=  GET /api/raw?path=    GET/PUT /api/project
+GET  /api/search?q=   (fuzzy over the project's source files)
+GET  /api/history   GET /api/history/{id}
+POST /api/compile  POST /api/compile/{id}/cancel  GET /api/compile/stream/{id}
+GET  /api/builds/{id}  /pdf  /log             GET  /api/pdf/page
+GET  /api/synctex/forward  /backward
+POST /api/plan/stream  /api/agent/stream      (SSE, §8.2)
+POST /api/agent/preview  /api/agent/apply-selected  /api/visual-fix
+```
+
+### 0.4 Quality gates (CI, every push)
+
+`cargo fmt`, `clippy --workspace --all-targets -D warnings` (pedantic, including the Tauri crate), the full test suite, `cargo deny`, `cargo machete`, coverage ≥ 80 % (llvm engine), `sqlx prepare --check`; frontend lint, `svelte-check` (warnings fail), `knip`, Vitest, build, and Playwright against the real server; the container image builds, stays under its size limit, renders a PDF page and boots healthy; the desktop `.deb` is built, unpacked and used to compile a document and render a page with no other libpdfium on the machine.
+
+### 0.5 Superseded sections
+
+§1 (in-process, single global mutex, `latex_to_pdf`), §4.1 (queue, `Engine`, scratchpad cache), §4.2 (LSP crate), §7 (single `~/.latex-ai/history.db`), §8.3 (endpoint table), §9 (Dockerfile sketch), §10 (frontend stack: PDF.js dropped, runes, no controllers/services layer beyond the SSE clients), §12 (roadmap: M6–M17 are recorded in §15.1, not §12), and §16 (open questions, now answered or dropped). They are left as written because the reasoning in them is still useful; do not treat their code as current.
+
+---
+
 ## 1. Architecture Philosophy
 
 **Local-first, single-binary Autonomous Document Engine, written in Rust to earn every Rust advantage and not as a port.**
 
 Three operating pillars (from `idea.md`):
-1. **Self-healing compile loop** — agent writes an `AgentEdit[]` patch into a `~/.latex-ai/scratch/<session>/` scratchpad, calls `tectonic::latex_to_pdf` in-process (single global mutex serializes compilations), parses the structured log (Tectonic emits `ProcessingEvents` via channel — we never parse text again), and feeds errors back into `genai_rs::Interaction::with_previous_interaction(id)` as the next user message until success or max-iter.
+1. **Self-healing compile loop** — agent writes an `AgentEdit[]` patch into a `~/.latex-ai/scratch/<session>/` scratchpad, compiles with Tectonic (in a killable worker process of this same binary since M10, not in-process under a global mutex), parses the TeX log into structured diagnostics (Tectonic emits `ProcessingEvents` via channel — we never parse text again), and feeds errors back into `genai_rs::Interaction::with_previous_interaction(id)` as the next user message until success or max-iter.
 2. **Visual grounding via reverse SyncTeX** — user draws a bbox on the PDF; `latex-ai-synctex::backward_search(page, x, y)` maps to source; `pdfium-render` crops the page region to PNG; `genai_rs::Interaction::with_response_format(JSON)` returns `{ edits: AgentEdit[] }`.
 3. **Deterministic diff-driven control** — every AI change is an `AgentEdit` serde-strict type with 1-based inclusive lines + `expected_etag: Option<Hash>` (blake3); frontend `DiffView` accepts/rejects per hunk via `POST /api/agent/apply-selected`.
 
@@ -40,7 +97,7 @@ Cross-cutting principles from `CONTEXT.md` (binding):
 | Layer | Crate / Tool | Latest | Why |
 |---|---|---|---|
 | **Language** | Rust | 1.85+ (2026 stable) | `std::backtrace` stable; `async fn` in traits stable; let-else; let-chains. Edition 2024. |
-| **LaTeX engine** | `tectonic` ≥ 0.16 ([docs.rs/tectonic](https://docs.rs/tectonic)) | latest | **Killer USP.** `tectonic::latex_to_pdf(&str) -> Result<Vec<u8>>` returns PDF bytes in-process. XeTeX-based (Unicode + modern fonts default). No TeX Live install on host. Auto-fetches missing packages (content-address cache at `~/.cache/Tectonic/`). Single global mutex — our queue serializes anyway. SyncTeX output via `synctex: true` in `Tectonic.toml`. |
+| **LaTeX engine** | `tectonic` ≥ 0.16 ([docs.rs/tectonic](https://docs.rs/tectonic)) | latest | **Killer USP.** `tectonic::latex_to_pdf(&str) -> Result<Vec<u8>>` returns PDF bytes in-process. XeTeX-based (Unicode + modern fonts default). No TeX Live install on host. Auto-fetches missing packages (content-address cache at `~/.cache/Tectonic/`). Tectonic holds a process-wide lock for a whole compile, which is why compiles run in worker processes (§15.1 M10). SyncTeX output via `synctex: true` in `Tectonic.toml`. |
 | **Web framework** | `axum` ≥ 0.8 + `tokio` ≥ 1.42 + `tower` ≥ 0.5 + `tower-http` ≥ 0.6 | latest | Standard Rust async web. Macro-free routing, typed extractors, integrated SSE via `axum::response::sse::{Event, Sse, KeepAlive}`. |
 | **Desktop shell** | `tauri` ≥ 2.9 + `tauri-plugin-axum` | latest | Same Rust binary serves (a) standalone daemon binding TCP, or (b) Tauri webview via `axum://localhost/` custom protocol for non-streaming routes + TCP loopback for SSE routes. Peer (`r/tauri` 2026-03) shipped 18 MB binary with 114 axum routes; we target ≤25 MB. |
 | **SSE** | `axum::response::sse::Sse<Stream<Item = Result<Event, anyhow::Error>>>` | builtin | Native to axum; `KeepAlive` keep-alives the wire automatically. |
@@ -259,6 +316,8 @@ PER-HUNK ACCEPT:
 
 ### 4.1 `crates/compiler` — Tectonic wrapper + queue + cache + scratchpad
 
+> **Superseded (§0, §15.1 M10).** The compiler is now `worker.rs` (the killable child process), `engine.rs`, `diagnostics.rs` (structured errors from the TeX log), `project.rs` (main-file detection, fingerprint) and `builds.rs` (content-addressed build store). There is no global mutex, queue or in-process engine cache; the code below is the original sketch.
+
 Why: Tectonic instances are not thread-safe; `OnceLock<tokio::sync::Mutex<()>>` serializes. The queue's `Semaphore::new(1)` mirrors this. `ScratchPad` writes per-session working tree at `~/.latex-ai/scratch/<session_id>/`.
 
 ```rust
@@ -337,6 +396,8 @@ Two structural wins over the Python iteration:
 **Engine auto-selection**: Tectonic is XeTeX-based by default; this question simply doesn't apply for V1 — every document compiles with XeLaTeX. (LuaLaTeX support deferred until Tectonic ships it; tracked Q2.)
 
 ### 4.2 `crates/lsp` — in-binary LaTeX LSP
+
+> **Dropped (§0.1).** No LSP crate was written. Grammar, completion, hover, go-to-definition, outline and spell check are implemented in the frontend (`frontend/src/lib/latex/`) over the open buffers and the project index, which needs no server round trip.
 
 Why: We become the LaTeX LSP. No `texlab` subprocess dependency. Invention — unique in the peer landscape.
 
@@ -667,6 +728,8 @@ async fn apply_selected(
 
 ## 7. Database Schema
 
+> **Updated (§15.1 M8, M13, M16).** History lives per project in `~/.latex-ai/projects/<id>/history.db`, migrations are reversible (`*.up.sql` / `*.down.sql`, tested up/down/up), and `history.base_text` holds the text a row replaced (autosave bursts merge into one row within 5 minutes). The schema below is the original.
+
 ### 7.1 SQLite schema (`~/.latex-ai/history.db`) via sqlx migrations
 
 ```sql
@@ -823,10 +886,10 @@ Status code mapping:
 | event | data shape | when |
 |---|---|---|
 | `progress` | `{ "message": _, "progress": 0.0..1.0 }` | UI status update |
-| `step` | `{ "command": _, "description": _, "rationale": _ }` | AI plan step emitted |
-| `proposal` | `{ "summary": _, "edit_count": _, "edits": [AgentEdit], "diffs": {file: diff} }` | Batch ready for review |
+| `step` | `{ "iteration": u32, "edit_count": u32 }` | An intermediate attempt in a verify-first run (informational; never applied by the client) |
+| `proposal` | `{ "summary": _, "edit_count": _, "edits": [AgentEdit], "etag": _, "proposal_id"?: _, "verified"?: bool, "files"?: [{path, etag, edit_count}] }` | The one batch ready for review (per-hunk `hunk_id`s are server-computed) |
 | `applying` | `{ "message": _ }` | Backend applying edits to scratchpad |
-| `compiled` | `{ "success": bool, "page_count"?, "error_summary"? }` | Compile finished |
+| `compiled` | `{ "success": bool, "page_count"?, "error_summary"?, "diagnostics"?: [{severity, kind, file, line, message}] }` | Compile finished |
 | `thinking` | `{ "message": _, "iteration": u8 }` | Mid-iteration placeholder |
 | `done` | `{ "success": bool, "message"?, "diffs"? }` | Stream complete |
 | `error` | `{ "message": _ }` | Stream errored |
@@ -836,6 +899,8 @@ Status code mapping:
 Hard rule: endpoints emit only events from this set — CI regex check `r#event\("(?!progress|step|proposal|applying|compiled|thinking|done|error|awaiting_approval|keepalive)"#` fails the run.
 
 ### 8.3 Endpoint table (post-M5)
+
+> **Superseded:** the current API surface is listed in §0.3.
 
 Same surface as before (mostly): files / agent / compile / visual / history / health / lsp / metrics routers. New endpoints:
 
@@ -861,6 +926,8 @@ Frontend → JSON-RPC LSP messages; backend routes them into the in-binary
 ## 9. Infrastructure & Deployment
 
 ### 9.1 Dockerfile (single stage with tectonic)
+
+> **Superseded:** the image is multi-stage, ends in `scratch` holding only the binary's `ldd` closure plus a checksum-verified libpdfium, and CI asserts it boots and renders a page. See the `Dockerfile`.
 
 ```dockerfile
 FROM rust:1.85-slim-bookworm AS builder
@@ -933,6 +1000,8 @@ volumes:
 ## 10. Frontend Architecture
 
 ### 10.1 Stack (kept JS, not rewritten)
+
+> **Updated (§15.1 M12–M17).** Svelte 5 with runes enforced for every project file; state in `lib/state/*.svelte.js`; one command registry; Monaco with LaTeX/BibTeX grammars; PDF pages rendered by the server (pdfium) and shown in a continuous scroller with zoom, SyncTeX both ways and a region-select layer; Vitest, `svelte-check`, `knip` and Playwright.
 
 The frontend stays JS — pivot is backend+binary-only.
 
@@ -1087,6 +1156,8 @@ Prod (`ENV=production`): **`ALLOWED_ORIGINS` required.** Startup fails immediate
 ---
 
 ## 12. Phased Implementation Roadmap
+
+> **Historical.** M1–M5 below are as originally planned. M6–M17 (paper tone, data integrity, config, edit engine, compiler worker, agent loop, frontend rebuild, files, LaTeX editing, SyncTeX, assistant/history, finish) are recorded with their deviations in §15.1.
 
 Phases map 1:1 with `idea.md` §4. Each phase carries an **Audit Gate** (CONTEXT.md P3). Phases are sequential.
 
@@ -1380,9 +1451,13 @@ drift.
 | Proposal review (M16) | one flat list of hunks | hunks grouped by file with per-file and per-hunk selection; apply goes through `/api/agent/apply-selected` with the proposal id, and a 409 retries once with `rebase` | A multi-file proposal read as one undifferentiated list. Only hunks that still apply can be selected. |
 | Settings (M16) | a 799-line dialog whose shortcut editor and colour pickers did nothing | four tabs: Appearance (theme, dark-page tone), Editor (font size, tab width, wrapping, spell check, autosave), Assistant (model, vision model, timeout, write-only API key; fields pinned by an environment variable are locked), Shortcuts (read-only, from the command registry) | Only settings that act are offered. Compile timeout is not editable here because the config API does not expose it. |
 | History and undo (M16) | the history sidebar listed diffs and could not restore | `GET /api/history/{id}` returns an entry's text; the panel offers **Restore this version** (the file as it stood after the entry), **Undo this change** (the text before it) and, for deletes, **Bring back**. A restore is an ordinary conditional save or create, so it is itself recorded | Every history row now keeps the text it replaced (`base_text`; previously only autosave bursts and deletes did), which is what makes "undo an AI change" possible; older rows show no Undo. Restoring writes through the same routes as any save, so it cannot overwrite a newer edit unnoticed (409). |
+| Frontend quality (M17) | runes by auto-detection, no static analysis of components, no browser tests in the repo | `runes: true` for every project file (dependencies excluded), `svelte-check` (warnings fail), `knip` (dead code), and a Playwright suite (31 tests: editing, compiling, PDF, SyncTeX, files, LaTeX support, settings, history, assistant with scripted streams) that starts the real server | Auto-detection let a component fall back to legacy semantics unnoticed, and the legacy file opener, icon set and `paperStore` survived two rewrites because nothing flagged them. The suite found a real bug (Enter in Quick Open opened the previous query's top result). The AI flows are tested against a scripted event stream, since the real ones need an LLM key. |
+| Dead code removed (M17) | `GET /api/files`, `POST /api/search` (candidates), `listFiles`, `searchCandidates`, `previewHunks` (service), `Icon`, `FileOpener` | gone | Nothing called them. `GET /api/search?q=` remains and is what Quick Open uses. |
 | Not done in M12 | | The AI chat, settings and history components still use their `svelte/store` state and legacy syntax; they move with their rewrite in M16. `svelte-splitpanes` needs the `$app/environment` alias, so it stays. `GET /api/tree` and `GET /api/builds/{id}/log` were added; `/api/agent/preview` now judges each hunk against its own file. | Honest scope: the plan listed these under M12, but their UI is rewritten in M16 anyway and migrating them twice would be churn. |
 
 ## 16. Open Questions
+
+> **Resolved or dropped.** The decisions that mattered are in §15.1; questions that no longer apply (LSP scope, Gemini Interactions state) belong to the original design.
 
 | # | Question | Default | Owner |
 |---|---|---|---|
@@ -1403,5 +1478,5 @@ drift.
 *Document version: 2.0 (Rust Edition)*
 *Date: 2026-06-24*
 *Authors: synthesized from `idea.md`, `CONTEXT.md`, `rust.md`, existing repo audit, and peer-state-of-practice scan (TexGuardian, PaperFit, scholia, ferroleaf, XandSuite, r/tauri 2026-03 thread, genai-rs 0.7 docs, tectonic docs).*
-*Status: M1–M5 complete; M6 (paper tone-map) shipped; M7 (data-integrity and access-control hotfixes) and M8 (config, bootstrap, per-project data, reversible migrations) M9 (edit engine) M10 (compiler worker, multi-file, diagnostics, builds) M11 (verify-first agent loop, proposals) M12 (frontend foundation), M13 (projects and files), M14 (LaTeX editing), M15 (SyncTeX, PDF viewer, libpdfium packaging) and M16 (settings, assistant, history) implemented — see §15.1 for recorded deviations and §12 for the milestone record.*
+*Status: M1–M17 complete. M1–M5 follow §12; M6–M17 (paper tone, data integrity, config, edit engine, compiler worker, agent loop, frontend rebuild, files, LaTeX editing, SyncTeX and packaging, assistant and history, quality gates) are recorded with their deviations in §15.1. §0 describes the system as built.*
 *Re-read this doc + `CONTEXT.md` + `idea.md` + `rust.md` at the start of every implementation session.*

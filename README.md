@@ -3,12 +3,12 @@
 A writing app for LaTeX documents that **fixes its own mistakes using AI**, and
 runs **entirely on your own computer**.
 
-> **Status:** all five milestones (M1–M5) implemented. The engine compiles
-> in its own killable worker process, the AI self-healing loop works end to end, drawing a box on the
-> PDF maps back to the source line that produced it, changes are accepted hunk
-> by hunk, and the desktop shell bundles the lot. See
-> [`masterplan.md`](masterplan.md) §12 for the per-milestone record and §15.1
-> for where the implementation knowingly differs from the plan.
+> **Status:** feature-complete (M1–M17). The engine compiles in its own
+> killable worker process, the AI works on a copy of your project and checks its
+> edits compile before showing them, every change is reviewed hunk by hunk and
+> can be undone from the history, and the desktop app bundles the lot. See
+> [`masterplan.md`](masterplan.md) §0 for how it is built, §15.1 for where the
+> build knowingly differs from the original plan.
 
 ## What is this, in plain words?
 
@@ -27,6 +27,20 @@ LaTeX-AI is an editor that takes the pain out of that:
   out which line of source you meant.
 
 Nothing leaves your machine except the snippets actually sent to the AI.
+
+## What you can do with it
+
+- **Edit a whole project**, not one file: a file tree (create, rename, delete,
+  drag files in), tabs that keep their own undo history, autosave, and a choice
+  of main file.
+- **Write LaTeX comfortably:** syntax highlighting, completion for citations,
+  labels, files, packages and environments, an outline, spell check, hover and
+  Ctrl+click on `\ref`, `\cite` and `\input`, and compile errors drawn on the line.
+- **See the PDF as you go:** continuous scrolling and zoom, **Ctrl+Alt+J** shows
+  where the cursor line landed, and double-clicking the PDF jumps to its source.
+- **Ask the AI for changes:** it tries them on a copy, checks the document still
+  compiles, then shows the edits for you to accept, per hunk and per file.
+- **Undo anything:** the history keeps what every save and AI change replaced.
 
 ## The one trick worth knowing
 
@@ -261,8 +275,8 @@ package):
 
 | Crate | What it does |
 |---|---|
-| `crates/compiler` | Runs Tectonic to turn LaTeX into PDF bytes: global mutex, result cache, dedup/debounce queue, per-session scratchpads |
-| `crates/latex_ai_core` | Use-case-agnostic services: AI planner, edit application, storage + history + durable jobs, path sandbox, prompt safety, fuzzy search, metrics |
+| `crates/compiler` | Compiles a project in a killable worker process (this binary, re-executed): main-file detection, project fingerprint, content-addressed build store, structured diagnostics from the TeX log |
+| `crates/latex_ai_core` | Use-case-agnostic services: config and secrets, AI planner, edit engine and TeX lint, storage + history, path sandbox, prompt safety, fuzzy search, metrics |
 | `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool |
 | `crates/synctex` | `.synctex(.gz)` parser, scaled-point→PDF-point conversion, backward *and* forward search |
 | `crates/visual` | pdfium page rendering and bbox cropping (one process-wide binding) |
@@ -274,12 +288,21 @@ Every change has to pass, and CI enforces all of it:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --exclude latex-ai-tauri --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings      # includes the desktop crate
 cargo nextest run --workspace --exclude latex-ai-tauri
 cargo deny check          # advisories + licenses + sources
 cargo machete             # no unused dependencies
-cd frontend && npx vitest run
+
+cd frontend
+npx eslint . && npm run check && npm run knip   # lint, svelte-check (warnings fail), dead code
+npx vitest run                                  # unit and component tests
+npm run build && npm run e2e                    # Playwright against the real server
 ```
+
+The end-to-end tests start `latex-ai serve` and `vite preview` themselves; they
+need the server binary built (`cargo build -p latex-ai-server`, or set
+`E2E_SERVER_BIN`), libpdfium (on the loader path or `E2E_PDFIUM_DIR`), and a
+browser (`npx playwright install chromium`, or set `E2E_CHROME`).
 
 ### Resource limits
 

@@ -150,8 +150,15 @@ async fn secrets_are_forbidden_to_read_and_absent_from_the_listing() {
         );
     }
 
-    let listing = json_of(router.oneshot(get("/api/files")).await.unwrap()).await;
-    assert_eq!(listing["files"], json!(["main.tex"]));
+    // Nor is a secret offered by the file search.
+    let listing = json_of(router.oneshot(get("/api/search?q=")).await.unwrap()).await;
+    let found: Vec<&str> = listing["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["value"].as_str().unwrap())
+        .collect();
+    assert_eq!(found, ["main.tex"]);
 }
 
 #[tokio::test]
@@ -272,16 +279,23 @@ async fn a_symlink_loop_does_not_hang_the_file_listing() {
 
     let res = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        router.oneshot(get("/api/files")),
+        router.oneshot(get("/api/search?q=")),
     )
     .await
     .expect("listing hung on a symlink loop")
     .unwrap();
 
     assert_eq!(res.status(), StatusCode::OK);
+    let body = json_of(res).await;
+    let found: Vec<&str> = body["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["value"].as_str().unwrap())
+        .collect();
     assert_eq!(
-        json_of(res).await["files"],
-        json!(["chapters/one.tex"]),
+        found,
+        ["chapters/one.tex"],
         "linked directories must not be followed"
     );
 }

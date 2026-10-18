@@ -14,14 +14,9 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use tracing::instrument;
 
-#[derive(Serialize)]
-pub struct FileList {
-    pub files: Vec<String>,
-}
-
 /// Workspace source files (allowlisted extensions), relative to `root`,
-/// skipping dotdirs / `target` / `node_modules`. Blocking — call from
-/// `spawn_blocking`.
+/// skipping dotdirs / `target` / `node_modules`. What `/api/search` ranks.
+/// Blocking — call from `spawn_blocking`.
 pub(crate) fn list_workspace_files(root: &Path) -> Vec<String> {
     let mut result = Vec::new();
     let mut dirs = vec![root.to_path_buf()];
@@ -60,19 +55,6 @@ pub(crate) fn list_workspace_files(root: &Path) -> Vec<String> {
     }
     result.sort();
     result
-}
-
-/// `GET /api/files` — list workspace source files.
-#[instrument(skip(state))]
-pub async fn list_files(State(state): State<AppState>) -> Json<FileList> {
-    let root = state.workspace_root.clone();
-    let files = tokio::task::spawn_blocking(move || list_workspace_files(&root))
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "file listing task failed");
-            Vec::new()
-        });
-    Json(FileList { files })
 }
 
 /// One entry of the project tree.

@@ -16,7 +16,7 @@ import { api } from '../api/client.js';
 /** Wait this long after the last keystroke before autosaving. */
 const AUTOSAVE_PAUSE_MS = 1500;
 
-export class OpenDocument {
+class OpenDocument {
   path;
   /** ETag of the text last loaded from, or saved to, the server. */
   etag = $state(null);

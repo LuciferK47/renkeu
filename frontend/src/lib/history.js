@@ -8,7 +8,7 @@
 import { api as defaultApi } from './api/client.js';
 
 /** Plain-language names for `edit_type`. */
-export const EDIT_LABELS = {
+const EDIT_LABELS = {
   'manual-save': 'Saved',
   autosave: 'Autosaved',
   'agent-apply': 'AI change',

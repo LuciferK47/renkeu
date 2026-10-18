@@ -2,7 +2,7 @@
 
 import { misspellings } from './spell.js';
 
-export const SPELL_OWNER = 'latex-spell';
+const SPELL_OWNER = 'latex-spell';
 
 /** Languages whose text is prose worth checking (BibTeX is mostly names and codes). */
 export const isProseFile = (path) => /\.(tex|sty|cls)$/i.test(path);

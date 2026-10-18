@@ -129,8 +129,6 @@ export function misspellings(text, checker) {
   return spellWords(text).filter((w) => !checker.correct(w.word.replace(/’/g, "'")));
 }
 
-const DICT_KEY = 'latex-ai:dictionary';
-
 /**
  * Wraps a Hunspell speller (nspell) with a personal dictionary that outlives
  * the session. The speller itself is loaded on first use; the dictionary is

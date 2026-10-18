@@ -12,6 +12,10 @@
   let error = $state('')
   /** Whether the server has answered at least once, so "nothing found" is true. */
   let loaded = $state(false)
+  /** The query the current `hits` answer; until it matches what is typed they are stale. */
+  let answered = ''
+  /** Enter was pressed before the answer arrived: open the first hit when it does. */
+  let openWhenReady = false
   let input = $state()
   let latest = 0
 
@@ -35,6 +39,11 @@
         active = 0
         error = ''
         loaded = true
+        answered = q
+        if (openWhenReady) {
+          openWhenReady = false
+          if (show[0]) onopen(show[0])
+        }
       } catch (e) {
         if (mine === latest) error = e.message
       }
@@ -46,7 +55,13 @@
     if (e.key === 'Escape') onclose()
     else if (e.key === 'ArrowDown') (e.preventDefault(), (active = Math.min(active + 1, show.length - 1)))
     else if (e.key === 'ArrowUp') (e.preventDefault(), (active = Math.max(active - 1, 0)))
-    else if (e.key === 'Enter' && show[active]) (e.preventDefault(), onopen(show[active]))
+    else if (e.key === 'Enter') {
+      e.preventDefault()
+      // The list still shows the previous query's answer: opening its top entry
+      // would open a file that has nothing to do with what was typed.
+      if (answered !== query.trim()) openWhenReady = true
+      else if (show[active]) onopen(show[active])
+    }
   }
 </script>
 

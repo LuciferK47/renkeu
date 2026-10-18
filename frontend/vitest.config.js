@@ -5,6 +5,8 @@ import { svelteTesting } from '@testing-library/svelte/vite'
 export default defineConfig({
   plugins: [svelte({ hot: !process.env.VITEST }), svelteTesting()],
   test: {
+    // Playwright specs live in e2e/ and run under `npm run e2e`.
+    include: ['tests/**/*.test.js'],
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./tests/setup.js'],

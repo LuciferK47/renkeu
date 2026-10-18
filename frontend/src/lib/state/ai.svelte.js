@@ -6,13 +6,13 @@
 // be stopped: aborting the request closes the connection, and the server
 // cancels the planner call and any compile bound to it.
 
-import * as defaultService from '../../services/aiService.js';
+import { aiService as defaultService } from '../../services/aiService.js';
 
 let nextId = 1;
 const id = () => nextId++;
 
-/** What a run's `outcome` can be, for the UI. */
-export const OUTCOME = {
+/** What a run's `outcome` can be; RunTimeline words each of these. */
+const OUTCOME = {
   success: 'success',
   failed: 'failed',
   cancelled: 'cancelled',

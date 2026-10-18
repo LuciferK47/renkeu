@@ -187,7 +187,7 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
 
     Ok(Router::new()
         .route("/health", get(health))
-        .route("/api/search", post(search_candidates).get(search_workspace))
+        .route("/api/search", get(search_workspace))
         .route(
             "/api/config",
             get(routes::config::get_config).patch(routes::config::patch_config),
@@ -198,7 +198,6 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
         )
         .route("/api/history", get(routes::history::list_history))
         .route("/api/history/{id}", get(routes::history::history_entry))
-        .route("/api/files", get(routes::files::list_files))
         .route("/api/tree", get(routes::files::get_tree))
         .route(
             "/api/file",
@@ -264,29 +263,13 @@ async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
-/// `POST /api/search` body: caller supplies the candidate list (command
-/// palette entries). Interim contract from masterplan §8.3.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SearchRequest {
-    query: String,
-    candidates: Vec<String>,
-}
-
 #[derive(serde::Serialize)]
 struct SearchResponse {
     hits: Vec<Hit>,
 }
 
-async fn search_candidates(Json(req): Json<SearchRequest>) -> Json<SearchResponse> {
-    Json(SearchResponse {
-        hits: fuzzy_rank(&req.query, &req.candidates),
-    })
-}
-
-/// `GET /api/search?q=` — fuzzy search over the server-owned workspace file
-/// list (masterplan §8.3 final form; the server owns the list via
-/// `/api/files`' walker).
+/// `GET /api/search?q=` — fuzzy search over the project's source files (the
+/// server owns the list, so the client never has to fetch and filter it).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WorkspaceSearchQuery {
@@ -461,7 +444,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("OPTIONS")
-                    .uri("/api/files")
+                    .uri("/api/search")
                     .header("origin", "tauri://localhost")
                     .header("access-control-request-method", "GET")
                     .body(Body::empty())
@@ -475,34 +458,6 @@ mod tests {
                 .and_then(|v| v.to_str().ok()),
             Some("tauri://localhost")
         );
-    }
-
-    #[tokio::test]
-    async fn search_post_ranks_best_match_first() {
-        let (state, _dir) = test_state().await;
-        let app = build_router(state).unwrap();
-        let body = json!({
-            "query": "librs",
-            "candidates": ["src/main.rs", "src/lib.rs", "README.md"]
-        });
-        let res = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/search")
-                    .header("content-type", "application/json")
-                    .body(Body::from(body.to_string()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-
-        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let parsed: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(parsed["hits"][0]["value"], "src/lib.rs");
     }
 
     #[tokio::test]

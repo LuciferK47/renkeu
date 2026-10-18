@@ -341,6 +341,22 @@ describe('QuickOpen', () => {
     expect(onopen).toHaveBeenCalledWith('chapters/intro2.tex')
   })
 
+  it('Enter pressed before the answer to what was typed arrives opens that answer, not the stale list', async () => {
+    let answer
+    api.searchWorkspace.mockResolvedValueOnce(hits('recent.tex', 'refs.bib')).mockImplementationOnce(() => new Promise((r) => (answer = r)))
+    const onopen = vi.fn()
+    render(QuickOpen, { props: { recent: ['recent.tex'], onopen } })
+    await screen.findByText('refs.bib')
+
+    await fireEvent.input(screen.getByLabelText('Search files'), { target: { value: 'refs' } })
+    await waitFor(() => expect(api.searchWorkspace).toHaveBeenCalledTimes(2))
+    await fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter' })
+    expect(onopen).not.toHaveBeenCalled() // the visible top entry is still recent.tex
+
+    answer(hits('refs.bib'))
+    await waitFor(() => expect(onopen).toHaveBeenCalledWith('refs.bib'))
+  })
+
   it('says so when nothing matches, shows a failure, and Escape closes', async () => {
     const onclose = vi.fn()
     api.searchWorkspace.mockResolvedValueOnce(hits()).mockRejectedValueOnce(new Error('server down'))

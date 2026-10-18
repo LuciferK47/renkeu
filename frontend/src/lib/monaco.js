@@ -35,7 +35,7 @@ const LANGUAGE = {
   bib: 'bibtex'
 };
 
-export function languageFor(path) {
+function languageFor(path) {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   return LANGUAGE[ext] ?? 'plaintext';
 }

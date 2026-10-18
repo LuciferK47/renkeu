@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { consumeSSE } from '../src/services/_stream.js'
 import { streamCompilationStatus } from '../src/services/compileService.js'
-import { agentLoopStream } from '../src/services/aiService.js'
+import { aiService } from '../src/services/aiService.js'
+const { agentLoopStream } = aiService
 
 /** A Response whose body yields `chunks` then ends, like a real fetch stream. */
 function sseResponse(chunks, ok = true) {

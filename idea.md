@@ -1,6 +1,8 @@
 # The Autonomous LaTeX Engine — Idea Doc
 
-> Source of truth for completing the LaTeX-AI codebase. Keep this doc minimal. Every line should drive a concrete engineering decision.
+> **Historical.** This is the founding idea doc, written before the Rust rewrite. It is kept for the reasoning behind the project's goals, but it is no longer a plan or a description: `masterplan.md` §0 says what exists, and §15.1 records where the build differs from the plan.
+>
+> Original intent: the source of truth for completing the LaTeX-AI codebase; keep it minimal; every line should drive a concrete engineering decision.
 
 > **Governing law:** `CONTEXT.md` (repo root, loaded by opencode.json). Its four pillars — Modularity, Completeness, Auditability, Intentionality — are binding on every line below. Any conflict between this doc and `CONTEXT.md` resolves in favor of `CONTEXT.md`; refactor this doc, not the constraints.
 

@@ -1,28 +1,18 @@
 /**
- * Compile Service — start a compile job and follow it over SSE.
+ * Compile Service — follow a compile job over SSE.
  * Maps to crates/latex_ai_server/src/routes/compile.rs.
  */
 
-import { api, APIError } from '../lib/api/client.js';
+import { api } from '../lib/api/client.js';
 import { consumeSSE } from './_stream.js';
 
-/** -> { job_id, status } */
-export async function startCompilation(filePath, signal) {
-  try {
-    return await api.compile(filePath, signal);
-  } catch (err) {
-    if (err instanceof APIError) throw new Error(err.message || 'Compilation failed');
-    throw err;
-  }
-}
+/** Attempts before giving up on a stream that keeps dropping. */
+const MAX_ATTACH_ATTEMPTS = 3;
 
 /**
  * Follow a compile job. `onEvent` receives { event, data } from the taxonomy:
  * progress* -> compiled -> done (or error).
  */
-/** Attempts before giving up on a stream that keeps dropping. */
-const MAX_ATTACH_ATTEMPTS = 3;
-
 export async function streamCompilationStatus(jobId, onEvent, onError, options = {}) {
   const maxAttempts = options.maxAttempts ?? MAX_ATTACH_ATTEMPTS;
   const sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
@@ -51,8 +41,4 @@ export async function streamCompilationStatus(jobId, onEvent, onError, options =
     // not hammered: 250ms, 500ms.
     await sleep(250 * 2 ** (attempt - 1));
   }
-}
-
-export function pdfPageUrl(filePath, page, dpi, buildId) {
-  return api.pdfPageUrl(filePath, page, dpi, undefined, buildId);
 }
