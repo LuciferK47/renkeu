@@ -54,28 +54,43 @@ test.describe('compiling and the PDF', () => {
     await expect(zoom).not.toHaveText(before)
   })
 
-  test('Find line flashes where the cursor line landed, and a double-click goes back to the source', async ({ page }) => {
-    await openApp(page)
-    await openFile(page, 'main.tex')
-    await compileOk(page)
+  // A short window, so the chapter text is below the fold until scrolled to.
+  test.describe('in a short window', () => {
+    test.use({ viewport: { width: 1280, height: 560 } })
 
-    // Line 4 is the sentence in the main file.
-    await page.locator('.monaco-editor .view-lines').click()
-    await page.keyboard.press('Control+Home')
-    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown')
-    await page.keyboard.press('Control+Alt+j')
-    await expect(page.locator('.hit')).toBeVisible()
+    test('Find line flashes where the cursor line landed, and a double-click goes back to the source', async ({ page }) => {
+      await openApp(page)
+      await openFile(page, 'main.tex')
+      await compileOk(page)
 
-    // Double-click the text that came from chapters/one.tex.
-    const build = (await page.locator('.slot img').first().getAttribute('src')).match(/build=([0-9a-f]+)/)[1]
-    const fwd = await (await page.request.get(`/api/synctex/forward?file=chapters/one.tex&line=2&build=${build}`)).json()
-    const r = fwd.region
-    const img = await page.locator('.slot img').first().boundingBox()
-    const zoom = Number((await page.locator('.controls .zoom').innerText()).replace('%', '')) / 100
-    const pxPerPt = (zoom * 96) / 72
-    await page.mouse.dblclick(img.x + (r.x + r.width / 2) * pxPerPt, img.y + (r.y + r.height / 2) * pxPerPt)
+      // Line 4 is the sentence in the main file.
+      await page.locator('.monaco-editor .view-lines').click()
+      await page.keyboard.press('Control+Home')
+      for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown')
+      await page.keyboard.press('Control+Alt+j')
+      await expect(page.locator('.hit')).toBeVisible()
 
-    await expect(page.getByRole('tab', { name: 'one.tex' })).toHaveAttribute('aria-selected', 'true')
-    await expect(page.locator('.status-bar')).toContainText('Ln 2')
+      // Double-click the text that came from chapters/one.tex.
+      const build = (await page.locator('.slot img').first().getAttribute('src')).match(/build=([0-9a-f]+)/)[1]
+      const fwd = await (await page.request.get(`/api/synctex/forward?file=chapters/one.tex&line=2&build=${build}`)).json()
+      const r = fwd.region
+      const zoom = Number((await page.locator('.controls .zoom').innerText()).replace('%', '')) / 100
+      const pxPerPt = (zoom * 96) / 72
+
+      // Bring the target into the visible part of the pane first: where it falls
+      // depends on the window size, and a click outside the pane hits something else.
+      const scroller = page.locator('.scroller')
+      await scroller.evaluate((el, top) => (el.scrollTop = top), Math.max(0, (r.y + r.height / 2) * pxPerPt - 120))
+      const img = await page.locator('.slot img').first().boundingBox()
+      const pane = await scroller.boundingBox()
+      const x = img.x + (r.x + r.width / 2) * pxPerPt
+      const y = img.y + (r.y + r.height / 2) * pxPerPt
+      expect(y).toBeGreaterThan(pane.y)
+      expect(y).toBeLessThan(pane.y + pane.height)
+      await page.mouse.dblclick(x, y)
+
+      await expect(page.getByRole('tab', { name: 'one.tex' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.locator('.status-bar')).toContainText('Ln 2')
+    })
   })
 })
