@@ -316,6 +316,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The landing page as a stand-alone static site (no editor, no server).
+      - name: Build the public site
+        run: BASE_PATH=/Latex-AI/ npm run build:site
+
   e2e:
     name: End-to-end (browser)
     runs-on: ubuntu-latest

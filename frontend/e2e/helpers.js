@@ -14,7 +14,7 @@ export { expect }
 
 /** Open the app and wait until the file tree is there. */
 export async function openApp(page) {
-  await page.goto('/')
+  await page.goto('/#/editor')
   await page.getByRole('tree').waitFor()
 }
 

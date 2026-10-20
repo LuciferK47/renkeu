@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:site": "vite build --config vite.site.config.js",
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest",
@@ -19,7 +20,8 @@
     "monaco-editor": "^0.45.0",
     "nspell": "^2.1.5",
     "svelte": "^5.1.0",
-    "svelte-splitpanes": "^8.0.12"
+    "svelte-splitpanes": "^8.0.12",
+    "three": "0.180.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

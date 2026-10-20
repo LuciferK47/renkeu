@@ -4,6 +4,7 @@
   import { tick } from 'svelte'
   import RunTimeline from './RunTimeline.svelte'
   import ProposalReview from './ProposalReview.svelte'
+  import Bot from '../lib/Bot.svelte'
 
   let { ai, aiEnabled = true, hasFile = false, onsend = null, onsettings = () => {}, onopenfile = null } = $props()
 
@@ -60,11 +61,13 @@
   <div class="log" bind:this={log} aria-live="polite">
     {#if !aiEnabled}
       <div class="notice" role="note">
+        <Bot mood="asleep" scale={5} />
         <p>The assistant is off: it needs an API key.</p>
         <button onclick={onsettings}>Open settings</button>
       </div>
     {:else if ai.messages.length === 0}
       <div class="empty">
+        <Bot mood={ai.running ? 'working' : 'idle'} scale={4} />
         <p>Ask for a change to the open file. It tries the edits on a copy, checks they compile, then shows them for you to accept.</p>
         <ul>
           {#each SUGGESTIONS as s (s)}
@@ -110,7 +113,7 @@
   .empty, .notice { color: hsl(var(--text-dim)); font-size: 13px; }
   .empty ul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-start; }
   .chip { text-align: left; padding: 0.3rem 0.6rem; background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); border: 1px solid hsl(var(--border)); border-radius: var(--radius-s); font: inherit; cursor: pointer; }
-  .notice { padding: 0.6rem; border: 1px solid hsl(var(--border)); border-radius: var(--radius-s); }
+  .notice { display: flex; flex-direction: column; align-items: flex-start; gap: 0.4rem; padding: 0.6rem; border: 1px solid hsl(var(--border)); border-radius: var(--radius-s); }
   .notice p { margin: 0 0 0.5rem; }
   .composer { display: flex; gap: 0.5rem; align-items: flex-end; padding: 0.5rem 0.75rem; border-top: 1px solid hsl(var(--border)); }
   textarea { flex: 1; resize: none; padding: 0.4rem 0.5rem; font: inherit; font-size: 13px; background: hsl(var(--surface-0)); color: inherit; border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); }

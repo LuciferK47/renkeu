@@ -1,5 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["src/app-env-mock.js", "e2e/**/*.spec.js"],
-  "project": ["src/**/*.{js,svelte}", "e2e/**/*.{js,mjs}", "tests/**/*.js"]
+  "entry": [
+    "src/app-env-mock.js",
+    "e2e/**/*.spec.js",
+    "scripts/*.mjs"
+  ],
+  "project": [
+    "src/**/*.{js,svelte}",
+    "e2e/**/*.{js,mjs}",
+    "tests/**/*.js"
+  ]
 }

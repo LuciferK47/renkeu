@@ -231,9 +231,9 @@ describe('EditorPane', () => {
     await documents.open('a.tex')
     await waitFor(() => expect(editors).toHaveLength(1))
     ui.setTheme('dark')
-    await waitFor(() => expect(__monaco.editor.setTheme).toHaveBeenLastCalledWith('vs-dark'))
+    await waitFor(() => expect(__monaco.editor.setTheme).toHaveBeenLastCalledWith('latexai-dark'))
     ui.setTheme('light')
-    await waitFor(() => expect(__monaco.editor.setTheme).toHaveBeenLastCalledWith('vs'))
+    await waitFor(() => expect(__monaco.editor.setTheme).toHaveBeenLastCalledWith('latexai-light'))
   })
 
   it('disposes the editor when it goes away', async () => {

@@ -4,6 +4,7 @@
   // saved/unsaved state survive a switch) and restores the cursor and scroll.
   import { onMount, untrack } from 'svelte'
   import { loadMonaco } from '../lib/monaco.js'
+  import { editorThemeName } from '../lib/editorThemes.js'
   import { markersFor } from '../lib/diagnostics.js'
   import { referenceAt, definitionFor } from '../lib/latex/navigate.js'
   import { applySpellMarkers, clearSpellMarkers, isProseFile } from '../lib/latex/spellMarkers.js'
@@ -29,7 +30,7 @@
       monaco = m
       editor = m.editor.create(host, {
         model: null,
-        theme: isDark() ? 'vs-dark' : 'vs',
+        theme: editorThemeName(isDark()),
         automaticLayout: true,
         minimap: { enabled: false },
         fontSize: ui.editor.fontSize,
@@ -94,7 +95,7 @@
 
   $effect(() => {
     void ui.theme
-    monaco?.editor.setTheme(isDark() ? 'vs-dark' : 'vs')
+    monaco?.editor.setTheme(editorThemeName(isDark()))
   })
 
   // Show what the last compile found as squiggles in the files it names.

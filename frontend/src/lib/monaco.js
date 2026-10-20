@@ -2,6 +2,7 @@
 // ~MBs are parsed, plus the text-model factory the document store uses.
 
 import { registerLatex } from './latex/register.js';
+import { defineEditorThemes } from './editorThemes.js';
 
 let loading = null;
 /**
@@ -22,6 +23,7 @@ export function loadMonaco() {
     import('monaco-editor/esm/vs/editor/editor.api')
   ]).then(([, monaco]) => {
     registerLatex(monaco, () => services);
+    defineEditorThemes(monaco);
     return monaco;
   });
   return loading;

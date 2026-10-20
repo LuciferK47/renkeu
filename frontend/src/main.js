@@ -15,7 +15,7 @@ function showFatalError(err) {
 
   const title = document.createElement('h2')
   title.style.cssText = 'margin:0 0 1rem 0;color:#c33;'
-  title.textContent = 'LaTeX-AI failed to start'
+  title.textContent = 'Renkeu failed to start'
 
   // textContent, never innerHTML: the message can contain markup.
   const detail = document.createElement('pre')

@@ -1,4 +1,4 @@
-# LaTeX-AI configuration. Copy to ~/.latex-ai/config.toml (or $LATEX_AI_HOME).
+# Renkeu configuration. Copy to ~/.latex-ai/config.toml (or $LATEX_AI_HOME).
 # Precedence: built-in defaults < this file < environment variables.
 # Unknown keys are rejected at startup.
 #

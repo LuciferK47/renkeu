@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# LaTeX-AI server. Single-binary Rust daemon; Tectonic is the only heavy
+# Renkeu server. Single-binary Rust daemon; Tectonic is the only heavy
 # external asset (fetched to ~/.cache/Tectonic at first compile).
 #
 # This image is the daemon alone. The SPA is served by Vite in development and

@@ -1,6 +1,6 @@
-# LaTeX-AI Frontend
+# Renkeu Frontend
 
-Svelte 5 + Vite SPA for the LaTeX-AI engine: Monaco editor, server-rendered PDF
+Svelte 5 + Vite SPA for the Renkeu: Monaco editor, server-rendered PDF
 preview, streaming AI agent loop, and per-hunk diff review.
 
 The backend is the Rust `latex-ai` daemon in this repo — see the root

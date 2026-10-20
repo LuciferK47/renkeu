@@ -4,7 +4,7 @@
 # render a page. Passing proves the package carries a working libpdfium and that
 # the app can run its own compile worker. Needs a display (use xvfb-run in CI).
 #
-#   scripts/smoke-desktop.sh path/to/Latex-AI_0.1.0_amd64.deb
+#   scripts/smoke-desktop.sh path/to/Renkeu_0.1.0_amd64.deb
 set -euo pipefail
 
 DEB="${1:?usage: smoke-desktop.sh PACKAGE.deb}"
@@ -21,8 +21,8 @@ dpkg-deb -x "$DEB" "$work/root"
 printf '\\documentclass{article}\n\\begin{document}\nSmoke test.\n\\end{document}\n' > "$work/ws/main.tex"
 
 # The library must be in the package, where the shell looks for it.
-bundled="$work/root/usr/lib/Latex-AI/pdfium/libpdfium.so"
-[ -f "$bundled" ] || { echo "FAIL: the package has no usr/lib/Latex-AI/pdfium/libpdfium.so"; exit 1; }
+bundled="$work/root/usr/lib/Renkeu/pdfium/libpdfium.so"
+[ -f "$bundled" ] || { echo "FAIL: the package has no usr/lib/Renkeu/pdfium/libpdfium.so"; exit 1; }
 
 # Start the app from the package, with nothing that could supply pdfium.
 cd "$work/ws"

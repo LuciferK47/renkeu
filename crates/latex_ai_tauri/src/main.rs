@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("LaTeX-AI")
+            .title("Renkeu")
             .inner_size(1200.0, 800.0)
             .initialization_script(format!(
                 "globalThis.__LATEX_AI_API__ = {};",

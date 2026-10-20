@@ -8,6 +8,8 @@
   import { PaperState } from '../lib/state/paper.svelte.js'
   import { readPref, writePref } from '../lib/storage.js'
   import RegionLayer from './RegionLayer.svelte'
+  import Crab from '../lib/Crab.svelte'
+  import PixelIcon from '../lib/PixelIcon.svelte'
 
   let {
     compile,
@@ -229,11 +231,11 @@
     <button onclick={() => step(-1)} disabled={!ready} aria-label="Zoom out">−</button>
     <span class="zoom" aria-live="polite">{Math.round(zoom * 100)}%</span>
     <button onclick={() => step(1)} disabled={!ready} aria-label="Zoom in">+</button>
-    <button onclick={fitWidth} disabled={!ready}>Fit width</button>
+    <button onclick={fitWidth} disabled={!ready} aria-label="Fit width" title="Fit width"><PixelIcon name="fit" size={13} /><span class="lbl">Fit width</span></button>
 
     <span class="spacer"></span>
     {#if onlocate}
-      <button onclick={onlocate} disabled={!ready} title="Show the line the cursor is on (Ctrl+Alt+J)">Find line</button>
+      <button onclick={onlocate} disabled={!ready} aria-label="Find line" title="Show the line the cursor is on (Ctrl+Alt+J)"><PixelIcon name="target" size={13} /><span class="lbl">Find line</span></button>
     {/if}
     {#if dark && ready}
       <button
@@ -245,14 +247,15 @@
         onkeydown={(e) => (e.key === ' ' || e.key === 'Enter') && paper.startReveal()}
         onkeyup={paper.endReveal}
         title="Hold to see the page in its true colours"
+        aria-label="True colours"
         aria-pressed={paper.revealing}
-      >True colours</button>
+      ><PixelIcon name="sun" size={13} /><span class="lbl">True colours</span></button>
     {/if}
-    <button class:on={visualFix} onclick={() => (visualFix = !visualFix)} disabled={!ready} title="Draw a box over the page to ask for a fix">
-      {visualFix ? 'Close visual fix' : 'Visual fix'}
+    <button class:on={visualFix} onclick={() => (visualFix = !visualFix)} disabled={!ready} aria-label={visualFix ? 'Close visual fix' : 'Visual fix'} title="Draw a box over the page to ask for a fix">
+      <PixelIcon name="select" size={13} /><span class="lbl">{visualFix ? 'Close visual fix' : 'Visual fix'}</span>
     </button>
     {#if compile.buildId && compile.pageCount > 0}
-      <a class="export" href={api.exportPdfUrl(compile.buildId)} download>Export PDF</a>
+      <a class="export" href={api.exportPdfUrl(compile.buildId)} download aria-label="Export PDF" title="Export PDF"><PixelIcon name="download" size={13} /><span class="lbl">Export PDF</span></a>
     {/if}
   </div>
 
@@ -312,12 +315,16 @@
   {:else}
     <div class="empty">
       {#if compile.compiling}
+        <Crab pose="wait" scale={6} walking />
         <p>Compiling…</p>
       {:else if compile.status === 'error'}
+        <Crab pose="error" scale={6} />
         <p>The last compile failed, so there is no PDF.</p>
         <p class="hint">See Problems below.</p>
       {:else}
+        <Crab pose="idle" scale={6} />
         <p>No PDF yet</p>
+        <p class="hint mono">% compile to see your document</p>
         <button class="primary" onclick={oncompile} disabled={!sourcePath}>Compile</button>
       {/if}
     </div>
@@ -325,9 +332,10 @@
 </section>
 
 <style>
-  .pdf-pane { display: flex; flex-direction: column; height: 100%; min-width: 0; background: hsl(var(--surface-2)); }
-  .controls { display: flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--surface-1)); flex-wrap: wrap; font-size: 12px; }
-  .controls button, .export { padding: 0.15rem 0.5rem; background: none; border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); color: hsl(var(--foreground)); font: inherit; cursor: pointer; text-decoration: none; }
+  .pdf-pane { display: flex; flex-direction: column; height: 100%; min-width: 0; background: hsl(var(--surface-2)); container-type: inline-size; }
+  .controls { display: flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--surface-1)); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; white-space: nowrap; font-size: 12px; }
+  .controls > * { flex: none; }
+  .controls button, .export { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; background: none; border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); color: hsl(var(--foreground)); font: inherit; cursor: pointer; text-decoration: none; }
   .controls button:disabled { opacity: 0.4; cursor: default; }
   .controls button.on { background: hsl(var(--accent)); }
   .page { display: flex; align-items: center; gap: 0.25rem; }
@@ -335,6 +343,9 @@
   .zoom { min-width: 2.8rem; text-align: center; }
   .sep { width: 1px; align-self: stretch; background: hsl(var(--border)); margin: 0 0.25rem; }
   .spacer { flex: 1; }
+  /* Everything on one row: below this width the text labels give way to icons
+   * (the buttons keep their names for screen readers and tooltips). */
+  @container (max-width: 600px) { .lbl { display: none; } }
   .bar { height: 2px; background: hsl(var(--border)); }
   .fill { height: 100%; background: hsl(var(--primary)); transition: width 0.2s; }
   .scroller { flex: 1; overflow: auto; padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 1rem; }
@@ -344,9 +355,10 @@
   .fixbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.5rem; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--surface-1)); font-size: 12px; }
   .fixbar input { flex: 1; min-width: 0; padding: 0.2rem 0.4rem; background: hsl(var(--surface-0)); border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); color: inherit; font: inherit; }
   .bad { color: hsl(var(--err)); }
-  .hit { position: absolute; pointer-events: none; border-radius: 2px; background: hsl(var(--primary) / 0.28); outline: 2px solid hsl(var(--primary)); animation: flash 3s ease-out forwards; }
+  .hit { position: absolute; pointer-events: none; border-radius: 2px; background: hsl(var(--locate) / 0.28); outline: 2px solid hsl(var(--locate)); animation: flash 3s ease-out forwards; }
   @keyframes flash { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
-  .empty { flex: 1; display: grid; place-content: center; text-align: center; color: hsl(var(--text-dim)); gap: 0.5rem; }
+  .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: hsl(var(--text-dim)); gap: 0.5rem; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
   .hint { font-size: 12px; color: hsl(var(--text-faint)); }
   .primary { padding: 0.35rem 1rem; background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); border: none; border-radius: var(--radius-xs); cursor: pointer; }
   .primary:disabled { opacity: 0.4; }

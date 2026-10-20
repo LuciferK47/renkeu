@@ -9,6 +9,7 @@
   import { isDesktop, pickProject } from './lib/desktop.js'
   import { api } from './lib/api/client.js'
   import { readPref, writePref } from './lib/storage.js'
+  import { RouteState } from './lib/state/route.svelte.js'
 
   import Toolbar from './components/Toolbar.svelte'
   import ProjectTree from './components/ProjectTree.svelte'
@@ -43,6 +44,17 @@
   /** Conflicts the user chose to decide later. */
   let deferred = $state(new Set())
 
+  const route = new RouteState({ desktop: isDesktop() })
+  // Three.js lives in the landing chunk only; the editor never pays for it.
+  const landing = () => import('./landing/Landing.svelte')
+
+  $effect(() => {
+    const onHashChange = () => route.syncFromHash(window.location.hash)
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  })
+
+  const hasProblems = $derived(compile.errors.length + compile.warnings.length > 0)
   const conflicted = $derived(documents.docs.find((d) => d.conflict && !deferred.has(d.path)) ?? null)
 
   // ---- actions -------------------------------------------------------
@@ -197,32 +209,33 @@
   // ---- commands ------------------------------------------------------
 
   function registerCommands() {
-    const hasDoc = () => !!documents.active
+    const isEditor = () => route.view === 'editor'
+    const hasDoc = () => isEditor() && !!documents.active
     const defs = [
       { id: 'save', title: 'Save file', keys: 'Mod+S', enabled: hasDoc, run: () => documents.save(documents.active.path) },
       { id: 'compile', title: 'Compile', keys: 'Mod+Enter', enabled: () => hasDoc() && !compile.compiling, run: compileNow },
-      { id: 'stop-compile', title: 'Stop compiling', enabled: () => compile.compiling, run: () => compile.cancel() },
-      { id: 'quick-open', title: 'Open file…', keys: 'Mod+P', run: () => ui.openDialog('opener') },
-      { id: 'command-menu', title: 'Show all commands', keys: 'F1', run: () => ui.openDialog('commands') },
-      { id: 'palette', title: 'Ask the AI…', keys: 'Mod+K', run: () => ui.openDialog('palette') },
-      { id: 'toggle-sidebar', title: 'Toggle file tree', keys: 'Mod+B', run: () => ui.toggle('sidebar') },
-      { id: 'toggle-chat', title: 'Toggle assistant', keys: 'Mod+Shift+L', run: () => ui.toggle('chat') },
-      { id: 'toggle-problems', title: 'Toggle problems panel', keys: 'Mod+J', run: () => ui.toggle('problems') },
+      { id: 'stop-compile', title: 'Stop compiling', enabled: () => isEditor() && compile.compiling, run: () => compile.cancel() },
+      { id: 'quick-open', title: 'Open file…', keys: 'Mod+P', enabled: isEditor, run: () => ui.openDialog('opener') },
+      { id: 'command-menu', title: 'Show all commands', keys: 'F1', enabled: isEditor, run: () => ui.openDialog('commands') },
+      { id: 'palette', title: 'Ask the AI…', keys: 'Mod+K', enabled: isEditor, run: () => ui.openDialog('palette') },
+      { id: 'toggle-sidebar', title: 'Toggle file tree', keys: 'Mod+B', enabled: isEditor, run: () => ui.toggle('sidebar') },
+      { id: 'toggle-chat', title: 'Toggle assistant', keys: 'Mod+Shift+L', enabled: isEditor, run: () => ui.toggle('chat') },
+      { id: 'toggle-problems', title: 'Toggle problems panel', keys: 'Mod+J', enabled: isEditor, run: () => ui.toggle('problems') },
       {
         id: 'next-problem',
         title: 'Go to first problem',
         keys: 'F8',
-        enabled: () => compile.errors.some((e) => e.file),
+        enabled: () => isEditor() && compile.errors.some((e) => e.file),
         run: () => revealProblem(compile.errors.find((e) => e.file))
       },
       { id: 'close-tab', title: 'Close tab', keys: 'Alt+W', enabled: hasDoc, run: () => closeTab(documents.active.path) },
-      { id: 'history', title: 'Show history', keys: 'Alt+H', run: openHistory },
-      { id: 'settings', title: 'Settings', keys: 'Mod+,', run: openSettings },
-      { id: 'open-project', title: 'Open project folder…', enabled: isDesktop, run: openProject },
+      { id: 'history', title: 'Show history', keys: 'Alt+H', enabled: isEditor, run: openHistory },
+      { id: 'settings', title: 'Settings', keys: 'Mod+,', enabled: isEditor, run: openSettings },
+      { id: 'open-project', title: 'Open project folder…', enabled: () => isEditor() && isDesktop(), run: openProject },
       { id: 'forward-search', title: 'Show this line in the PDF', keys: 'Mod+Alt+J', enabled: hasDoc, run: showInPdf },
       { id: 'go-to-definition', title: 'Go to definition', keys: 'F12', enabled: hasDoc, run: () => editorPane?.followReference() },
-      { id: 'toggle-spellcheck', title: 'Toggle spell check', run: () => ui.toggle('spellcheck') },
-      { id: 'refresh-files', title: 'Refresh file list', run: () => project.refresh() },
+      { id: 'toggle-spellcheck', title: 'Toggle spell check', enabled: isEditor, run: () => ui.toggle('spellcheck') },
+      { id: 'refresh-files', title: 'Refresh file list', enabled: isEditor, run: () => project.refresh() },
       { id: 'focus-editor', title: 'Focus editor', enabled: hasDoc, run: () => editorPane?.focus() }
     ]
     return defs.map((d) => commands.register(d))
@@ -288,20 +301,26 @@
   })
 </script>
 
-<div class="app" role="application" aria-label="LaTeX-AI">
-  <Toolbar
-    {ui}
-    {documents}
-    {compile}
-    {project}
-    {commands}
-    oncompile={compileNow}
-    oncancel={() => compile.cancel()}
-    onsettings={openSettings}
-    onhistory={openHistory}
-    onpalette={() => ui.openDialog('palette')}
-    onopenproject={isDesktop() ? openProject : null}
-  />
+{#if route.view === 'landing'}
+  {#await landing() then { default: Landing }}
+    <Landing {ui} onopenapp={() => route.openEditor()} />
+  {/await}
+{:else}
+  <div class="app" role="application" aria-label="Renkeu">
+    <Toolbar
+      {ui}
+      {documents}
+      {compile}
+      {project}
+      {commands}
+      onhome={() => route.openLanding()}
+      oncompile={compileNow}
+      oncancel={() => compile.cancel()}
+      onsettings={openSettings}
+      onhistory={openHistory}
+      onpalette={() => ui.openDialog('palette')}
+      onopenproject={isDesktop() ? openProject : null}
+    />
 
   <div class="workspace">
     <Splitpanes horizontal class="vertical-stack">
@@ -357,9 +376,12 @@
         </Splitpanes>
       </Pane>
       {#if ui.problems}
-        <Pane size={22} minSize={6} maxSize={60}>
-          <ProblemsPanel {compile} onreveal={revealProblem} onclose={() => ui.toggle('problems')} />
-        </Pane>
+        <!-- A thin strip while there is nothing to read; it opens up when there is. -->
+        {#key hasProblems}
+          <Pane size={hasProblems ? 22 : 9} minSize={4} maxSize={60}>
+            <ProblemsPanel {compile} onreveal={revealProblem} onclose={() => ui.toggle('problems')} />
+          </Pane>
+        {/key}
       {/if}
     </Splitpanes>
   </div>
@@ -407,6 +429,7 @@
     <SettingsDialog {ui} {documents} {commands} {paper} onclose={() => ui.closeDialog()} onchange={loadConfig} />
   {/if}
 </div>
+{/if}
 
 <style>
   :global(html, body, #app) { height: 100%; margin: 0; }

@@ -5,7 +5,7 @@ import svelte from 'eslint-plugin-svelte';
 import globals from 'globals';
 
 export default [
-  { ignores: ['dist/', 'node_modules/'] },
+  { ignores: ['dist/', 'dist-site/', 'node_modules/'] },
   js.configs.recommended,
   ...svelte.configs['flat/recommended'],
   {

@@ -1,4 +1,7 @@
-# LaTeX-AI
+# Renkeu
+
+> Renkeu was called LaTeX-AI. The product name changed; the crates, the `latex-ai`
+> command, `LATEX_AI_*` settings and `~/.latex-ai` keep their names for now.
 
 A writing app for LaTeX documents that **fixes its own mistakes using AI**, and
 runs **entirely on your own computer**.
@@ -18,7 +21,7 @@ the kind of typesetting you see in research papers and textbooks. It looks
 great, but it's finicky: one wrong symbol and the whole thing refuses to build,
 usually with an error message only a robot could love.
 
-LaTeX-AI is an editor that takes the pain out of that:
+Renkeu is an editor that takes the pain out of that:
 
 - it turns your LaTeX into a PDF;
 - when the build breaks, an **AI reads the error, edits your source, and tries
@@ -176,6 +179,34 @@ source .env
 ```sh
 cd frontend && npm ci && npm run dev   # :5173, proxies /api to :3000
 ```
+
+A first visit opens the **landing page** (`#/landing`); "Open editor" goes to
+the editor (`#/editor`), and the app remembers that you have been there. The
+desktop app always opens the editor.
+
+#### The landing page
+
+The page is a pixel-art 3D tower ("Night Foundry") that the visitor scrolls
+down floor by floor: street, repair loop, workspace, engine bench, vault, dock.
+All the words are ordinary page content (`src/landing/copy.js`, checked by a
+test against what the code does); the scene is a backdrop.
+
+- **How it is drawn:** three.js renders procedural voxels into a small target,
+  magnifies it without smoothing, and dithers the colours (`src/landing/scene/`).
+  The characters (the courier crab, the repair bot) come from the same pixel
+  maps as the editor's 2D sprites (`src/lib/sprites/`).
+- **Fallbacks:** with no WebGL, reduced motion or data saver, it shows still
+  frames of each floor (`public/landing/poster-*.jpg`) instead. `?poster`
+  forces that, `?tier=lite` forces the light version. A pause button stops the
+  animation.
+- **Two states:** if a Renkeu server answers, the main button is "Open
+  editor" and an engine chip shows the delay; if not (a public copy), it is
+  "Get Renkeu".
+- **The public copy:** `BASE_PATH=/Latex-AI/ npm run build:site` builds only the
+  landing page into `frontend/dist-site/`, for any static host.
+- **Regenerating the pictures:** with the dev server (and, for the editor shot,
+  a `latex-ai serve` in a project folder) running,
+  `node scripts/capture-landing.mjs http://127.0.0.1:5173 --editor`.
 
 ### Desktop app
 
