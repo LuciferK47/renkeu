@@ -221,7 +221,7 @@ function workspaceRoom() {
 
   // Hazel works the editor: she types, and points at the page for Find line.
   const hazel = createCrewMember('hazel', { scale: 0.8 });
-  hazel.root.position.set(3.4, y0 + 0.05, 1.3);
+  hazel.root.position.set(3.6, y0 + 1.6, 0.7); // on the desk top, not in front of it
   g.add(hazel.root);
 
   let tab = 'project';
