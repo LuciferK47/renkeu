@@ -49,6 +49,7 @@ fn job(p: &Project, main: &str, timeout_secs: u64) -> CompileJob {
         root: p.root.clone(),
         main: main.to_owned(),
         synctex: true,
+        bundle: None,
         timeout: Duration::from_secs(timeout_secs),
     }
 }

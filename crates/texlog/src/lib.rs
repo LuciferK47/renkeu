@@ -18,6 +18,10 @@
 //! it is never done inside a diagnostic's own paragraph, and a drifted stack
 //! costs at worst a wrong file name, never a wrong message.
 
+#![doc = include_str!("../README.md")]
+#![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -674,5 +678,38 @@ mod tests {
             Some("chapters/a.tex:2: Undefined control sequence.")
         );
         assert_eq!(summarize(&[]), None);
+    }
+
+    #[test]
+    #[allow(clippy::pedantic)]
+    fn mutated_logs_never_panic() {
+        let seed = fixture("undefined_cs.log");
+        let bytes = seed.as_bytes();
+        let mut state = 99u64;
+        let mut next = move || {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 33) as usize
+        };
+        for _ in 0..1500 {
+            let mut b = bytes.to_vec();
+            for _ in 0..(1 + next() % 10) {
+                if b.is_empty() {
+                    break;
+                }
+                let at = next() % b.len();
+                match next() % 3 {
+                    0 => b[at] = b"()!\n lbl{}%"[next() % 11],
+                    1 => {
+                        b.remove(at);
+                    }
+                    _ => b.truncate(at.max(1)),
+                }
+            }
+            let text = String::from_utf8_lossy(&b);
+            let _ = parse_tex_log(&text, &|n| Some(n.to_owned()));
+            let _ = parse_bibtex_log(&text);
+        }
     }
 }

@@ -169,6 +169,7 @@ async fn compile_fixture(app: &TestApp, source: &str) -> latex_ai_compiler::buil
                 root: app.root.clone(),
                 main: "main.tex".to_owned(),
                 synctex: true,
+                bundle: None,
                 timeout: std::time::Duration::from_secs(120),
             },
             &CancellationToken::new(),

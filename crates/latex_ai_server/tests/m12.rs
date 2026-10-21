@@ -200,6 +200,7 @@ async fn a_builds_log_is_served_as_text_and_bad_ids_are_refused() {
                 root: a.root.clone(),
                 main: "main.tex".to_owned(),
                 synctex: true,
+                bundle: None,
                 timeout: std::time::Duration::from_secs(120),
             },
             &tokio_util::sync::CancellationToken::new(),

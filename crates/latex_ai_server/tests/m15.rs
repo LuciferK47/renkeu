@@ -55,6 +55,7 @@ async fn app() -> App {
                 root: root.clone(),
                 main: "main.tex".to_owned(),
                 synctex: true,
+                bundle: None,
                 timeout: std::time::Duration::from_secs(120),
             },
             &CancellationToken::new(),

@@ -11,7 +11,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod builds;
-pub mod diagnostics;
+/// Structured diagnostics now live in the `texlog` crate; re-exported here so
+/// existing paths keep working.
+pub use texlog as diagnostics;
 mod engine;
 pub mod project;
 pub mod scratchpad;
@@ -88,6 +90,8 @@ pub struct CompileJob {
     /// Main file, project-relative.
     pub main: String,
     pub synctex: bool,
+    /// Where to load the TeX bundle from (a URL or a local path); `None` = Tectonic's default.
+    pub bundle: Option<String>,
     pub timeout: Duration,
 }
 
@@ -236,6 +240,7 @@ impl Compiler {
             root: job.root.clone(),
             main: job.main.clone(),
             synctex: job.synctex,
+            bundle: job.bundle.clone(),
             out_dir: scratch.to_owned(),
             hidden,
         };

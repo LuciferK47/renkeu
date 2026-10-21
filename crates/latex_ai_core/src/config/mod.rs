@@ -55,11 +55,19 @@ pub struct CompileConfig {
     /// picture). The first compile after install also downloads the TeX
     /// bundle, so keep this generous.
     pub timeout_secs: u64,
+    /// Where the TeX bundle comes from: an `https://` URL (`.tar` index
+    /// bundle or `.ttb`) or an absolute path to a `.ttb`, `.zip` or
+    /// directory. Absent = Tectonic's built-in default (currently TeX Live
+    /// 2022). Lets users pick a newer or an offline bundle.
+    pub bundle: Option<String>,
 }
 
 impl Default for CompileConfig {
     fn default() -> Self {
-        Self { timeout_secs: 60 }
+        Self {
+            timeout_secs: 60,
+            bundle: None,
+        }
     }
 }
 
@@ -106,7 +114,24 @@ impl Config {
                 reason: "must be between 5 and 600".to_owned(),
             });
         }
+        if let Some(b) = &self.compile.bundle {
+            validate_bundle(b)?;
+        }
         Ok(())
+    }
+}
+
+fn validate_bundle(value: &str) -> Result<(), ConfigError> {
+    let location_ok = value.starts_with("https://")
+        || value.starts_with("http://")
+        || std::path::Path::new(value).is_absolute();
+    if value.len() <= 1000 && !value.chars().any(char::is_control) && location_ok {
+        Ok(())
+    } else {
+        Err(ConfigError::Invalid {
+            field: "compile.bundle",
+            reason: "must be an http(s) URL or an absolute path".to_owned(),
+        })
     }
 }
 
@@ -442,5 +467,18 @@ mod tests {
         let example = include_str!("../../../../config.example.toml");
         let parsed: Config = toml::from_str(example).unwrap();
         assert_eq!(parsed, Config::default());
+    }
+
+    #[test]
+    fn a_bundle_must_be_a_url_or_an_absolute_path() {
+        let mut c = Config::default();
+        c.compile.bundle = Some("https://example.org/tl.ttb".to_owned());
+        assert!(c.validate().is_ok());
+        c.compile.bundle = Some("/data/texlive2025.ttb".to_owned());
+        assert!(c.validate().is_ok());
+        for bad in ["texlive.ttb", "ftp://x/y.ttb", "/a\nb", ""] {
+            c.compile.bundle = Some(bad.to_owned());
+            assert!(c.validate().is_err(), "{bad:?} should be rejected");
+        }
     }
 }

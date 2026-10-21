@@ -21,6 +21,7 @@ async fn sample_tex_compiles_to_pdf() {
                 root: examples,
                 main: "sample.tex".to_owned(),
                 synctex: false,
+                bundle: None,
                 timeout: std::time::Duration::from_secs(120),
             },
             &CancellationToken::new(),

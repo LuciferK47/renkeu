@@ -37,6 +37,9 @@ pub struct WorkerRequest {
     pub out_dir: PathBuf,
     /// Files (relative to `root`) the engine must not be able to read.
     pub hidden: Vec<PathBuf>,
+    /// Bundle location override (see `CompileJob::bundle`).
+    #[serde(default)]
+    pub bundle: Option<String>,
 }
 
 // Independent facts on the wire (which artefacts exist), not a state machine.

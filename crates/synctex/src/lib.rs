@@ -13,6 +13,7 @@
 //! renders from — and [`SyncTexData`] converts. The factor is
 //! `65536 sp/pt × 72.27 pt/inch ÷ 72 bp/inch`; a document's 1-inch margin
 //! shows up as `4736287 sp`, which is exactly 72 bp, confirming it.
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 

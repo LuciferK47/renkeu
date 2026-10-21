@@ -1,0 +1,18 @@
+[package]
+name = "texlog"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Structured diagnostics (errors, warnings, boxes) parsed from TeX and BibTeX logs"
+keywords = ["latex", "tex", "log", "diagnostics", "parser"]
+categories = ["parser-implementations", "text-processing"]
+
+[dependencies]
+regex = "1.12.4"
+serde = { workspace = true }
+
+[lints]
+workspace = true

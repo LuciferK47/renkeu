@@ -160,6 +160,7 @@ async fn run_compile_job(
         root: state.workspace_root.clone(),
         main: main.clone(),
         synctex: true,
+        bundle: state.settings.snapshot().config.compile.bundle.clone(),
         timeout: Duration::from_secs(state.settings.snapshot().config.compile.timeout_secs),
     };
 

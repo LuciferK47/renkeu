@@ -19,3 +19,7 @@ timeout_secs = 120
 # running after this is killed. The very first compile also downloads the TeX
 # bundle, so keep it generous.
 timeout_secs = 60
+# Where the TeX bundle comes from: an https URL (a .tar or .ttb bundle) or an
+# absolute path to a .ttb / .zip / directory. Left out, Tectonic's built-in
+# default is used (TeX Live 2022). Point it at a newer or an offline bundle.
+# bundle = "/home/me/texlive2025.ttb"

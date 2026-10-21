@@ -305,6 +305,7 @@ pub(crate) async fn run_loop(
             root: scratch.root().to_path_buf(),
             main: main.clone(),
             synctex: false,
+            bundle: state.settings.snapshot().config.compile.bundle.clone(),
             timeout: Duration::from_secs(state.settings.snapshot().config.compile.timeout_secs),
         };
         match state.compiler.compile_scratch(&job, &cancel).await {

@@ -47,6 +47,21 @@ fn failed(error: String) -> WorkerResult {
     }
 }
 
+/// The configured bundle if there is one, else Tectonic's default.
+fn open_bundle(
+    config: &tectonic::config::PersistentConfig,
+    custom: Option<&str>,
+) -> Result<Box<dyn tectonic_bundles::Bundle>, String> {
+    let Some(source) = custom else {
+        return config.default_bundle(false).map_err(|e| e.to_string());
+    };
+    match tectonic_bundles::detect_bundle(source.to_owned(), false, None) {
+        Ok(Some(bundle)) => Ok(bundle),
+        Ok(None) => Err(format!("`{source}` is not a bundle Tectonic recognises")),
+        Err(e) => Err(format!("`{source}`: {e}")),
+    }
+}
+
 pub(crate) fn run(req: &WorkerRequest) -> WorkerResult {
     let mut status = Collect::default();
 
@@ -63,7 +78,7 @@ pub(crate) fn run(req: &WorkerRequest) -> WorkerResult {
         Ok(c) => c,
         Err(e) => return failed(format!("opening the Tectonic config: {e}")),
     };
-    let bundle = match config.default_bundle(false) {
+    let bundle = match open_bundle(&config, req.bundle.as_deref()) {
         Ok(b) => b,
         Err(e) => return failed(format!("loading the resource bundle: {e}")),
     };

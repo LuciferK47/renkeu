@@ -168,6 +168,7 @@ async fn compile(file: &std::path::Path, out: &std::path::Path) -> anyhow::Resul
                 root,
                 main,
                 synctex: false,
+                bundle: None,
                 timeout: std::time::Duration::from_secs(120),
             },
             &CancellationToken::new(),

@@ -316,7 +316,7 @@ PER-HUNK ACCEPT:
 
 ### 4.1 `crates/compiler` — Tectonic wrapper + queue + cache + scratchpad
 
-> **Superseded (§0, §15.1 M10).** The compiler is now `worker.rs` (the killable child process), `engine.rs`, `diagnostics.rs` (structured errors from the TeX log), `project.rs` (main-file detection, fingerprint) and `builds.rs` (content-addressed build store). There is no global mutex, queue or in-process engine cache; the code below is the original sketch.
+> **Superseded (§0, §15.1 M10).** The compiler is now `worker.rs` (the killable child process), `engine.rs`, `diagnostics.rs` (structured errors from the TeX log; since M18 these live in the `texlog` crate and are re-exported as `latex_ai_compiler::diagnostics`), `project.rs` (main-file detection, fingerprint) and `builds.rs` (content-addressed build store). There is no global mutex, queue or in-process engine cache; the code below is the original sketch.
 
 Why: Tectonic instances are not thread-safe; `OnceLock<tokio::sync::Mutex<()>>` serializes. The queue's `Semaphore::new(1)` mirrors this. `ScratchPad` writes per-session working tree at `~/.latex-ai/scratch/<session_id>/`.
 
