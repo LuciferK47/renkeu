@@ -126,8 +126,12 @@ impl PlanRequest<'_> {
 const SHORT_FILE_LINES: usize = 200;
 /// Lines shown before and after a focus line: a paragraph ends on its line
 /// and began some lines above it.
-const FOCUS_BEFORE: usize = 30;
-const FOCUS_AFTER: usize = 5;
+const FOCUS_BEFORE: usize = 15;
+const FOCUS_AFTER: usize = 2;
+/// Windows are taken in the order the focus lines are given (most important
+/// first) until this many bytes are shown, so a file of very long lines does
+/// not turn into the whole file again. The first window is always shown.
+const FOCUS_BUDGET_BYTES: usize = 7_000;
 
 /// `content` with a right-aligned line number and ` | ` before every line,
 /// cut off (with a note) after [`MAX_FILE_BYTES`]. With `focus` lines and a
@@ -162,20 +166,27 @@ fn number_lines(content: &str, focus: &[u32]) -> String {
 /// Windows of `lines` around the 1-based `focus` lines, numbered as in the
 /// whole file, with a note where lines were left out.
 fn number_windows(lines: &[&str], focus: &[u32]) -> String {
-    let mut spans: Vec<(usize, usize)> = focus
-        .iter()
-        .filter(|f| **f >= 1)
-        .map(|f| {
-            let at = *f as usize;
-            (
-                at.saturating_sub(FOCUS_BEFORE).max(1),
-                (at + FOCUS_AFTER).min(lines.len()),
-            )
-        })
-        .collect();
-    spans.sort_unstable();
+    let mut chosen: Vec<(usize, usize)> = Vec::new();
+    let mut bytes = 0;
+    for f in focus.iter().filter(|f| **f >= 1) {
+        let at = *f as usize;
+        let span = (
+            at.saturating_sub(FOCUS_BEFORE).max(1),
+            (at + FOCUS_AFTER).min(lines.len()),
+        );
+        if span.0 > span.1 {
+            continue;
+        }
+        let size: usize = lines[span.0 - 1..span.1].iter().map(|l| l.len() + 1).sum();
+        if !chosen.is_empty() && bytes + size > FOCUS_BUDGET_BYTES {
+            continue;
+        }
+        bytes += size;
+        chosen.push(span);
+    }
+    chosen.sort_unstable();
     let mut merged: Vec<(usize, usize)> = Vec::new();
-    for (from, to) in spans {
+    for (from, to) in chosen {
         match merged.last_mut() {
             Some(last) if from <= last.1 + 1 => last.1 = last.1.max(to),
             _ => merged.push((from, to)),
@@ -643,23 +654,50 @@ mod tests {
         }
         .render_prompt();
         assert!(
-            prompt.contains("[... lines 1-69 are not shown ...]"),
+            prompt.contains("[... lines 1-84 are not shown ...]"),
             "{prompt}"
         );
         assert!(
-            prompt.contains(" 70 | line 70\n"),
+            prompt.contains(" 85 | line 85\n"),
             "line numbers stay those of the whole file"
         );
-        // 100 and 110 overlap into one window: 70..=115.
+        // 100 and 110 overlap into one window: 85..=112.
         assert!(
-            prompt.contains("115 | line 115\n")
-                && prompt.contains("[... lines 116-269 are not shown ...]")
+            prompt.contains("112 | line 112\n")
+                && prompt.contains("[... lines 113-284 are not shown ...]")
         );
         assert!(
-            prompt.contains("305 | line 305\n")
-                && prompt.contains("[... lines 306-400 are not shown ...]")
+            prompt.contains("302 | line 302\n")
+                && prompt.contains("[... lines 303-400 are not shown ...]")
         );
         assert!(!prompt.contains("| line 200\n"));
+    }
+
+    #[test]
+    fn windows_stop_at_a_byte_budget_so_very_long_lines_do_not_bring_back_the_whole_file() {
+        let text: String = (1..=300)
+            .map(|n| format!("{n} {}\n", "word ".repeat(100)))
+            .collect();
+        let focus: Vec<u32> = (1..=10).map(|i| i * 28).collect();
+        let files = [PlanFile {
+            path: "main.tex",
+            content: &text,
+            focus: &focus,
+        }];
+        let shown = PlanRequest {
+            instruction: "x",
+            files: &files,
+            other_files: &[],
+            feedback: "",
+        }
+        .render_prompt();
+        // 10 windows of 18 lines of 500 bytes would be 90 KB; the budget keeps it near 7 KB
+        // (the first window is always shown, later ones only while they fit).
+        assert!(shown.len() < 20_000, "{}", shown.len());
+        assert!(
+            shown.contains("| 28 word") || shown.contains(" 28 | 28 word"),
+            "the most important window is there"
+        );
     }
 
     #[test]

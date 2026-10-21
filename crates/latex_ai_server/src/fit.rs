@@ -119,8 +119,17 @@ pub(crate) fn feedback(report: &LayoutReport, limit: u32) -> String {
             "\nParagraphs whose last line holds only a word or two (the line number is the paragraph's last source line). \
 Cutting a few words from one saves a whole line:",
         );
-        for p in report.short_last_lines.iter().take(MAX_CANDIDATES) {
-            let _ = write!(out, "\n- {}", spot(p));
+        // Several short lines of one paragraph are recorded under the same
+        // source line; the planner needs each paragraph once.
+        let mut seen: Vec<(&str, u32)> = Vec::new();
+        for p in &report.short_last_lines {
+            if seen.len() == MAX_CANDIDATES {
+                break;
+            }
+            if !seen.contains(&(p.file.as_str(), p.line)) {
+                seen.push((p.file.as_str(), p.line));
+                let _ = write!(out, "\n- {}", spot(p));
+            }
         }
     }
     out
@@ -258,6 +267,19 @@ mod tests {
             ..body()
         };
         assert_eq!(geometry_drift(&base, &now), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_paragraph_recorded_on_several_short_lines_is_listed_once() {
+        let text = feedback(
+            &report(
+                None,
+                vec![place(4, 149), place(4, 149), place(4, 140), place(4, 149)],
+            ),
+            8,
+        );
+        assert_eq!(text.matches("main.tex:149").count(), 1, "{text}");
+        assert_eq!(text.matches("main.tex:140").count(), 1, "{text}");
     }
 
     #[test]

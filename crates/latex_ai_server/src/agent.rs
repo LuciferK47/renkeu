@@ -179,11 +179,14 @@ fn blamed_files(report: &LayoutReport) -> Vec<String> {
 /// ending in a very short line.
 fn focus_lines_of(report: &LayoutReport) -> Vec<(String, u32)> {
     let first = report.budget.as_ref().and_then(|b| b.first_over.as_ref());
-    first
-        .into_iter()
-        .chain(report.short_last_lines.iter().take(FOCUS_CANDIDATES))
-        .map(|p| (p.file.clone(), p.line))
-        .collect()
+    let mut out: Vec<(String, u32)> = Vec::new();
+    for p in first.into_iter().chain(&report.short_last_lines) {
+        let at = (p.file.clone(), p.line);
+        if !out.contains(&at) && out.len() <= FOCUS_CANDIDATES {
+            out.push(at);
+        }
+    }
+    out
 }
 
 /// What the working copy lost compared with the user's files, if anything.
