@@ -36,3 +36,9 @@ export function resetWorkspace() {
 export const read = (name) => fs.readFileSync(path.join(WORKSPACE, name), 'utf8')
 export const exists = (name) => fs.existsSync(path.join(WORKSPACE, name))
 export const write = (name, text) => fs.writeFileSync(path.join(WORKSPACE, name), text)
+
+/** Remove everything, so the project is empty (the state a template starts from). */
+export function emptyWorkspace() {
+  fs.mkdirSync(WORKSPACE, { recursive: true })
+  for (const entry of fs.readdirSync(WORKSPACE)) fs.rmSync(path.join(WORKSPACE, entry), { recursive: true, force: true })
+}

@@ -1,7 +1,20 @@
 <script>
   // Bottom bar: what the app is doing, whether the open file is saved, and
   // where the cursor is. Reads state; owns none.
+  import { countWords } from '../lib/latex/words.js'
+
   let { status = '', doc = null, compile = null, cursor = null } = $props()
+
+  // Reading `cursor` makes this follow typing: the cursor moves with every edit.
+  const words = $derived.by(() => {
+    void cursor
+    return doc && /\.(tex|sty|cls)$/.test(doc.path) ? countWords(doc.text) : null
+  })
+  const built = $derived.by(() => {
+    if (!compile || compile.status !== 'success') return ''
+    const secs = compile.lastDurationMs === null ? '' : ` in ${(compile.lastDurationMs / 1000).toFixed(1)} s`
+    return `${compile.pageCount} page${compile.pageCount === 1 ? '' : 's'}${secs}`
+  })
 
   const save = $derived.by(() => {
     if (!doc) return ''
@@ -18,7 +31,9 @@
   {#if compile?.compiling}
     <span class="chip warn">Compiling {compile.progress ? `${compile.progress}%` : '…'}</span>
   {/if}
+  {#if built}<span class="chip" title="The last compile">{built}</span>{/if}
   <span class="spacer"></span>
+  {#if words !== null}<span class="chip" title="Estimated words in this file">{words} words</span>{/if}
   {#if cursor}<span class="chip">Ln {cursor.line}, Col {cursor.column}</span>{/if}
   {#if doc}<span class="chip {saveTone}">{save}</span>{/if}
 </div>

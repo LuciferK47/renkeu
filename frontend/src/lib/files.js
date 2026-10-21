@@ -127,3 +127,13 @@ export class FileOps {
 export function isImage(path) {
   return /\.(png|jpe?g|gif|svg)$/i.test(path);
 }
+
+/** The group a file belongs to in the "By type" view of the project tree. */
+export function fileGroup(path) {
+  if (/\.(tex|sty|cls|tikz)$/i.test(path)) return 'Documents';
+  if (/\.bib$/i.test(path)) return 'Bibliography';
+  if (isImage(path) || /\.pdf$/i.test(path)) return 'Figures';
+  return 'Other';
+}
+
+export const FILE_GROUPS = ['Documents', 'Bibliography', 'Figures', 'Other'];

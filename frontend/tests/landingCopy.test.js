@@ -12,13 +12,14 @@ describe('landing copy tells the truth', () => {
 
   it('does not claim features that are not built', () => {
     const shipped = JSON.stringify({ ...copy.capabilities, planned: undefined, loop: copy.loop, hero: copy.hero }).toLowerCase();
-    expect(shipped).not.toContain('compile on save');
-    expect(shipped).not.toContain('project search');
     expect(shipped).not.toContain('collaborat');
+    expect(shipped).not.toContain('8-bit');
+    expect(shipped).not.toContain('page limit');
+    expect(shipped).not.toContain('mcp');
   });
 
   it('lists the planned features as planned', () => {
-    expect(copy.capabilities.planned.items.join(' ').toLowerCase()).toContain('compile on save');
+    expect(copy.capabilities.planned.items.join(' ').toLowerCase()).toContain('8-bit');
   });
 
   it('states the real attempt limit and the real data boundary', () => {

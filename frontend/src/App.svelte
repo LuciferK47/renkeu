@@ -26,6 +26,9 @@
   import ConflictDialog from './components/ConflictDialog.svelte'
   import CommandMenu from './components/CommandMenu.svelte'
   import QuickOpen from './components/QuickOpen.svelte'
+  import TemplateDialog from './components/TemplateDialog.svelte'
+  import SearchDialog from './components/SearchDialog.svelte'
+  import { findBlock } from './lib/templates.js'
 
   const OPEN_KEY = 'latex-ai:open-files'
   const RECENT_KEY = 'latex-ai:recent-files'
@@ -35,6 +38,15 @@
   const lastSession = readPref(OPEN_KEY, { paths: [], active: null })
 
   const ops = new FileOps({ documents, project, ui })
+
+  // Compile after a save, once the saves settle (autosave of several files
+  // costs one compile). Only LaTeX sources count: saving a note does not.
+  let saveTimer = null
+  documents.onsaved = (path) => {
+    if (!ui.compileOnSave || !/\.(tex|bib|sty|cls|tikz)$/i.test(path)) return
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(compileNow, 800)
+  }
 
   let editorPane = $state()
   let pdfPane = $state()
@@ -55,6 +67,8 @@
   })
 
   const hasProblems = $derived(compile.errors.length + compile.warnings.length > 0)
+  /** Files the last compile reported errors in, for the tree's markers. */
+  const errorFiles = $derived(new Set(compile.errors.map((e) => e.file).filter(Boolean)))
   const conflicted = $derived(documents.docs.find((d) => d.conflict && !deferred.has(d.path)) ?? null)
 
   // ---- actions -------------------------------------------------------
@@ -193,6 +207,42 @@
     }
   }
 
+  // ---- templates -----------------------------------------------------
+
+  /** What the "Document details" form starts from; null when the open file has no block. */
+  let details = $state(null)
+
+  function openDetails() {
+    const doc = documents.active
+    const found = doc && findBlock(doc.text)
+    if (!found) {
+      ui.toast('This file was not made from a Renkeu template, so there are no details to edit.', 'info')
+      return
+    }
+    details = { template: found.template, fields: found.fields }
+    ui.openDialog('details')
+  }
+
+  function applyDetails(block) {
+    const doc = documents.active
+    const found = doc && findBlock(doc.text)
+    if (!found) {
+      ui.toast('The title block is gone from this file.', 'error')
+    } else {
+      documents.replaceRange(doc.path, found.start, found.end, block)
+      ui.toast('Details updated. Undo restores the old block.', 'success')
+    }
+    ui.closeDialog()
+  }
+
+  async function templateCreated(main) {
+    ui.closeDialog()
+    await project.refresh()
+    await openFile(main)
+    ui.toast('Project created. Compiling…', 'success')
+    compileNow()
+  }
+
   const openSettings = () => ui.openDialog('settings')
   const openHistory = () => ui.openDialog('history')
 
@@ -231,9 +281,13 @@
       { id: 'close-tab', title: 'Close tab', keys: 'Alt+W', enabled: hasDoc, run: () => closeTab(documents.active.path) },
       { id: 'history', title: 'Show history', keys: 'Alt+H', enabled: isEditor, run: openHistory },
       { id: 'settings', title: 'Settings', keys: 'Mod+,', enabled: isEditor, run: openSettings },
+      { id: 'new-from-template', title: 'New project from a template…', enabled: isEditor, run: () => ui.openDialog('templates') },
+      { id: 'document-details', title: 'Document details (title, authors, abstract)…', enabled: hasDoc, run: openDetails },
       { id: 'open-project', title: 'Open project folder…', enabled: () => isEditor() && isDesktop(), run: openProject },
       { id: 'forward-search', title: 'Show this line in the PDF', keys: 'Mod+Alt+J', enabled: hasDoc, run: showInPdf },
       { id: 'go-to-definition', title: 'Go to definition', keys: 'F12', enabled: hasDoc, run: () => editorPane?.followReference() },
+      { id: 'search-project', title: 'Find in project…', keys: 'Mod+Shift+F', enabled: isEditor, run: () => ui.openDialog('search') },
+      { id: 'toggle-compile-on-save', title: 'Toggle compile after save', enabled: isEditor, run: () => ui.toggle('compileOnSave') },
       { id: 'toggle-spellcheck', title: 'Toggle spell check', enabled: isEditor, run: () => ui.toggle('spellcheck') },
       { id: 'refresh-files', title: 'Refresh file list', enabled: isEditor, run: () => project.refresh() },
       { id: 'focus-editor', title: 'Focus editor', enabled: hasDoc, run: () => editorPane?.focus() }
@@ -329,7 +383,7 @@
           {#if ui.sidebar}
             <Pane size={ui.sizes.sidebar} minSize={8} maxSize={40}>
               <div class="sidebar">
-                <ProjectTree {project} {documents} {ops} onopen={openFile} onrefresh={() => project.refresh()} />
+                <ProjectTree {project} {documents} {ops} view={ui.treeView} onview={(v) => ui.setTreeView(v)} mainFile={compile.mainFile} {errorFiles} onopen={openFile} onrefresh={() => project.refresh()} />
                 <OutlinePanel {documents} onreveal={(line) => editorPane?.reveal(line)} />
               </div>
             </Pane>
@@ -345,6 +399,7 @@
               index={latexIndex}
               onfollow={followReference}
               onclosetab={closeTab}
+              onnew={() => ui.openDialog('templates')}
               oncursor={(c) => (cursor = c)}
             />
           </Pane>
@@ -415,6 +470,26 @@
       onclose={() => ui.closeDialog()}
       onopen={(path) => (ui.closeDialog(), openFile(path))}
     />
+  {/if}
+
+  {#if ui.dialog === 'search'}
+    <SearchDialog
+      onclose={() => ui.closeDialog()}
+      onopen={({ file, line }) => (ui.closeDialog(), revealProblem({ file, line }))}
+      onreplaced={(done) => {
+        documents.checkExternalChanges()
+        project.refresh()
+        ui.toast(`Replaced ${done.total} match${done.total === 1 ? '' : 'es'} in ${done.changed.length} file${done.changed.length === 1 ? '' : 's'}.`, 'success')
+      }}
+    />
+  {/if}
+
+  {#if ui.dialog === 'templates'}
+    <TemplateDialog oncreated={templateCreated} onclose={() => ui.closeDialog()} />
+  {/if}
+
+  {#if ui.dialog === 'details' && details}
+    <TemplateDialog mode="details" initial={details} onapply={applyDetails} onclose={() => ui.closeDialog()} />
   {/if}
 
   {#if ui.dialog === 'history'}

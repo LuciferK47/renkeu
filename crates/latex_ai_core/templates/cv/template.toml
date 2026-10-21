@@ -1,0 +1,8 @@
+name = "CV / resume"
+category = "Other"
+description = "A clean one-page CV with the usual sections."
+fields = ["authors"]
+author_item = '''{\LARGE\bfseries {{name}}}\\[2pt] {{affiliation}}\\ {{email}}'''
+author_sep = '''
+
+'''

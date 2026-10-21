@@ -86,8 +86,8 @@ export const capabilities = {
   eyebrow: 'What it does',
   title: 'Six tools. All of them run beside your files.',
   items: [
-    { id: 'files', title: 'Multi-file projects', body: 'File tree, tabs, autosave, upload, rename, delete, and a main document of your choosing.' },
-    { id: 'edit', title: 'LaTeX-aware editing', body: 'Completion for citations, labels and packages; an outline; spell check; go to definition on \\ref, \\cite and \\input.' },
+    { id: 'files', title: 'Multi-file projects', body: 'File tree you can group by type, tabs, autosave, upload, rename, delete, a main document of your choosing, and 13 starter templates (article, IEEE, ACM, thesis, slides, CV and more).' },
+    { id: 'edit', title: 'LaTeX-aware editing', body: 'Completion for citations, labels and packages; an outline; spell check; go to definition on \\ref, \\cite and \\input; find and replace across the project; optional compile after each save.' },
     { id: 'sync', title: 'SyncTeX both ways', body: 'From a source line to its place on the page, and from a click on the page back to the source.' },
     { id: 'ai', title: 'Review-gated AI repair', body: 'Tries fixes on a copy, checks that the document compiles, then lets you apply them change by change.' },
     { id: 'visual', title: 'Visual fix', body: 'Draw a box on the PDF and say what is wrong. Reading the picture needs a vision-capable model; without one it works from the source.' },
@@ -95,7 +95,7 @@ export const capabilities = {
   ],
   planned: {
     label: 'Planned, not built yet',
-    items: ['Project search and replace', 'Compile on save', 'Sidebar grouped by file type', 'An 8-bit editor theme']
+    items: ['An 8-bit editor theme']
   }
 };
 

@@ -4,9 +4,19 @@
   // the Menu key) opens file actions; files can be dropped in to upload.
   import NamePrompt from './NamePrompt.svelte'
   import ImagePreview from './ImagePreview.svelte'
-  import { isImage } from '../lib/files.js'
+  import { isImage, fileGroup, FILE_GROUPS } from '../lib/files.js'
 
-  let { project, documents, ops = null, onopen = () => {}, onrefresh = () => {} } = $props()
+  let {
+    project,
+    documents,
+    ops = null,
+    view = 'folders',
+    mainFile = null,
+    errorFiles = new Set(),
+    onview = () => {},
+    onopen = () => {},
+    onrefresh = () => {}
+  } = $props()
 
   /** { x, y, node } while the context menu is open; node null = the root. */
   let menu = $state(null)
@@ -16,12 +26,24 @@
   let dropTarget = $state(null)
   let picker = $state()
 
-  // Flatten to the rows that are visible given what is expanded.
+  // Flatten to the rows that are visible given what is expanded, or, in the
+  // "By type" view, to the files grouped under Documents, Bibliography, ….
   const rows = $derived.by(() => {
+    if (view === 'type') {
+      const byGroup = new Map(FILE_GROUPS.map((g) => [g, []]))
+      for (const file of project.files()) byGroup.get(fileGroup(file.path)).push(file)
+      const grouped = []
+      for (const [group, files] of byGroup) {
+        if (files.length === 0) continue
+        grouped.push({ group, key: `group:${group}` })
+        for (const node of files.sort((a, b) => a.path.localeCompare(b.path))) grouped.push({ node, depth: 0, key: node.path })
+      }
+      return grouped
+    }
     const out = []
     const walk = (nodes, depth) => {
       for (const node of nodes) {
-        out.push({ node, depth })
+        out.push({ node, depth, key: node.path })
         if (node.kind === 'dir' && project.expanded.has(node.path)) walk(node.children ?? [], depth + 1)
       }
     }
@@ -111,6 +133,7 @@
   <header>
     <span>Files</span>
     <span class="tools">
+      <button onclick={() => onview(view === 'type' ? 'folders' : 'type')} aria-pressed={view === 'type'} aria-label="Group files by type" title={view === 'type' ? 'Show folders' : 'Group by type'}>☷</button>
       {#if ops}
         <button onclick={() => startCreate(null)} aria-label="New file" title="New file">＋</button>
         <button onclick={() => { menu = null; picker?.click() }} aria-label="Upload files" title="Upload files">⇪</button>
@@ -129,7 +152,12 @@
   {/if}
 
   <ul role="tree">
-    {#each rows as { node, depth } (node.path)}
+    {#each rows as row (row.key)}
+      {#if row.group}
+        <li role="presentation" class="group">{row.group}</li>
+      {:else}
+      {@const node = row.node}
+      {@const depth = row.depth}
       <li role="none">
         <button
           class="row"
@@ -152,11 +180,13 @@
           <span class="glyph" aria-hidden="true">
             {node.kind === 'dir' ? (project.expanded.has(node.path) ? '▾' : '▸') : ''}
           </span>
-          <span class="name">{node.name}</span>
-          {#if node.path === project.mainOverride}<span class="badge" title="Main document">main</span>{/if}
+          <span class="name">{node.name}{#if view === 'type' && node.path.includes('/')}<span class="dir"> {parentOf(node.path)}</span>{/if}</span>
+          {#if node.path === (project.mainOverride ?? mainFile)}<span class="badge" title="Main document">main</span>{/if}
+          {#if errorFiles.has(node.path)}<span class="err" role="img" aria-label="has errors" title="Has errors">●</span>{/if}
           {#if documents.get(node.path)?.dirty}<span class="dot" aria-label="unsaved">●</span>{/if}
         </button>
       </li>
+      {/if}
     {/each}
   </ul>
 </nav>
@@ -215,6 +245,10 @@
   .glyph { width: 0.9rem; color: hsl(var(--text-faint)); flex-shrink: 0; }
   .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .badge { margin-left: auto; font-size: 10px; padding: 0 0.35rem; border: 1px solid hsl(var(--border)); border-radius: var(--radius-pill); color: hsl(var(--text-dim)); }
+  .group { padding: 0.5rem 0.75rem 0.15rem; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: hsl(var(--text-faint)); }
+  .dir { color: hsl(var(--text-faint)); font-size: 11px; }
+  .err { margin-left: auto; color: hsl(var(--err)); font-size: 9px; }
+  .tools button[aria-pressed='true'] { color: hsl(var(--primary)); }
   .dot { margin-left: auto; color: hsl(var(--warn)); font-size: 9px; }
   .note { padding: 0.5rem 0.75rem; color: hsl(var(--text-dim)); }
   .note.bad { color: hsl(var(--err)); }

@@ -1,0 +1,6 @@
+name = "Lab report"
+category = "Longer documents"
+description = "A structured lab report: objective, apparatus, procedure, results, discussion."
+fields = ["title", "authors", "abstract", "date"]
+author_item = '''{{name}}\\ {{affiliation}}'''
+author_sep = ''' \and '''

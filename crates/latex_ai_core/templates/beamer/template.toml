@@ -1,0 +1,6 @@
+name = "Presentation"
+category = "Other"
+description = "Slides with a title frame and a few content frames (beamer)."
+fields = ["title", "authors", "date"]
+author_item = '''{{name}}'''
+author_sep = ''' \and '''

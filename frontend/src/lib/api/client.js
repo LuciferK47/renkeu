@@ -139,6 +139,30 @@ export class APIClient {
     return this.request('GET', '/project');
   }
 
+  // Starter templates: the gallery, a new project from one (empty projects
+  // only, 409 otherwise), and the front-matter block for a set of values.
+  getTemplates() {
+    return this.request('GET', '/templates');
+  }
+
+  startFromTemplate(template, fields) {
+    return this.request('POST', '/project/template', { body: { template, fields } });
+  }
+
+  renderFrontmatter(template, fields) {
+    return this.request('POST', '/templates/frontmatter', { body: { template, fields } });
+  }
+
+  // Find and replace across the project's text files. Replace writes through
+  // the store, so every change is in the history.
+  searchProject(body) {
+    return this.request('POST', '/project/search', { body });
+  }
+
+  replaceProject(body) {
+    return this.request('POST', '/project/replace', { body });
+  }
+
   setMain(main) {
     return this.request('PUT', '/project', { body: { main } });
   }

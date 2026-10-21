@@ -54,6 +54,8 @@ export class DocumentStore {
   docs = $state([]);
   activePath = $state(null);
   autosave = $state(true);
+  /** Called with `(path, { auto })` after each save the server accepted. */
+  onsaved = null;
 
   #models;
   #pauseMs;
@@ -134,6 +136,29 @@ export class DocumentStore {
       const next = this.docs[Math.min(index, this.docs.length - 1)];
       this.activePath = next?.path ?? null;
     }
+    return true;
+  }
+
+  /**
+   * Replace `[start, end)` (character offsets) in an open document as the
+   * user would type it: one undo step, and the document turns dirty and
+   * autosaves like any edit. Returns false when the file is not open.
+   */
+  replaceRange(path, start, end, text) {
+    const doc = this.get(path);
+    if (!doc) return false;
+    const a = doc.model.getPositionAt(start);
+    const b = doc.model.getPositionAt(end);
+    doc.model.pushEditOperations(
+      [],
+      [
+        {
+          range: { startLineNumber: a.lineNumber, startColumn: a.column, endLineNumber: b.lineNumber, endColumn: b.column },
+          text
+        }
+      ],
+      () => null
+    );
     return true;
   }
 
@@ -246,6 +271,7 @@ export class DocumentStore {
       const saved = await api.saveFile(doc.path, text, doc.etag, { autosave: auto });
       doc.etag = saved.etag;
       doc.savedVersion = version;
+      this.onsaved?.(doc.path, { auto });
       doc.error = null;
       // Typing during the request leaves the document dirty, and the change
       // listener has already scheduled its autosave.

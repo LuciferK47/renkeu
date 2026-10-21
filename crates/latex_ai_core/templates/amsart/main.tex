@@ -1,0 +1,37 @@
+\documentclass[11pt]{amsart}
+\usepackage{amsmath,amssymb,amsthm}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+
+% renkeu:frontmatter begin
+\title{{{title}}}
+\author{{{authors}}}
+\address{{{affiliations}}}
+\date{{{date}}}
+\begin{document}
+\begin{abstract}
+{{abstract}}
+\end{abstract}
+\keywords{{{keywords}}}
+\maketitle
+% renkeu:frontmatter end
+
+\section{Introduction}
+\begin{definition}
+A \emph{group} is a set with an associative operation, an identity and inverses.
+\end{definition}
+
+\begin{theorem}\label{thm:main}
+Replace this statement with your theorem, citing \cite{lamport1994} if you like.
+\end{theorem}
+\begin{proof}
+Replace this proof.
+\end{proof}
+
+\bibliographystyle{amsplain}
+\bibliography{refs}
+
+\end{document}

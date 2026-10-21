@@ -218,6 +218,17 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
             "/api/project",
             get(routes::manage::get_project).put(routes::manage::put_project),
         )
+        .route("/api/project/search", post(routes::search::search))
+        .route("/api/project/replace", post(routes::search::replace))
+        .route("/api/templates", get(routes::templates::list_templates))
+        .route(
+            "/api/templates/frontmatter",
+            post(routes::templates::render_frontmatter),
+        )
+        .route(
+            "/api/project/template",
+            post(routes::templates::start_from_template),
+        )
         .route("/api/compile", post(routes::compile::compile))
         .route(
             "/api/compile/{id}/cancel",

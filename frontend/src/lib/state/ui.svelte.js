@@ -10,6 +10,8 @@ const DEFAULTS = {
   chat: true,
   problems: true,
   spellcheck: true,
+  compileOnSave: false,
+  treeView: 'folders',
   theme: 'auto',
   editor: { fontSize: 14, wordWrap: true, tabSize: 4 },
   /** Pane sizes in percent, as the splitter reports them. */
@@ -31,6 +33,10 @@ export class UiState {
   chat = $state(DEFAULTS.chat);
   problems = $state(DEFAULTS.problems);
   spellcheck = $state(DEFAULTS.spellcheck);
+  /** Compile after a save (the debounce lives in App). */
+  compileOnSave = $state(DEFAULTS.compileOnSave);
+  /** File tree layout: 'folders' or 'type'. */
+  treeView = $state(DEFAULTS.treeView);
   theme = $state(DEFAULTS.theme);
   /** Editor look and feel. */
   editor = $state({ ...DEFAULTS.editor });
@@ -46,10 +52,11 @@ export class UiState {
 
   constructor() {
     const saved = readPref(PREFS, {});
-    for (const key of ['sidebar', 'chat', 'problems', 'spellcheck']) {
+    for (const key of ['sidebar', 'chat', 'problems', 'spellcheck', 'compileOnSave']) {
       if (typeof saved[key] === 'boolean') this[key] = saved[key];
     }
     if (['light', 'dark', 'auto'].includes(saved.theme)) this.theme = saved.theme;
+    if (['folders', 'type'].includes(saved.treeView)) this.treeView = saved.treeView;
     if (saved.editor) this.editor = cleanEditor({ ...DEFAULTS.editor, ...saved.editor });
     if (saved.sizes && Object.values(saved.sizes).every((n) => Number.isFinite(n))) {
       this.sizes = { ...this.sizes, ...saved.sizes };
@@ -63,6 +70,11 @@ export class UiState {
 
   toggle(pane) {
     this[pane] = !this[pane];
+    this.#persist();
+  }
+
+  setTreeView(view) {
+    this.treeView = view;
     this.#persist();
   }
 
@@ -117,6 +129,8 @@ export class UiState {
       chat: this.chat,
       problems: this.problems,
       spellcheck: this.spellcheck,
+      compileOnSave: this.compileOnSave,
+      treeView: this.treeView,
       theme: this.theme,
       editor: this.editor,
       sizes: this.sizes

@@ -131,6 +131,7 @@
         </div>
         <label class="check"><input type="checkbox" checked={ui.editor.wordWrap} onchange={(e) => ui.setEditor({ wordWrap: e.currentTarget.checked })} /> Wrap long lines</label>
         <label class="check"><input type="checkbox" checked={ui.spellcheck} onchange={() => ui.toggle('spellcheck')} /> Check spelling (English)</label>
+        <label class="check"><input type="checkbox" checked={ui.compileOnSave} onchange={() => ui.toggle('compileOnSave')} /> Compile after each save</label>
         <label class="check"><input type="checkbox" checked={documents.autosave} onchange={(e) => (documents.autosave = e.currentTarget.checked)} /> Save automatically after a pause</label>
       {:else if tab === 'assistant'}
         {#if serverError}

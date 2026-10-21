@@ -23,6 +23,9 @@ export class CompileState {
   /** Root-document candidates when the project could not pick one. */
   candidates = $state([]);
   lastCompileAt = $state(null);
+  /** How long the last finished compile took, in milliseconds. */
+  lastDurationMs = $state(null);
+  #startedAt = 0;
 
   #api;
   #stream;
@@ -53,6 +56,7 @@ export class CompileState {
     this.#queued = null;
     this.#abort = new AbortController();
     this.status = 'compiling';
+    this.#startedAt = Date.now();
     this.progress = 0;
     this.message = 'Compiling…';
     this.errors = [];
@@ -141,6 +145,7 @@ export class CompileState {
     this.warnings = [];
     this.candidates = [];
     this.lastCompileAt = null;
+    this.lastDurationMs = null;
   }
 
   #onEvent(event, data) {
@@ -153,6 +158,7 @@ export class CompileState {
       this.mainFile = data.main_file ?? this.mainFile;
       this.warnings = warnings;
       this.lastCompileAt = new Date();
+      this.lastDurationMs = Date.now() - this.#startedAt;
       if (data.success) {
         this.status = 'success';
         this.progress = 100;

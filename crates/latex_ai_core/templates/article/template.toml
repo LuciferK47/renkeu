@@ -1,0 +1,6 @@
+name = "Article"
+category = "Papers"
+description = "A plain single-column article: title, authors, abstract and keywords."
+fields = ["title", "authors", "abstract", "keywords", "date"]
+author_item = '''{{name}}\\ {{affiliation}}\\ \texttt{{{email}}}'''
+author_sep = ''' \and '''

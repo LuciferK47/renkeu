@@ -25,3 +25,5 @@ pub mod prompt_safety;
 pub mod search;
 pub mod security;
 pub mod storage;
+pub mod templates;
+pub mod textsearch;

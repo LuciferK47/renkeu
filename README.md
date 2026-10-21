@@ -36,6 +36,8 @@ Nothing leaves your machine except the snippets actually sent to the AI.
 - **Edit a whole project**, not one file: a file tree (create, rename, delete,
   drag files in), tabs that keep their own undo history, autosave, and a choice
   of main file.
+- **Start from a template:** an empty project offers 13 starters (article, IEEE, ACM, Elsevier, Springer LNCS, APS/REVTeX, AMS maths, thesis, lab report, slides, CV, homework, letter). Fill in the title, authors and abstract in a form; later, **Document details** in the command menu (F1) re-edits them without touching the rest of the file. Class and style files come from the TeX bundle; only small skeletons of our own ship in the binary.
+- **Find and replace across the project** (Ctrl+Shift+F): literal or regular expression, matches grouped by file, and a replace that writes through History so it can be undone. The file tree can group files **by type** (documents, bibliography, figures), and **compile after each save** is a setting. The status bar shows words, pages and compile time.
 - **Write LaTeX comfortably:** syntax highlighting, completion for citations,
   labels, files, packages and environments, an outline, spell check, hover and
   Ctrl+click on `\ref`, `\cite` and `\input`, and compile errors drawn on the line.
@@ -153,6 +155,11 @@ there and it takes effect immediately, no restart. It is stored in
 `~/.latex-ai/secrets.toml` (mode `0600`) and is never shown again. Model and
 timeout are saved to `~/.latex-ai/config.toml`; see
 [`config.example.toml`](config.example.toml).
+
+**TeX bundle.** Tectonic's built-in bundle is TeX Live 2022. To use a newer or an
+offline bundle, set `bundle` under `[compile]` in `config.toml` to an `https://`
+URL (a `.tar` or `.ttb` bundle) or an absolute path to a `.ttb`, `.zip` or
+directory.
 
 Or use the environment instead. Environment variables win over the files, and
 anything they set is shown as locked in the Settings dialog. For example, put
@@ -306,9 +313,10 @@ package):
 
 | Crate | What it does |
 |---|---|
-| `crates/compiler` | Compiles a project in a killable worker process (this binary, re-executed): main-file detection, project fingerprint, content-addressed build store, structured diagnostics from the TeX log |
+| `crates/compiler` | Compiles a project in a killable worker process (this binary, re-executed): main-file detection, project fingerprint, content-addressed build store, reads the TeX log through `texlog` |
 | `crates/latex_ai_core` | Use-case-agnostic services: config and secrets, AI planner, edit engine and TeX lint, storage + history, path sandbox, prompt safety, fuzzy search, metrics |
 | `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool |
+| `crates/texlog` | Structured diagnostics (errors, warnings, boxes) from TeX and BibTeX logs; pure, no I/O, publishable on its own |
 | `crates/synctex` | `.synctex(.gz)` parser, scaled-point→PDF-point conversion, backward *and* forward search |
 | `crates/visual` | pdfium page rendering and bbox cropping (one process-wide binding) |
 | `crates/latex_ai_tauri` | Desktop shell: embeds the server on an ephemeral loopback port and bundles the SPA (`.deb` / `.appimage`) |

@@ -9,7 +9,7 @@
   import { referenceAt, definitionFor } from '../lib/latex/navigate.js'
   import { applySpellMarkers, clearSpellMarkers, isProseFile } from '../lib/latex/spellMarkers.js'
 
-  let { documents, ui, commands, compile = null, spell = null, index = null, onfollow = () => {}, onclosetab = () => {}, oncursor = () => {} } = $props()
+  let { documents, ui, commands, compile = null, spell = null, index = null, onfollow = () => {}, onclosetab = () => {}, onnew = () => {}, oncursor = () => {} } = $props()
 
   let host = $state()
   let editor = $state.raw(null)
@@ -217,6 +217,7 @@
       <div class="empty">
         <p>No file open</p>
         <p class="hint">Pick one from the project tree, or press <kbd>Ctrl</kbd>+<kbd>P</kbd>.</p>
+        <p><button type="button" class="start" onclick={onnew}>Start from a template…</button></p>
       </div>
     {/if}
   </div>
@@ -237,6 +238,7 @@
   .host { position: absolute; inset: 0; }
   .host[hidden] { display: none; }
   .empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: hsl(var(--text-dim)); }
+  .start { padding: 0.4rem 0.9rem; font: inherit; color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); border: none; border-radius: var(--radius-xs); cursor: pointer; }
   .hint { font-size: 13px; color: hsl(var(--text-faint)); }
   kbd { padding: 0 0.3rem; border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); font-size: 11px; }
 </style>

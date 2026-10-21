@@ -1,0 +1,6 @@
+name = "AMS mathematics"
+category = "Papers"
+description = "Mathematics paper with theorem environments (amsart)."
+fields = ["title", "authors", "abstract", "keywords", "date"]
+author_item = '''{{name}}'''
+author_sep = ''' \and '''
