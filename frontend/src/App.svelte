@@ -539,7 +539,7 @@
         <!-- A thin strip while there is nothing to read; it opens up when there is. -->
         {#key hasProblems}
           <Pane size={hasProblems ? 22 : 9} minSize={4} maxSize={60}>
-            <ProblemsPanel {compile} onreveal={revealProblem} onclose={() => ui.toggle('problems')} />
+            <ProblemsPanel {compile} onreveal={revealProblem} onshow={(place) => pdfPane?.showHit(place)} onclose={() => ui.toggle('problems')} />
           </Pane>
         {/key}
       {/if}

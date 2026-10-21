@@ -4,6 +4,7 @@ pub mod config;
 pub mod doi;
 pub mod files;
 pub mod history;
+pub mod layout;
 pub mod manage;
 pub mod metrics;
 pub mod search;

@@ -2,8 +2,9 @@
   // Problems (errors and warnings, each a link to its source line) and the raw
   // TeX log of the build they came from.
   import { api } from '../lib/api/client.js'
+  import LayoutReport from './LayoutReport.svelte'
 
-  let { compile, onreveal = () => {}, onclose = () => {} } = $props()
+  let { compile, onreveal = () => {}, onshow = () => {}, onclose = () => {} } = $props()
 
   let tab = $state('problems')
   let log = $state({ buildId: null, text: '', loading: false, error: null })
@@ -35,6 +36,7 @@
         Problems
         {#if count > 0}<span class="count" class:bad={compile.errors.length > 0}>{count}</span>{/if}
       </button>
+      <button role="tab" aria-selected={tab === 'layout'} class:active={tab === 'layout'} onclick={() => (tab = 'layout')}>Layout</button>
       <button role="tab" aria-selected={tab === 'log'} class:active={tab === 'log'} onclick={() => (tab = 'log')}>Log</button>
     </div>
     <button class="close" aria-label="Hide problems panel" onclick={onclose}>×</button>
@@ -63,6 +65,8 @@
           <p class="note">Nothing compiled yet.</p>
         {/if}
       {/each}
+    {:else if tab === 'layout'}
+      <LayoutReport {compile} {onshow} {onreveal} />
     {:else if !compile.buildId}
       <p class="note">No build yet — compile to see the log.</p>
     {:else if log.loading}

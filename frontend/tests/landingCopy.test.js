@@ -14,7 +14,6 @@ describe('landing copy tells the truth', () => {
     const shipped = JSON.stringify({ ...copy.capabilities, planned: undefined, loop: copy.loop, hero: copy.hero }).toLowerCase();
     expect(shipped).not.toContain('collaborat');
     expect(shipped).not.toContain('8-bit');
-    expect(shipped).not.toContain('page limit');
     expect(shipped).not.toContain('mcp');
   });
 

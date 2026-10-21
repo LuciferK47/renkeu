@@ -3331,6 +3331,7 @@ dependencies = [
  "image",
  "latex-ai-compiler",
  "latex-ai-core",
+ "layout",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3366,6 +3367,15 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "layout"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "synctex",
+ "texlog",
 ]
 
 [[package]]

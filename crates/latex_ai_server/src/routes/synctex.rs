@@ -38,7 +38,7 @@ fn cache() -> &'static Mutex<Vec<CacheEntry>> {
     CACHE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-async fn load_map(build: &Build) -> Result<Arc<SyncTexData>, ApiError> {
+pub(super) async fn load_map(build: &Build) -> Result<Arc<SyncTexData>, ApiError> {
     let path = build.synctex_path();
     if !build.manifest.has_synctex || !path.exists() {
         return Err(ApiError::NotFound {

@@ -37,6 +37,7 @@ Nothing leaves your machine except the snippets actually sent to the AI and, if 
   drag files in), tabs that keep their own undo history, autosave, and a choice
   of main file.
 - **Start from a template:** an empty project offers 13 starters (article, IEEE, ACM, Elsevier, Springer LNCS, APS/REVTeX, AMS maths, thesis, lab report, slides, CV, homework, letter). Fill in the title, authors and abstract in a form; later, **Document details** in the command menu (F1) re-edits them without touching the rest of the file. Class and style files come from the TeX bundle; only small skeletons of our own ship in the binary.
+- **Check the layout** (the Layout tab beside Problems): page count, a page limit with the first line that no longer fits, overfull and underfull boxes pointing at the page, paragraphs that end in a word or two (cut those to win a line), and fonts left unembedded. It reads the build's SyncTeX map, log and PDF; no AI is involved.
 - **Insert without typing LaTeX:** figures (with width, caption and label), tables (a grid editor that takes pasted spreadsheet cells), equations (a visual maths editor), citations (from your `.bib`, or fetched by DOI into it) and cross-references. Blocks land between blank lines and add the packages they need. An "Undefined control sequence" error offers a one-click `\usepackage` fix for well-known packages.
 - **Find and replace across the project** (Ctrl+Shift+F): literal or regular expression, matches grouped by file, and a replace that writes through History so it can be undone. The file tree can group files **by type** (documents, bibliography, figures), and **compile after each save** is a setting. The status bar shows words, pages and compile time.
 - **Write LaTeX comfortably:** syntax highlighting, completion for citations,
@@ -318,6 +319,7 @@ package):
 | `crates/latex_ai_core` | Use-case-agnostic services: config and secrets, AI planner, edit engine and TeX lint, storage + history, path sandbox, prompt safety, fuzzy search, metrics |
 | `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool |
 | `crates/texlog` | Structured diagnostics (errors, warnings, boxes) from TeX and BibTeX logs; pure, no I/O, publishable on its own |
+| `crates/layout` | Layout facts for a build, with no AI: page count, how full the last page is, where a page limit is crossed, overfull and underfull boxes with their place on the page, paragraphs ending in a very short line |
 | `crates/synctex` | `.synctex(.gz)` parser, scaled-point→PDF-point conversion, backward *and* forward search |
 | `crates/visual` | pdfium page rendering and bbox cropping (one process-wide binding) |
 | `crates/latex_ai_tauri` | Desktop shell: embeds the server on an ephemeral loopback port and bundles the SPA (`.deb` / `.appimage`) |

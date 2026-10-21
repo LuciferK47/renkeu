@@ -135,6 +135,32 @@ impl PdfRenderer {
             .map_err(|_| VisualError::Pdf("page count out of range".to_owned()))
     }
 
+    /// Names of the fonts the document uses without embedding them (the
+    /// standard 14 included: a venue that wants every font embedded wants
+    /// those too). Sorted and de-duplicated.
+    ///
+    /// # Errors
+    /// [`VisualError::Pdf`] when the document cannot be loaded.
+    pub fn unembedded_fonts(self, pdf_path: &Path) -> Result<Vec<String>, VisualError> {
+        let document = self
+            .pdfium
+            .load_pdf_from_file(pdf_path, None)
+            .map_err(|e| VisualError::Pdf(e.to_string()))?;
+        let mut names = std::collections::BTreeSet::new();
+        for page in document.pages().iter() {
+            for object in page.objects().iter() {
+                if let Some(text) = object.as_text_object() {
+                    let font = text.font();
+                    // An unreadable flag counts as embedded: report only what we know.
+                    if !font.is_embedded().unwrap_or(true) {
+                        names.insert(font.name());
+                    }
+                }
+            }
+        }
+        Ok(names.into_iter().collect())
+    }
+
     /// Render `page_index` (0-based) at `dpi`.
     ///
     /// # Errors
@@ -237,6 +263,20 @@ mod tests {
             check_pixel_budget(i32::MAX, i32::MAX),
             Err(VisualError::TooLarge { .. })
         ));
+    }
+
+    /// A hand-made one-page PDF that sets text in Helvetica without embedding it.
+    const HELVETICA_PDF: &str = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 18 Tf 20 100 Td (Hello) Tj ET\nendstream\nendobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R/Size 6>>\n%%EOF\n";
+
+    #[test]
+    fn a_font_that_is_not_embedded_is_reported_by_name() {
+        let dir = std::env::temp_dir().join(format!("visual-fonts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("helvetica.pdf");
+        std::fs::write(&path, HELVETICA_PDF).unwrap();
+        let fonts = renderer().unwrap().unembedded_fonts(&path).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(fonts, vec!["Helvetica".to_owned()]);
     }
 
     /// Regression: binding twice used to fail with

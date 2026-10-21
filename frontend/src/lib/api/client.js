@@ -157,6 +157,11 @@ export class APIClient {
     return this.request('POST', '/templates/frontmatter', { body: { template, fields } });
   }
 
+  // Layout facts for a build: pages, a page budget, boxes, short last lines, fonts.
+  getLayout(build, pages) {
+    return this.request('GET', '/layout', { params: { build, pages } });
+  }
+
   // BibTeX for a DOI, fetched by the server from doi.org (the DOI is all that is sent).
   lookupDoi(doi) {
     return this.request('GET', '/doi', { params: { doi } });

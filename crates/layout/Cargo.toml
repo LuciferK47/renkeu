@@ -1,0 +1,17 @@
+[package]
+name = "layout"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Facts about a compiled LaTeX document's layout, read from its SyncTeX map and log"
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+synctex = { version = "0.1.0", path = "../synctex" }
+texlog = { version = "0.1.0", path = "../texlog" }
+
+[lints]
+workspace = true
