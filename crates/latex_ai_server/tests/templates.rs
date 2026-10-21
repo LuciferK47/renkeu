@@ -104,7 +104,9 @@ async fn every_template_compiles() {
 /// Not a test: rewrites `templates/<id>/thumbnail.png` from the real engine.
 /// Run it after changing a template, then commit the PNGs:
 ///
-///   cargo test -p latex-ai-server --test templates regenerate_thumbnails -- --ignored
+/// ```text
+/// cargo test -p latex-ai-server --test templates regenerate_thumbnails -- --ignored
+/// ```
 #[tokio::test]
 #[ignore = "writes files into the source tree"]
 async fn regenerate_thumbnails() {
