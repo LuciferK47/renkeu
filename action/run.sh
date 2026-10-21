@@ -25,6 +25,7 @@ fi
 args=("$bin" check "${INPUT_PATH:-.}" --github)
 [ -z "${INPUT_MAIN:-}" ] || args+=(--main "$INPUT_MAIN")
 [ -z "${INPUT_PAGES:-}" ] || args+=(--pages "$INPUT_PAGES")
+[ -z "${INPUT_PROFILE:-}" ] || args+=(--profile "$INPUT_PROFILE")
 [ "${INPUT_STRICT:-false}" != "true" ] || args+=(--strict)
 
 exec "${args[@]}"

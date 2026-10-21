@@ -169,6 +169,7 @@ impl Compiler {
             success: executed.success,
             has_pdf: executed.result.has_pdf,
             has_synctex: executed.result.has_synctex,
+            has_bbl: executed.result.has_bbl,
             created: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),

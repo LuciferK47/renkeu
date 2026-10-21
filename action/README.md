@@ -25,6 +25,7 @@ build or has more pages than `pages`. Nothing in your repository is changed.
 | `path` | `.` | A `.tex` file, or a folder (its main file is found). |
 | `main` | | The main file, when the folder has more than one candidate. |
 | `pages` | | Fail when the PDF has more pages than this. |
+| `profile` | | Also run a submission profile: `arxiv`, `double-blind`, `accessibility`, or a `.toml` file in your repository. |
 | `strict` | `false` | Also fail on overfull boxes and unembedded fonts. |
 | `binary` | | Path to a `latex-ai` binary. Otherwise `version` is downloaded from `repository`'s releases. |
 

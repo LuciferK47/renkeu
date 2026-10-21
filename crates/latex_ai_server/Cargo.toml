@@ -30,6 +30,7 @@ base64 = "0.22.1"
 layout = { version = "0.1.0", path = "../layout" }
 synctex = { version = "0.1.0", path = "../synctex" }
 visual = { version = "0.1.0", path = "../visual" }
+preflight = { version = "0.1.0", path = "../preflight" }
 image = "0.25.9"
 thiserror = { workspace = true }
 similar = "2.6"

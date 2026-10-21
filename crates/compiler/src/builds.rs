@@ -10,11 +10,13 @@
 //! a reader sees all of a build or none of it.
 
 use crate::diagnostics::Diagnostic;
-use crate::worker::{LOG, PDF, SYNCTEX};
+use crate::worker::{BBL, LOG, PDF, SYNCTEX};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Everything we remember about one compile. Written once, never changed.
+// Independent facts about which artefacts exist, not a state machine.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub build_id: String,
@@ -23,6 +25,9 @@ pub struct Manifest {
     pub success: bool,
     pub has_pdf: bool,
     pub has_synctex: bool,
+    /// BibTeX wrote a `.bbl`, kept as `output.bbl`.
+    #[serde(default)]
+    pub has_bbl: bool,
     /// Seconds since the Unix epoch.
     pub created: u64,
     pub diagnostics: Vec<Diagnostic>,
@@ -49,6 +54,11 @@ impl Build {
     #[must_use]
     pub fn synctex_path(&self) -> PathBuf {
         self.dir.join(SYNCTEX)
+    }
+
+    #[must_use]
+    pub fn bbl_path(&self) -> PathBuf {
+        self.dir.join(BBL)
     }
 
     #[must_use]
@@ -209,6 +219,7 @@ mod tests {
             success: has_pdf,
             has_pdf,
             has_synctex: false,
+            has_bbl: false,
             created,
             diagnostics: Vec::new(),
         }

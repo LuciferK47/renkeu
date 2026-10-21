@@ -16,6 +16,9 @@ use std::time::Duration;
 use synctex::{SyncTexData, resolve_input_name};
 use tokio_util::sync::CancellationToken;
 
+/// Preflight errors repeated in the problems list; the report has them all.
+const PREFLIGHT_PROBLEMS: usize = 10;
+
 /// Diagnostics listed in a report; the counts still cover all of them.
 const MAX_DIAGNOSTICS: usize = 50;
 
@@ -70,6 +73,8 @@ pub struct CheckReport {
     /// `None` when the PDF could not be inspected (no pdfium).
     pub fonts_not_embedded: Option<Vec<String>>,
     /// Why the check did not pass; empty when it did.
+    /// What the chosen preflight profile found, if one was asked for.
+    pub preflight: Option<preflight::Report>,
     pub problems: Vec<String>,
     pub passed: bool,
 }
@@ -182,6 +187,16 @@ impl Workbench {
     ///
     /// `strict` also fails the check on overfull boxes and unembedded fonts.
     pub async fn check(&self, pages: Option<u32>, strict: bool) -> anyhow::Result<CheckReport> {
+        self.check_with(pages, strict, None).await
+    }
+
+    /// [`Self::check`], and the preflight `profile` applied to the result.
+    pub async fn check_with(
+        &self,
+        pages: Option<u32>,
+        strict: bool,
+        profile: Option<&preflight::Profile>,
+    ) -> anyhow::Result<CheckReport> {
         let build = self.compile().await?;
         let all = &build.manifest.diagnostics;
         let errors = all.iter().filter(|d| d.severity == Severity::Error).count();
@@ -229,6 +244,29 @@ impl Workbench {
             }
         }
 
+        let preflight = match profile {
+            Some(profile) => Some(self.preflight(profile, &build).await?),
+            None => None,
+        };
+        if let Some(report) = &preflight {
+            for f in report
+                .findings
+                .iter()
+                .filter(|f| f.severity == preflight::Severity::Error)
+                .take(PREFLIGHT_PROBLEMS)
+            {
+                let at = match (&f.file, f.line) {
+                    (Some(file), Some(line)) => format!("{file}:{line}: "),
+                    (Some(file), None) => format!("{file}: "),
+                    _ => String::new(),
+                };
+                problems.push(format!(
+                    "{} (preflight {}): {at}{}",
+                    f.check, report.profile, f.message
+                ));
+            }
+        }
+
         Ok(CheckReport {
             main: self.main.clone(),
             success,
@@ -237,6 +275,7 @@ impl Workbench {
             diagnostics: all.iter().take(MAX_DIAGNOSTICS).cloned().collect(),
             layout,
             fonts_not_embedded,
+            preflight,
             passed: problems.is_empty(),
             problems,
         })
@@ -265,6 +304,24 @@ impl Workbench {
         .await
         .context("inspecting the fonts")?;
         Ok((report, fonts))
+    }
+
+    /// Apply `profile` to the project on disk and to what `build` produced.
+    pub async fn preflight(
+        &self,
+        profile: &preflight::Profile,
+        build: &Build,
+    ) -> anyhow::Result<preflight::Report> {
+        let (root, main) = (self.root.clone(), self.main.clone());
+        let project = tokio::task::spawn_blocking(move || preflight::Project::read(&root, &main))
+            .await
+            .context("reading the project")?
+            .context("reading the project")?;
+        let facts = facts_of(build).await;
+        let profile = profile.clone();
+        tokio::task::spawn_blocking(move || preflight::run(&profile, &project, &facts))
+            .await
+            .context("running the checks")
     }
 
     /// Where `file:line` landed in the PDF, best match first.
@@ -346,6 +403,28 @@ impl Workbench {
     }
 }
 
+/// What a build knows that the source does not. Anything that needs the PDF is
+/// left unknown, not guessed, when there is none or pdfium is missing.
+pub(crate) async fn facts_of(build: &Build) -> preflight::Facts {
+    let pdf = build.pdf_path();
+    let has_pdf = build.manifest.success && build.manifest.has_pdf;
+    let built_bbl = build.manifest.has_bbl;
+    tokio::task::spawn_blocking(move || {
+        let mut facts = preflight::Facts {
+            built_bbl,
+            ..preflight::Facts::default()
+        };
+        if has_pdf && let Ok(r) = visual::render::renderer() {
+            facts.pages = r.page_count(&pdf).ok().map(u32::from);
+            facts.fonts_not_embedded = r.unembedded_fonts(&pdf).ok();
+            facts.pdf_author = r.pdf_author(&pdf).ok().map(Option::unwrap_or_default);
+        }
+        facts
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// The layout of a finished build; shared with `GET /api/layout`.
 pub(crate) fn analyse_layout(
     data: &SyncTexData,
@@ -380,6 +459,46 @@ pub(crate) fn slashes(path: &Path) -> String {
 }
 
 impl CheckReport {
+    fn write_preflight_summary(&self, out: &mut String) {
+        if let Some(report) = &self.preflight {
+            let (e, w) = report
+                .findings
+                .iter()
+                .fold((0, 0), |(e, w), f| match f.severity {
+                    preflight::Severity::Error => (e + 1, w),
+                    preflight::Severity::Warning => (e, w + 1),
+                    preflight::Severity::Info => (e, w),
+                });
+            let _ = writeln!(
+                out,
+                "- Preflight, {}: {} ({e} error{}, {w} warning{})",
+                report.name,
+                if report.passed { "passed" } else { "failed" },
+                plural(e),
+                plural(w)
+            );
+        }
+    }
+
+    fn write_preflight_findings(&self, out: &mut String) {
+        if let Some(report) = &self.preflight
+            && !report.findings.is_empty()
+        {
+            let _ = write!(out, "\n### Preflight: {}\n\n", report.name);
+            if let Some(source) = &report.source {
+                let _ = writeln!(out, "Rules from {source}\n");
+            }
+            for f in &report.findings {
+                let at = match (&f.file, f.line) {
+                    (Some(file), Some(line)) => format!("`{file}:{line}` "),
+                    (Some(file), None) => format!("`{file}` "),
+                    _ => String::new(),
+                };
+                let _ = writeln!(out, "- {:?}: {at}{}", f.severity, f.message);
+            }
+        }
+    }
+
     /// The report as Markdown: readable in a terminal, and rendered as is in a
     /// GitHub job summary.
     #[must_use]
@@ -432,6 +551,7 @@ impl CheckReport {
                 layout.short_last_lines_total
             );
         }
+        self.write_preflight_summary(&mut out);
         match &self.fonts_not_embedded {
             Some(f) if f.is_empty() => {
                 let _ = writeln!(out, "- Fonts: all embedded");
@@ -444,6 +564,8 @@ impl CheckReport {
             }
             None => {}
         }
+
+        self.write_preflight_findings(&mut out);
 
         let errors: Vec<&Diagnostic> = self
             .diagnostics
@@ -540,6 +662,21 @@ impl CheckReport {
                     budget.pages, budget.limit
                 ),
             ));
+        }
+        if let Some(report) = &self.preflight {
+            for f in &report.findings {
+                let level = match f.severity {
+                    preflight::Severity::Error => "error",
+                    preflight::Severity::Warning => "warning",
+                    preflight::Severity::Info => continue,
+                };
+                let place = f.file.as_deref().zip(f.line);
+                out.push(annotation(
+                    level,
+                    place,
+                    &format!("{}: {}", f.check, f.message),
+                ));
+            }
         }
         // Problems with no line of their own, such as a failed run that left
         // no parsable error; otherwise the lines above already say it.

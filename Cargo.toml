@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/compiler",
     "crates/latex_ai_core",
-    "crates/latex_ai_server", "crates/latex_ai_tauri", "crates/layout", "crates/synctex", "crates/texlog", "crates/visual",
+    "crates/latex_ai_server", "crates/latex_ai_tauri", "crates/layout", "crates/preflight", "crates/synctex", "crates/texlog", "crates/visual",
 ]
 # synctex/visual/lsp (M3/M5) and latex_ai_tauri (M5) are created when implemented,
 # not scaffolded empty (rust.md I.15: don't open a crate until a use-case demands it).

@@ -128,6 +128,7 @@ async fn the_tools_are_listed() {
             "layout_report",
             "locate_in_pdf",
             "locate_in_source",
+            "preflight",
             "render_page"
         ]
     );

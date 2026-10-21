@@ -81,10 +81,17 @@ enum Command {
         /// the findings on the lines they are about.
         #[arg(long)]
         github: bool,
+        /// Also run a preflight profile: an id (`arxiv`, `double-blind`,
+        /// `accessibility`, or one in `<home>/profiles`) or the path to a
+        /// profile `.toml`. Fails the check on its errors.
+        #[arg(long)]
+        profile: Option<String>,
         /// TeX bundle to load: a URL or a local path. Tectonic's default when omitted.
         #[arg(long)]
         bundle: Option<String>,
     },
+    /// List the preflight profiles `check --profile` accepts.
+    Profiles,
     /// Serve the checker to an AI agent over the Model Context Protocol
     /// (stdio). Tools: compile, diagnostics, `layout_report`, `locate_in_pdf`,
     /// `locate_in_source`, `render_page`. Reads the project, never writes to it.
@@ -125,6 +132,10 @@ async fn run() -> anyhow::Result<()> {
         Command::Compile { file, out } => compile(&file, &out).await,
         Command::Healthcheck { port } => healthcheck(port).await,
         Command::Doctor => doctor(),
+        Command::Profiles => {
+            profiles();
+            Ok(())
+        }
         Command::Check {
             path,
             main,
@@ -132,6 +143,7 @@ async fn run() -> anyhow::Result<()> {
             strict,
             json,
             github,
+            profile,
             bundle,
         } => {
             let how = if json {
@@ -141,12 +153,35 @@ async fn run() -> anyhow::Result<()> {
             } else {
                 Output::Markdown
             };
-            check(&path, main.as_deref(), pages, strict, how, bundle).await
+            check(
+                &path,
+                main.as_deref(),
+                pages,
+                strict,
+                how,
+                profile.as_deref(),
+                bundle,
+            )
+            .await
         }
         Command::Mcp { path, main, bundle } => {
             let bench = latex_ai_server::check::Workbench::open(&path, main.as_deref(), bundle)?;
             tracing::info!(main = bench.main(), "MCP server ready on stdio");
             latex_ai_server::mcp::serve(bench).await
+        }
+    }
+}
+
+// The list is this command's output, not a log line.
+#[allow(clippy::print_stdout)]
+fn profiles() {
+    for p in latex_ai_server::profiles::all(Some(&latex_ai_core::config::default_home())) {
+        println!("{:<14} {} ({} rules)", p.id, p.name, p.rules.len());
+        if !p.description.is_empty() {
+            println!("{:<14} {}", "", p.description);
+        }
+        if let Some(source) = &p.source {
+            println!("{:<14} rules from {source}", "");
         }
     }
 }
@@ -175,10 +210,17 @@ async fn check(
     pages: Option<u32>,
     strict: bool,
     output: Output,
+    profile: Option<&str>,
     bundle: Option<String>,
 ) -> anyhow::Result<()> {
+    let profile = profile
+        .map(|spec| {
+            latex_ai_server::profiles::find(spec, Some(&latex_ai_core::config::default_home()))
+        })
+        .transpose()
+        .map_err(anyhow::Error::msg)?;
     let bench = latex_ai_server::check::Workbench::open(path, main, bundle)?;
-    let report = bench.check(pages, strict).await?;
+    let report = bench.check_with(pages, strict, profile.as_ref()).await?;
     match output {
         Output::Json => println!("{}", serde_json::to_string_pretty(&report)?),
         Output::Markdown => print!("{}", report.to_markdown()),

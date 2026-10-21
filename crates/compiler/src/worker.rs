@@ -23,6 +23,7 @@ pub(crate) const PDF: &str = "output.pdf";
 pub(crate) const SYNCTEX: &str = "output.synctex.gz";
 pub(crate) const LOG: &str = "output.log";
 pub(crate) const BLG: &str = "output.blg";
+pub(crate) const BBL: &str = "output.bbl";
 pub(crate) const RESULT: &str = "result.json";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -55,6 +56,9 @@ pub struct WorkerResult {
     pub has_synctex: bool,
     pub has_log: bool,
     pub has_blg: bool,
+    /// BibTeX ran and wrote a `.bbl`.
+    #[serde(default)]
+    pub has_bbl: bool,
 }
 
 /// If this process was started as a compile worker, run as one and never

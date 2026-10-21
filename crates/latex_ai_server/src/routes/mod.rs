@@ -7,6 +7,7 @@ pub mod history;
 pub mod layout;
 pub mod manage;
 pub mod metrics;
+pub mod preflight;
 pub mod search;
 pub mod synctex;
 pub mod templates;

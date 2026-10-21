@@ -21,6 +21,7 @@ pub mod error;
 pub(crate) mod fit;
 pub mod jobs;
 pub mod mcp;
+pub mod profiles;
 pub mod proposals;
 pub mod routes;
 pub(crate) mod sse;
@@ -222,6 +223,8 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
             get(routes::manage::get_project).put(routes::manage::put_project),
         )
         .route("/api/layout", get(routes::layout::layout))
+        .route("/api/preflight", get(routes::preflight::run))
+        .route("/api/preflight/profiles", get(routes::preflight::profiles))
         .route("/api/doi", get(routes::doi::lookup))
         .route("/api/project/search", post(routes::search::search))
         .route("/api/project/replace", post(routes::search::replace))

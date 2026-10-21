@@ -162,6 +162,15 @@ export class APIClient {
     return this.request('GET', '/layout', { params: { build, pages } });
   }
 
+  // Submission checks: the profiles available, and one applied to a build.
+  getPreflightProfiles() {
+    return this.request('GET', '/preflight/profiles');
+  }
+
+  getPreflight(build, profile) {
+    return this.request('GET', '/preflight', { params: { build, profile } });
+  }
+
   // BibTeX for a DOI, fetched by the server from doi.org (the DOI is all that is sent).
   lookupDoi(doi) {
     return this.request('GET', '/doi', { params: { doi } });

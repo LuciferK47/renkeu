@@ -60,8 +60,28 @@ changes your files.
 latex-ai check paper/ --pages 8
 latex-ai check paper/main.tex --json      # the same report as JSON
 latex-ai check paper/ --strict            # also fail on overfull boxes and unembedded fonts
+latex-ai check paper/ --profile arxiv     # and run a submission profile (see below)
+latex-ai profiles                         # list the profiles
 ```
 
+- **Submission profiles** (`--profile`, the **Submission** tab beside Layout, and the MCP `preflight` tool): checks before you submit, listed in plain TOML files so the code claims nothing about any venue. Shipped: `arxiv` (file names, hidden files, a `.bbl` named after the main file, unused files, `\today` in `\date`, referee mode, JavaScript; each rule restates arXiv's own submission pages, linked from the profile), `double-blind` (author names and emails, acknowledgements, "our previous work" sentences, the PDF's Author field) and `accessibility` (alt text, embedded fonts; not a tagged-PDF check). Add your own in `<home>/profiles/*.toml` or pass a file to `--profile`; a rule can be a page limit, a size limit, or any pattern that must not appear:
+
+  ```toml
+  id = "my-venue"
+  name = "My venue"
+  source = "https://example.org/instructions"
+
+  [[rule]]
+  check = "page_limit"
+  pages = 8
+
+  [[rule]]
+  check = "forbid_pattern"
+  pattern = '\\todo'
+  message = "Remove the todo notes."
+  ```
+
+  The checks read the source text, so they see what is written, not what a macro would expand to; a clean report means nothing was found, not that the venue will accept it.
 - **GitHub Action** ([`action/`](action/README.md)): runs `check` on every push,
   puts the report on the job summary and the errors on the lines they are about.
   The release it downloads by default is not published yet (see M23); until then,
@@ -77,7 +97,7 @@ latex-ai check paper/ --strict            # also fail on overfull boxes and unem
   or, in a client's JSON config,
   `{"mcpServers": {"renkeu": {"command": "latex-ai", "args": ["mcp", "/path/to/paper"]}}}`.
   Tools: `compile`, `diagnostics`, `layout_report`, `locate_in_pdf`,
-  `locate_in_source` and `render_page` (the page as an image). The server only
+  `locate_in_source`, `preflight` and `render_page` (the page as an image). The server only
   reads the project.
 
 ## The one trick worth knowing
@@ -351,6 +371,7 @@ package):
 | `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool (`serve`, `compile`, `check`, `mcp`, `doctor`) |
 | `crates/texlog` | Structured diagnostics (errors, warnings, boxes) from TeX and BibTeX logs; pure, no I/O, publishable on its own |
 | `crates/layout` | Layout facts for a build, with no AI: page count, how full the last page is, where a page limit is crossed, overfull and underfull boxes with their place on the page, paragraphs ending in a very short line |
+| `crates/preflight` | Submission checks driven by profiles that are plain TOML: file names, `.bbl`, unused files, anonymity, alt text, page limit, any forbidden pattern; reads the project and the facts a build produced |
 | `crates/synctex` | `.synctex(.gz)` parser, scaled-point→PDF-point conversion, backward *and* forward search |
 | `crates/visual` | pdfium page rendering and bbox cropping (one process-wide binding) |
 | `crates/latex_ai_tauri` | Desktop shell: embeds the server on an ephemeral loopback port and bundles the SPA (`.deb` / `.appimage`) |

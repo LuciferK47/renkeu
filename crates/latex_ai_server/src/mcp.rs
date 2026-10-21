@@ -68,6 +68,14 @@ struct PageArgs {
     dpi: Option<u16>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+struct PreflightArgs {
+    /// A profile id such as "arxiv", "double-blind" or "accessibility", or a
+    /// path to a profile .toml. Call without it to list the ids.
+    profile: Option<String>,
+}
+
 #[derive(Serialize)]
 struct CompileSummary {
     main: String,
@@ -164,6 +172,36 @@ impl Checker {
                 "layout": report.layout,
                 "fonts_not_embedded": report.fonts_not_embedded,
             })),
+            Err(e) => Ok(fail(&e)),
+        }
+    }
+
+    #[tool(
+        description = "Check the project against a submission profile (arXiv packaging, double-blind anonymity, accessibility basics, or a profile file): file names, bibliography, unused files, author names, alt text, fonts, page limit. Returns findings with file and line. Without a profile, lists the available ones."
+    )]
+    async fn preflight(
+        &self,
+        Parameters(args): Parameters<PreflightArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let home = latex_ai_core::config::default_home();
+        let Some(spec) = args.profile else {
+            let list: Vec<_> = crate::profiles::all(Some(&home))
+                .into_iter()
+                .map(|p| serde_json::json!({"id": p.id, "name": p.name, "description": p.description, "source": p.source}))
+                .collect();
+            return reply(&list);
+        };
+        let profile = match crate::profiles::find(&spec, Some(&home)) {
+            Ok(p) => p,
+            Err(message) => return Ok(fail(&anyhow::anyhow!(message))),
+        };
+        let found = async {
+            let build = self.bench.compile().await?;
+            self.bench.preflight(&profile, &build).await
+        }
+        .await;
+        match found {
+            Ok(report) => reply(&report),
             Err(e) => Ok(fail(&e)),
         }
     }

@@ -15,6 +15,9 @@ inputs:
   pages:
     description: Fail when the PDF has more pages than this.
     default: ""
+  profile:
+    description: 'Also run a preflight profile: arxiv, double-blind, accessibility, or the path to a profile .toml in the repository.'
+    default: ""
   strict:
     description: 'Also fail on overfull boxes and fonts that are not embedded ("true" or "false").'
     default: "false"
@@ -47,6 +50,7 @@ runs:
         INPUT_MAIN: ${{ inputs.main }}
         INPUT_PAGES: ${{ inputs.pages }}
         INPUT_STRICT: ${{ inputs.strict }}
+        INPUT_PROFILE: ${{ inputs.profile }}
         INPUT_BINARY: ${{ inputs.binary }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_REPOSITORY: ${{ inputs.repository }}

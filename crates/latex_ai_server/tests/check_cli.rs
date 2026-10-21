@@ -124,3 +124,74 @@ fn github_mode_annotates_the_line_and_fills_the_job_summary() {
     let md = std::fs::read_to_string(&summary).unwrap();
     assert!(md.contains("Renkeu check: main.tex failed"), "{md}");
 }
+
+#[test]
+fn a_profile_adds_its_findings_and_can_fail_the_check() {
+    let dir = project(
+        "\\documentclass{article}\n\\author{Ada Lovelace}\n\\begin{document}\nHi.\n\\end{document}\n",
+    );
+    let out = check(&dir, &["--profile", "double-blind", "--json"]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out.stderr));
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(report["preflight"]["profile"], "double-blind");
+    assert_eq!(report["preflight"]["passed"], false);
+    assert!(
+        report["problems"][0]
+            .as_str()
+            .unwrap()
+            .contains("anonymous_authors"),
+        "{report}"
+    );
+
+    let md = check(&dir, &["--profile", "accessibility"]);
+    assert!(md.status.success(), "{}", text(&md.stderr));
+    assert!(
+        text(&md.stdout).contains("Preflight, Accessibility basics: passed"),
+        "{}",
+        text(&md.stdout)
+    );
+}
+
+#[test]
+fn an_unknown_profile_is_an_error_that_lists_the_ones_there_are() {
+    let dir = project(GOOD);
+    let out = check(&dir, &["--profile", "nope"]);
+    assert!(!out.status.success());
+    let err = text(&out.stderr);
+    assert!(
+        err.contains("no profile `nope`") && err.contains("arxiv"),
+        "{err}"
+    );
+}
+
+#[test]
+fn a_profile_can_be_a_file_the_user_wrote() {
+    let dir = project(GOOD);
+    let profile = dir.path().join("mine.toml");
+    std::fs::write(
+        &profile,
+        "id = \"mine\"\nname = \"Mine\"\n[[rule]]\ncheck = \"page_limit\"\npages = 2\n",
+    )
+    .unwrap();
+    let out = check(&dir, &["--profile", profile.to_str().unwrap(), "--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let report: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        report["preflight"]["findings"][0]["message"],
+        "3 pages, the limit is 2"
+    );
+}
+
+#[test]
+fn the_profiles_command_lists_what_is_available() {
+    let out = Command::new(env!("CARGO_BIN_EXE_latex-ai"))
+        .arg("profiles")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let list = text(&out.stdout);
+    assert!(
+        list.contains("arxiv") && list.contains("double-blind") && list.contains("accessibility"),
+        "{list}"
+    );
+}

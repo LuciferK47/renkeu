@@ -5,7 +5,7 @@
 //! file map, not onto the disk (verified in the M10 spike and pinned by a
 //! test). Only the artefacts we choose are written, into `out_dir`.
 
-use crate::worker::{BLG, LOG, PDF, SYNCTEX, WorkerRequest, WorkerResult};
+use crate::worker::{BBL, BLG, LOG, PDF, SYNCTEX, WorkerRequest, WorkerResult};
 use std::fmt::Write as _;
 use std::path::Path;
 use tectonic::driver::{OutputFormat, ProcessingSessionBuilder};
@@ -44,6 +44,7 @@ fn failed(error: String) -> WorkerResult {
         has_synctex: false,
         has_log: false,
         has_blg: false,
+        has_bbl: false,
     }
 }
 
@@ -129,6 +130,7 @@ pub(crate) fn run(req: &WorkerRequest) -> WorkerResult {
     let has_synctex = take("synctex.gz", SYNCTEX);
     let has_log = take("log", LOG);
     let has_blg = take("blg", BLG);
+    let has_bbl = take("bbl", BBL);
 
     let engine_error = run
         .err()
@@ -144,6 +146,7 @@ pub(crate) fn run(req: &WorkerRequest) -> WorkerResult {
         has_synctex,
         has_log,
         has_blg,
+        has_bbl,
     }
 }
 

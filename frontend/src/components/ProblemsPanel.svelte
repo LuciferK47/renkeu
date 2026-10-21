@@ -3,6 +3,7 @@
   // TeX log of the build they came from.
   import { api } from '../lib/api/client.js'
   import LayoutReport from './LayoutReport.svelte'
+  import SubmissionReport from './SubmissionReport.svelte'
 
   let { compile, onreveal = () => {}, onshow = () => {}, onfit = null, onclose = () => {} } = $props()
 
@@ -37,6 +38,7 @@
         {#if count > 0}<span class="count" class:bad={compile.errors.length > 0}>{count}</span>{/if}
       </button>
       <button role="tab" aria-selected={tab === 'layout'} class:active={tab === 'layout'} onclick={() => (tab = 'layout')}>Layout</button>
+      <button role="tab" aria-selected={tab === 'submission'} class:active={tab === 'submission'} onclick={() => (tab = 'submission')}>Submission</button>
       <button role="tab" aria-selected={tab === 'log'} class:active={tab === 'log'} onclick={() => (tab = 'log')}>Log</button>
     </div>
     <button class="close" aria-label="Hide problems panel" onclick={onclose}>×</button>
@@ -67,6 +69,8 @@
       {/each}
     {:else if tab === 'layout'}
       <LayoutReport {compile} {onshow} {onreveal} {onfit} />
+    {:else if tab === 'submission'}
+      <SubmissionReport {compile} {onreveal} />
     {:else if !compile.buildId}
       <p class="note">No build yet — compile to see the log.</p>
     {:else if log.loading}

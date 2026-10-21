@@ -3366,6 +3366,7 @@ dependencies = [
  "latex-ai-compiler",
  "latex-ai-core",
  "layout",
+ "preflight",
  "reqwest 0.12.28",
  "rmcp",
  "serde",
@@ -4699,6 +4700,17 @@ name = "precomputed-hash"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+
+[[package]]
+name = "preflight"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml 0.8.23",
+]
 
 [[package]]
 name = "proc-macro-crate"
