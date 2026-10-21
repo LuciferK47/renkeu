@@ -161,6 +161,84 @@ impl PdfRenderer {
         Ok(names.into_iter().collect())
     }
 
+    /// The document's Author field, `None` if it has none.
+    ///
+    /// # Errors
+    /// [`VisualError::Pdf`] when the document cannot be loaded.
+    pub fn pdf_author(self, pdf_path: &Path) -> Result<Option<String>, VisualError> {
+        let document = self
+            .pdfium
+            .load_pdf_from_file(pdf_path, None)
+            .map_err(|e| VisualError::Pdf(e.to_string()))?;
+        Ok(document
+            .metadata()
+            .get(PdfDocumentMetadataTagType::Author)
+            .map(|tag| tag.value().to_owned())
+            .filter(|v| !v.trim().is_empty()))
+    }
+
+    /// How the body text sits on the pages, measured from the PDF itself.
+    ///
+    /// This is what a page-limit check can trust: it does not matter whether
+    /// the text got smaller through `\small`, a macro in another file or a
+    /// class option, the PDF shows it. `None` when the document has no text.
+    ///
+    /// # Errors
+    /// [`VisualError::Pdf`] when the document cannot be loaded.
+    pub fn body_metrics(self, pdf_path: &Path) -> Result<Option<BodyMetrics>, VisualError> {
+        let document = self
+            .pdfium
+            .load_pdf_from_file(pdf_path, None)
+            .map_err(|e| VisualError::Pdf(e.to_string()))?;
+        let total = document.pages().len();
+        let mut sizes: Vec<(f32, usize)> = Vec::new();
+        let mut pitches: Vec<f32> = Vec::new();
+        let mut pages: Vec<PageText> = Vec::new();
+        let (mut images, mut chars) = (0, 0);
+
+        for (index, page) in document.pages().iter().enumerate() {
+            let last = i32::try_from(index).is_ok_and(|i| i + 1 == total);
+            let mut seen = PageText::default();
+            for object in page.objects().iter() {
+                if object.as_image_object().is_some() {
+                    images += 1;
+                }
+                let Some(text) = object.as_text_object() else {
+                    continue;
+                };
+                let n = text.text().chars().filter(|c| !c.is_whitespace()).count();
+                if n == 0 {
+                    continue;
+                }
+                chars += n;
+                let Ok(quad) = object.bounds() else { continue };
+                let rect = quad.to_rect();
+                sizes.push((text.scaled_font_size().value, n));
+                seen.add(&rect);
+            }
+            // The last page is partly empty by nature; it says nothing about
+            // how full a page is set.
+            if !last && seen.baselines.len() >= MIN_BODY_LINES {
+                pitches.extend(seen.pitches());
+                pages.push(seen);
+            }
+        }
+        if chars == 0 {
+            return Ok(None);
+        }
+        let widths: Vec<f32> = pages.iter().map(PageText::width).collect();
+        let heights: Vec<f32> = pages.iter().map(PageText::height).collect();
+        Ok(Some(BodyMetrics {
+            font_size_pt: weighted_median(&mut sizes),
+            line_pitch_pt: median(&mut pitches),
+            text_width_pt: median(&mut widths.clone()),
+            text_height_pt: median(&mut heights.clone()),
+            images,
+            chars,
+            body_pages: pages.len(),
+        }))
+    }
+
     /// Render `page_index` (0-based) at `dpi`.
     ///
     /// # Errors
@@ -242,9 +320,113 @@ fn check_pixel_budget(width: i32, height: i32) -> Result<(), VisualError> {
     }
 }
 
+/// Fewest lines a page needs to count as a page of body text.
+const MIN_BODY_LINES: usize = 15;
+
+/// What the body text of a document looks like on its pages.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BodyMetrics {
+    /// The font size most text is set in, in points.
+    pub font_size_pt: f32,
+    /// Distance between the baselines of neighbouring lines, in points.
+    pub line_pitch_pt: f32,
+    /// Width and height of the text block on a full page, in points.
+    pub text_width_pt: f32,
+    pub text_height_pt: f32,
+    /// Images placed on all pages together.
+    pub images: usize,
+    /// Characters of text, spaces excluded.
+    pub chars: usize,
+    /// Pages the width, height and pitch were measured over; 0 means the
+    /// document is too short to say.
+    pub body_pages: usize,
+}
+
+#[derive(Default)]
+struct PageText {
+    left: f32,
+    right: f32,
+    top: f32,
+    bottom: f32,
+    started: bool,
+    baselines: std::collections::BTreeSet<i32>,
+}
+
+impl PageText {
+    fn add(&mut self, rect: &PdfRect) {
+        let (l, r) = (rect.left().value, rect.right().value);
+        let (t, b) = (rect.top().value, rect.bottom().value);
+        if self.started {
+            self.left = self.left.min(l);
+            self.right = self.right.max(r);
+            self.top = self.top.max(t);
+            self.bottom = self.bottom.min(b);
+        } else {
+            (self.left, self.right, self.top, self.bottom, self.started) = (l, r, t, b, true);
+        }
+        // Half-point steps: words on one line differ by a hair.
+        #[allow(clippy::cast_possible_truncation)]
+        self.baselines.insert((b * 2.0).round() as i32);
+    }
+
+    fn width(&self) -> f32 {
+        self.right - self.left
+    }
+
+    fn height(&self) -> f32 {
+        self.top - self.bottom
+    }
+
+    /// Gaps between neighbouring baselines that look like line spacing (not
+    /// the larger gaps around headings and displays).
+    fn pitches(&self) -> impl Iterator<Item = f32> + '_ {
+        let lines: Vec<i32> = self.baselines.iter().copied().collect();
+        lines
+            .windows(2)
+            .filter_map(|w| {
+                #[allow(clippy::cast_precision_loss)]
+                let gap = (w[1] - w[0]) as f32 / 2.0;
+                (6.0..=30.0).contains(&gap).then_some(gap)
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+}
+
+fn median(values: &mut [f32]) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_by(f32::total_cmp);
+    values[values.len() / 2]
+}
+
+/// The value that half of all the characters are at or below.
+fn weighted_median(values: &mut [(f32, usize)]) -> f32 {
+    values.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let total: usize = values.iter().map(|v| v.1).sum();
+    let mut seen = 0;
+    for (value, weight) in values.iter() {
+        seen += weight;
+        if seen * 2 >= total {
+            return *value;
+        }
+    }
+    0.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// pdfium is not thread-safe; tests that use it take turns.
+    static PDFIUM: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        PDFIUM
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     #[test]
     fn a4_at_the_dpi_ceiling_fits_the_budget() {
@@ -270,6 +452,7 @@ mod tests {
 
     #[test]
     fn a_font_that_is_not_embedded_is_reported_by_name() {
+        let _turn = one_at_a_time();
         let dir = std::env::temp_dir().join(format!("visual-fonts-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("helvetica.pdf");
@@ -291,5 +474,77 @@ mod tests {
             second.is_ok(),
             "second renderer() must not fail when the first succeeded"
         );
+    }
+
+    /// A PDF of `pages` pages, each with `lines` lines of text at `size` pt,
+    /// `pitch` pt apart, starting `left` pt from the edge.
+    fn text_pdf(pages: u32, lines: u32, size: u32, pitch: u32, left: u32) -> String {
+        use std::fmt::Write as _;
+        let kids: Vec<String> = (0..pages).map(|i| format!("{} 0 R", 4 + i * 2)).collect();
+        let mut objects = vec![
+            "<</Type/Catalog/Pages 2 0 R>>".to_owned(),
+            format!("<</Type/Pages/Kids[{}]/Count {pages}>>", kids.join(" ")),
+            "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>".to_owned(),
+        ];
+        for i in 0..pages {
+            let mut content = String::new();
+            for n in 0..lines {
+                let y = 700 - n * pitch;
+                let _ = writeln!(
+                    content,
+                    "BT /F1 {size} Tf {left} {y} Td (line {n} of words) Tj ET"
+                );
+            }
+            objects.push(format!(
+                "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents {} 0 R/Resources<</Font<</F1 3 0 R>>>>>>",
+                5 + i * 2
+            ));
+            objects.push(format!(
+                "<</Length {}>>stream\n{content}endstream",
+                content.len()
+            ));
+        }
+        let mut out = String::from("%PDF-1.4\n");
+        for (i, o) in objects.iter().enumerate() {
+            let _ = writeln!(out, "{} 0 obj\n{o}\nendobj", i + 1);
+        }
+        out.push_str("trailer<</Root 1 0 R/Size 99>>\n%%EOF\n");
+        out
+    }
+
+    fn measured(name: &str, pdf: &str) -> BodyMetrics {
+        let _turn = one_at_a_time();
+        let dir =
+            std::env::temp_dir().join(format!("visual-metrics-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.pdf");
+        std::fs::write(&path, pdf).unwrap();
+        let m = renderer()
+            .unwrap()
+            .body_metrics(&path)
+            .expect("loads")
+            .expect("has text");
+        std::fs::remove_dir_all(&dir).ok();
+        m
+    }
+
+    #[test]
+    fn the_body_text_is_measured_from_the_pdf() {
+        let m = measured("base", &text_pdf(3, 30, 12, 14, 72));
+        assert!((m.font_size_pt - 12.0).abs() < 0.01, "{m:?}");
+        assert!((m.line_pitch_pt - 14.0).abs() < 0.6, "{m:?}");
+        assert_eq!(m.body_pages, 2, "the last page is not a body page");
+        assert!(m.text_height_pt > 400.0 && m.text_width_pt > 40.0, "{m:?}");
+        assert_eq!(m.images, 0);
+    }
+
+    #[test]
+    fn smaller_type_and_tighter_lines_show_in_the_numbers_whatever_caused_them() {
+        let base = measured("a", &text_pdf(3, 30, 12, 14, 72));
+        let small = measured("b", &text_pdf(3, 30, 10, 14, 72));
+        let tight = measured("c", &text_pdf(3, 30, 12, 12, 72));
+        assert!(small.font_size_pt < base.font_size_pt * 0.9);
+        assert!(tight.line_pitch_pt < base.line_pitch_pt * 0.9);
+        assert!(tight.text_height_pt < base.text_height_pt);
     }
 }

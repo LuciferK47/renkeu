@@ -1,0 +1,82 @@
+[
+  {
+    "id": "2403.05211",
+    "title": "Improving the Successful Robotic Grasp Detection Using Convolutional Neural Networks",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 7,
+    "main": "icspis2020.tex",
+    "lines_over": 12
+  },
+  {
+    "id": "2403.00121",
+    "title": "On the Optimality of CVOD-based Column Selection",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 15,
+    "main": "main.tex",
+    "lines_over": 14
+  },
+  {
+    "id": "2403.05801",
+    "title": "Enhancing Multi-Hop Knowledge Graph Reasoning through Reward Shaping Techniques",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 5,
+    "main": "xinde.tex",
+    "lines_over": 26
+  },
+  {
+    "id": "2403.05567",
+    "title": "A Unified Framework for Underwater Metaverse with Optical Perception",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 11,
+    "main": "main.tex",
+    "lines_over": 1
+  },
+  {
+    "id": "2403.06033",
+    "title": "Predicting Depression and Anxiety: A Multi-Layer Perceptron for Analyzing the Mental Health Impact of COVID-19",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 10,
+    "lines_over": 16,
+    "main": "paper.tex"
+  },
+  {
+    "id": "2403.01918",
+    "title": "Towards Continuous Assurance Case Creation for ADS with the Evidential Tool Bus",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 13,
+    "lines_over": 13,
+    "main": "main.tex"
+  },
+  {
+    "id": "2312.04193",
+    "title": "Language Model Knowledge Distillation for Efficient Question Answering in Spanish",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 6,
+    "lines_over": 15,
+    "main": "paper.tex"
+  },
+  {
+    "id": "2403.11114",
+    "title": "Phasic Diversity Optimization for Population-Based Reinforcement Learning",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 8,
+    "lines_over": 28,
+    "main": "root1.tex"
+  },
+  {
+    "id": "2403.05873",
+    "title": "LEGION: Harnessing Pre-trained Language Models for GitHub Topic Recommendations with Distribution-Balance Loss",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 11,
+    "lines_over": 12,
+    "main": "main.tex"
+  },
+  {
+    "id": "2403.06421",
+    "title": "A Comparative Study of Perceptual Quality Metrics for Audio-driven Talking Head Videos",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "pages": 8,
+    "lines_over": 5,
+    "main": "Template.tex"
+  }
+]

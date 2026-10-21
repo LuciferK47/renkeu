@@ -41,6 +41,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+use visual::render::BodyMetrics;
 
 /// Keep compiler noise fed back to the model (and the UI) bounded.
 const MAX_ERROR_SUMMARY_LEN: usize = 2_000;
@@ -48,6 +49,8 @@ const MAX_ERROR_SUMMARY_LEN: usize = 2_000;
 /// last compile blamed.
 const MAX_SCOPE_FILES: usize = 4;
 const MAX_LISTED_FILES: usize = 200;
+/// Short-last-line paragraphs shown to the planner at once.
+const FOCUS_CANDIDATES: usize = 12;
 
 pub(crate) struct LoopRequest {
     /// The file the user is editing, project-relative.
@@ -73,6 +76,8 @@ struct Attempt {
     diagnostics: Vec<Diagnostic>,
     /// Measured only when a page limit is the goal.
     layout: Option<LayoutReport>,
+    /// How the text sits on the pages; `None` without libpdfium.
+    metrics: Option<BodyMetrics>,
 }
 
 fn job_of(state: &AppState, root: &Path, main: &str) -> CompileJob {
@@ -100,6 +105,7 @@ async fn attempt(
             success: out.success,
             diagnostics: out.diagnostics,
             layout: None,
+            metrics: None,
         });
     };
     let measured = CompileJob {
@@ -108,25 +114,39 @@ async fn attempt(
     };
     let build = state.compiler.compile(&measured, cancel).await?;
     let success = build.manifest.success && build.manifest.has_pdf;
-    let layout = if success {
+    let (layout, metrics) = if success {
         measure(&build, job, limit).await
     } else {
-        None
+        (None, None)
     };
     Ok(Attempt {
         success,
         diagnostics: build.manifest.diagnostics.clone(),
         layout,
+        metrics,
     })
 }
 
-async fn measure(build: &Build, job: &CompileJob, limit: u32) -> Option<LayoutReport> {
+async fn measure(
+    build: &Build,
+    job: &CompileJob,
+    limit: u32,
+) -> (Option<LayoutReport>, Option<BodyMetrics>) {
+    let pdf = build.pdf_path();
+    let metrics = tokio::task::spawn_blocking(move || {
+        visual::render::renderer()
+            .ok()
+            .and_then(|r| r.body_metrics(&pdf).ok().flatten())
+    })
+    .await
+    .ok()
+    .flatten();
     if !build.manifest.has_synctex {
-        return None;
+        return (None, metrics);
     }
     let (path, root, main) = (build.synctex_path(), job.root.clone(), job.main.clone());
     let diagnostics = build.manifest.diagnostics.clone();
-    tokio::task::spawn_blocking(move || {
+    let layout = tokio::task::spawn_blocking(move || {
         let data = synctex::SyncTexData::parse(&path).ok()?;
         Some(crate::check::analyse_layout(
             &data,
@@ -138,7 +158,8 @@ async fn measure(build: &Build, job: &CompileJob, limit: u32) -> Option<LayoutRe
     })
     .await
     .ok()
-    .flatten()
+    .flatten();
+    (layout, metrics)
 }
 
 /// The files holding the overflow and the short last lines: where the
@@ -152,6 +173,17 @@ fn blamed_files(report: &LayoutReport) -> Vec<String> {
         }
     }
     out
+}
+
+/// Lines to show the planner: the first line past the limit and the paragraphs
+/// ending in a very short line.
+fn focus_lines_of(report: &LayoutReport) -> Vec<(String, u32)> {
+    let first = report.budget.as_ref().and_then(|b| b.first_over.as_ref());
+    first
+        .into_iter()
+        .chain(report.short_last_lines.iter().take(FOCUS_CANDIDATES))
+        .map(|p| (p.file.clone(), p.line))
+        .collect()
 }
 
 /// What the working copy lost compared with the user's files, if anything.
@@ -202,6 +234,7 @@ pub(crate) async fn run_plan(
     let files = [PlanFile {
         path: &active,
         content: &content,
+        focus: &[],
     }];
     let request = PlanRequest {
         instruction: &instruction,
@@ -294,6 +327,8 @@ pub(crate) async fn run_loop(
     // A page limit starts from a measurement: how far over, and where.
     let mut pages_before = 0;
     let mut closest: Option<u32> = None;
+    let mut focus_lines: Vec<(String, u32)> = Vec::new();
+    let mut base_metrics: Option<BodyMetrics> = None;
     if let Some(limit) = page_limit {
         let job = job_of(&state, scratch.root(), &main);
         let base = match attempt(&state, &job, page_limit, &cancel).await {
@@ -313,6 +348,7 @@ pub(crate) async fn run_loop(
             }
         };
         pages_before = report.pages;
+        base_metrics = base.metrics;
         if report.pages <= limit {
             let fit = FitSummary {
                 limit,
@@ -330,7 +366,15 @@ pub(crate) async fn run_loop(
         }
         if !sink
             .emit(SseEvent::Progress(json!({
-                "message": format!("{} pages, limit {limit}. Looking for lines to save...", report.pages),
+                "message": format!(
+                    "{} pages, limit {limit}. Looking for lines to save...{}",
+                    report.pages,
+                    if base_metrics.is_some() {
+                        ""
+                    } else {
+                        " (type size and margins cannot be checked: libpdfium was not found)"
+                    }
+                ),
                 "progress": 0.1,
             })))
             .await
@@ -339,6 +383,7 @@ pub(crate) async fn run_loop(
         }
         feedback = crate::fit::feedback(&report, limit);
         blamed = blamed_files(&report);
+        focus_lines = focus_lines_of(&report);
         closest = Some(report.pages);
     }
 
@@ -380,9 +425,26 @@ pub(crate) async fn run_loop(
             .filter(|f| !shown.contains(f))
             .cloned()
             .collect();
+        // A page-fit run shows long files as windows around the lines it
+        // measured, not whole: a model reads far less and edits what matters.
+        let focus: Vec<Vec<u32>> = contents
+            .iter()
+            .map(|(path, _)| {
+                focus_lines
+                    .iter()
+                    .filter(|(file, _)| file == path)
+                    .map(|(_, line)| *line)
+                    .collect()
+            })
+            .collect();
         let files: Vec<PlanFile<'_>> = contents
             .iter()
-            .map(|(path, content)| PlanFile { path, content })
+            .zip(&focus)
+            .map(|((path, content), focus)| PlanFile {
+                path,
+                content,
+                focus,
+            })
             .collect();
 
         state.metrics.record_llm_call();
@@ -498,10 +560,27 @@ pub(crate) async fn run_loop(
                     let Some(report) = out.layout else {
                         return sink.fail("could not measure the page count").await;
                     };
+                    // The PDF itself says whether the page was made to look
+                    // different, whatever the source says.
+                    if let (Some(base), Some(now)) = (&base_metrics, &out.metrics) {
+                        let drift = crate::fit::geometry_drift(base, now);
+                        if !drift.is_empty() {
+                            let reason = format!(
+                                "The compiled PDF is not set the way the original was: {}. Undo that; only wording, figure widths and float placement may change.",
+                                drift.join("; ")
+                            );
+                            if !reject_attempt(&mut sink, &reason, None).await {
+                                return;
+                            }
+                            feedback = reason;
+                            continue;
+                        }
+                    }
                     if report.pages > limit {
                         closest = Some(closest.map_or(report.pages, |c| c.min(report.pages)));
                         let note = crate::fit::feedback(&report, limit);
                         blamed = blamed_files(&report);
+                        focus_lines = focus_lines_of(&report);
                         if !reject_attempt(&mut sink, &note, Some(report.pages)).await {
                             return;
                         }

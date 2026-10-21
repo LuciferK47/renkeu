@@ -109,3 +109,6 @@ history.db
 # Downloaded by scripts/fetch-pdfium.sh for the desktop bundle.
 crates/latex_ai_tauri/resources/pdfium/*
 !crates/latex_ai_tauri/resources/pdfium/README.md
+bench/fit/corpus/
+bench/fit/results/
+bench/fit/seen.json

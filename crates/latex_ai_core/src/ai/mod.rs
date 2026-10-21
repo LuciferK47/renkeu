@@ -69,6 +69,10 @@ pub struct PlanFile<'a> {
     /// Project-relative path; edits must use exactly this as `file_path`.
     pub path: &'a str,
     pub content: &'a str,
+    /// 1-based lines worth looking at. A long file is then shown as windows
+    /// around these (with the real line numbers and a note for each gap)
+    /// instead of in full; empty means the whole file.
+    pub focus: &'a [u32],
 }
 
 /// Everything the planner is told for one attempt.
@@ -106,7 +110,7 @@ impl PlanRequest<'_> {
         }
         for file in self.files {
             let _ = write!(out, "\nFile: {}\n```latex\n", file.path);
-            out.push_str(&number_lines(file.content));
+            out.push_str(&number_lines(file.content, file.focus));
             out.push_str("```\n");
         }
         if !self.feedback.trim().is_empty() {
@@ -118,9 +122,21 @@ impl PlanRequest<'_> {
     }
 }
 
+/// Files at most this many lines are always shown whole.
+const SHORT_FILE_LINES: usize = 200;
+/// Lines shown before and after a focus line: a paragraph ends on its line
+/// and began some lines above it.
+const FOCUS_BEFORE: usize = 30;
+const FOCUS_AFTER: usize = 5;
+
 /// `content` with a right-aligned line number and ` | ` before every line,
-/// cut off (with a note) after [`MAX_FILE_BYTES`].
-fn number_lines(content: &str) -> String {
+/// cut off (with a note) after [`MAX_FILE_BYTES`]. With `focus` lines and a
+/// long file, only the windows around them are shown.
+fn number_lines(content: &str, focus: &[u32]) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    if !focus.is_empty() && lines.len() > SHORT_FILE_LINES {
+        return number_windows(&lines, focus);
+    }
     let shown = if content.len() > MAX_FILE_BYTES {
         let mut cut = MAX_FILE_BYTES;
         while !content.is_char_boundary(cut) {
@@ -139,6 +155,46 @@ fn number_lines(content: &str) -> String {
     }
     if shown.len() < content.len() {
         out.push_str("[... the rest of this file is not shown ...]\n");
+    }
+    out
+}
+
+/// Windows of `lines` around the 1-based `focus` lines, numbered as in the
+/// whole file, with a note where lines were left out.
+fn number_windows(lines: &[&str], focus: &[u32]) -> String {
+    let mut spans: Vec<(usize, usize)> = focus
+        .iter()
+        .filter(|f| **f >= 1)
+        .map(|f| {
+            let at = *f as usize;
+            (
+                at.saturating_sub(FOCUS_BEFORE).max(1),
+                (at + FOCUS_AFTER).min(lines.len()),
+            )
+        })
+        .collect();
+    spans.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (from, to) in spans {
+        match merged.last_mut() {
+            Some(last) if from <= last.1 + 1 => last.1 = last.1.max(to),
+            _ => merged.push((from, to)),
+        }
+    }
+    let width = lines.len().to_string().len();
+    let mut out = String::new();
+    let mut next = 1;
+    for (from, to) in merged {
+        if from > next {
+            let _ = writeln!(out, "[... lines {next}-{} are not shown ...]", from - 1);
+        }
+        for n in from..=to {
+            let _ = writeln!(out, "{n:>width$} | {}", lines[n - 1]);
+        }
+        next = to + 1;
+    }
+    if next <= lines.len() {
+        let _ = writeln!(out, "[... lines {next}-{} are not shown ...]", lines.len());
     }
     out
 }
@@ -493,10 +549,12 @@ mod tests {
             PlanFile {
                 path: "main.tex",
                 content: "a\nb\n",
+                focus: &[],
             },
             PlanFile {
                 path: "chapters/one.tex",
                 content: "x\n",
+                focus: &[],
             },
         ];
         let other = vec!["refs.bib".to_owned()];
@@ -527,7 +585,7 @@ mod tests {
     #[test]
     fn line_numbers_are_right_aligned_to_the_widest() {
         let content: String = (1..=12).map(|i| format!("l{i}\n")).collect();
-        let numbered = number_lines(&content);
+        let numbered = number_lines(&content, &[]);
         assert!(numbered.starts_with(" 1 | l1\n"), "{numbered}");
         assert!(numbered.contains("\n12 | l12\n"), "{numbered}");
     }
@@ -537,6 +595,7 @@ mod tests {
         let files = [PlanFile {
             path: "main.tex",
             content: "x\n",
+            focus: &[],
         }];
         let prompt =
             request(&files, &[], "main.tex:3: Undefined control sequence.").render_prompt();
@@ -556,7 +615,7 @@ mod tests {
     #[test]
     fn huge_files_are_cut_with_a_note_and_never_mid_character() {
         let content = "é".repeat(MAX_FILE_BYTES);
-        let numbered = number_lines(&content);
+        let numbered = number_lines(&content, &[]);
         assert!(numbered.contains("the rest of this file is not shown"));
         assert!(numbered.len() < MAX_FILE_BYTES + 200);
     }
@@ -565,5 +624,59 @@ mod tests {
     fn the_system_prompt_explains_the_numbering_and_forbids_the_unsafe_forms() {
         assert!(SYSTEM_PROMPT.contains("NOT part of the file"));
         assert!(SYSTEM_PROMPT.contains("\\openout"));
+    }
+
+    #[test]
+    fn a_long_file_with_focus_lines_is_shown_as_numbered_windows_with_gaps_noted() {
+        let text: String = (1..=400).map(|n| format!("line {n}\n")).collect();
+        let focus = [100u32, 110, 300];
+        let files = [PlanFile {
+            path: "main.tex",
+            content: &text,
+            focus: &focus,
+        }];
+        let prompt = PlanRequest {
+            instruction: "x",
+            files: &files,
+            other_files: &[],
+            feedback: "",
+        }
+        .render_prompt();
+        assert!(
+            prompt.contains("[... lines 1-69 are not shown ...]"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains(" 70 | line 70\n"),
+            "line numbers stay those of the whole file"
+        );
+        // 100 and 110 overlap into one window: 70..=115.
+        assert!(
+            prompt.contains("115 | line 115\n")
+                && prompt.contains("[... lines 116-269 are not shown ...]")
+        );
+        assert!(
+            prompt.contains("305 | line 305\n")
+                && prompt.contains("[... lines 306-400 are not shown ...]")
+        );
+        assert!(!prompt.contains("| line 200\n"));
+    }
+
+    #[test]
+    fn a_short_file_is_shown_whole_even_with_focus_lines() {
+        let text: String = (1..=50).map(|n| format!("line {n}\n")).collect();
+        let files = [PlanFile {
+            path: "a.tex",
+            content: &text,
+            focus: &[10],
+        }];
+        let prompt = PlanRequest {
+            instruction: "x",
+            files: &files,
+            other_files: &[],
+            feedback: "",
+        }
+        .render_prompt();
+        assert!(prompt.contains("50 | line 50") && !prompt.contains("not shown"));
     }
 }

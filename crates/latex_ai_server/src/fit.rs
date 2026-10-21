@@ -9,6 +9,7 @@
 
 use layout::{LayoutReport, Place};
 use std::fmt::Write as _;
+use visual::render::BodyMetrics;
 
 /// Most short-last-line candidates listed to the model.
 const MAX_CANDIDATES: usize = 12;
@@ -28,6 +29,58 @@ Edit only what you must: small replacements, not a rewrite of the file."
     let extra = extra.trim();
     if !extra.is_empty() {
         let _ = write!(out, "\nThe author also asks: {extra}");
+    }
+    out
+}
+
+/// Smaller than this share of the original type size counts as shrinking it.
+const FONT_TOLERANCE: f32 = 0.985;
+/// Line spacing closer than this share of the original counts as tightening it.
+const PITCH_TOLERANCE: f32 = 0.98;
+/// A text block this much bigger than the original has had its margins cut.
+const BLOCK_TOLERANCE: f32 = 1.02;
+/// Cutting more than this share of the text is deleting, not tightening.
+const KEEP_AT_LEAST: f32 = 0.6;
+
+/// What the compiled PDF shows has changed that may not: type size, line
+/// spacing, margins, images, and how much of the text is left.
+///
+/// This reads the PDF, not the source, so it holds however the change was
+/// made: a macro in another file, a class option, `\small` hidden in an
+/// environment. Empty when nothing is off.
+pub(crate) fn geometry_drift(base: &BodyMetrics, now: &BodyMetrics) -> Vec<String> {
+    let mut out = Vec::new();
+    if base.body_pages > 0 && now.body_pages > 0 {
+        if now.font_size_pt < base.font_size_pt * FONT_TOLERANCE {
+            out.push(format!(
+                "the text is set smaller ({:.1} pt, was {:.1} pt)",
+                now.font_size_pt, base.font_size_pt
+            ));
+        }
+        if now.line_pitch_pt < base.line_pitch_pt * PITCH_TOLERANCE {
+            out.push(format!(
+                "the lines are set closer together ({:.1} pt apart, was {:.1} pt)",
+                now.line_pitch_pt, base.line_pitch_pt
+            ));
+        }
+        if now.text_width_pt > base.text_width_pt * BLOCK_TOLERANCE
+            || now.text_height_pt > base.text_height_pt * BLOCK_TOLERANCE
+        {
+            out.push("the text block is larger, as if the margins were cut".to_owned());
+        }
+    }
+    if now.images < base.images {
+        out.push(format!(
+            "{} image(s) are gone from the PDF",
+            base.images - now.images
+        ));
+    }
+    #[allow(clippy::cast_precision_loss)]
+    if (now.chars as f32) < base.chars as f32 * KEEP_AT_LEAST {
+        out.push(format!(
+            "only {}% of the text is left",
+            now.chars * 100 / base.chars.max(1)
+        ));
     }
     out
 }
@@ -128,6 +181,83 @@ mod tests {
         assert!(text.contains("About 14 lines"), "{text}");
         assert!(text.contains("main.tex:212 (page 9)"), "{text}");
         assert!(text.contains("- main.tex:40 (page 3)"), "{text}");
+    }
+
+    fn body() -> BodyMetrics {
+        BodyMetrics {
+            font_size_pt: 10.0,
+            line_pitch_pt: 12.0,
+            text_width_pt: 345.0,
+            text_height_pt: 550.0,
+            images: 4,
+            chars: 30_000,
+            body_pages: 6,
+        }
+    }
+
+    #[test]
+    fn what_the_pdf_shows_catches_every_way_of_cheating_whatever_the_source_says() {
+        let base = body();
+        assert_eq!(geometry_drift(&base, &base), Vec::<String>::new());
+
+        // Wording cut by a fifth and a figure narrowed: allowed.
+        let honest = BodyMetrics {
+            chars: 24_000,
+            ..base
+        };
+        assert_eq!(geometry_drift(&base, &honest), Vec::<String>::new());
+
+        let drift = |m: BodyMetrics| geometry_drift(&base, &m).join("; ");
+        assert!(
+            drift(BodyMetrics {
+                font_size_pt: 9.0,
+                ..base
+            })
+            .contains("set smaller")
+        );
+        assert!(
+            drift(BodyMetrics {
+                line_pitch_pt: 11.0,
+                ..base
+            })
+            .contains("closer together")
+        );
+        assert!(
+            drift(BodyMetrics {
+                text_height_pt: 580.0,
+                ..base
+            })
+            .contains("margins")
+        );
+        assert!(
+            drift(BodyMetrics {
+                text_width_pt: 360.0,
+                ..base
+            })
+            .contains("margins")
+        );
+        assert!(drift(BodyMetrics { images: 3, ..base }).contains("1 image(s) are gone"));
+        assert!(
+            drift(BodyMetrics {
+                chars: 12_000,
+                ..base
+            })
+            .contains("only 40% of the text")
+        );
+    }
+
+    #[test]
+    fn a_document_too_short_to_measure_is_judged_only_on_images_and_text() {
+        let base = BodyMetrics {
+            body_pages: 0,
+            ..body()
+        };
+        let now = BodyMetrics {
+            body_pages: 0,
+            font_size_pt: 8.0,
+            ..body()
+        };
+        assert_eq!(geometry_drift(&base, &now), Vec::<String>::new());
     }
 
     #[test]
