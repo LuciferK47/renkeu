@@ -77,7 +77,7 @@ export const workspace = {
   body: 'Files on the left, source in the middle, the PDF beside it. Press Ctrl+Alt+J to see where a line landed on the page; double-click the page to go back to the line.',
   tabs: [
     { id: 'project', label: 'A real project', note: 'Many files: chapters, a .bib, figures, a chosen main document, \\input and \\include.' },
-    { id: 'sync', label: 'Find line and jump back', note: 'Ctrl+Alt+J flashes the line on the page. Double-click the page to open its source.' },
+    { id: 'sync', label: 'Find line and jump back', note: 'Ctrl+Alt+J flashes the line on the page. Double-click the page to open its source; Alt+click edits that line in place and recompiles.' },
     { id: 'review', label: 'Review a change', note: 'Every AI change is a diff with its own checkbox. Apply writes only what you chose.' }
   ]
 };

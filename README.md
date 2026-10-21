@@ -43,7 +43,7 @@ Nothing leaves your machine except the snippets actually sent to the AI and, if 
   labels, files, packages and environments, an outline, spell check, hover and
   Ctrl+click on `\ref`, `\cite` and `\input`, and compile errors drawn on the line.
 - **See the PDF as you go:** continuous scrolling and zoom, **Ctrl+Alt+J** shows
-  where the cursor line landed, and double-clicking the PDF jumps to its source.
+  where the cursor line landed, and double-clicking the PDF jumps to its source, and **Alt+click** edits the source line behind that spot in a small box, then recompiles.
 - **Ask the AI for changes:** it tries them on a copy, checks the document still
   compiles, then shows the edits for you to accept, per hunk and per file.
 - **Undo anything:** the history keeps what every save and AI change replaced.

@@ -29,6 +29,8 @@
   import TemplateDialog from './components/TemplateDialog.svelte'
   import SearchDialog from './components/SearchDialog.svelte'
   import InsertDialog from './components/InsertDialog.svelte'
+  import QuickEdit from './components/QuickEdit.svelte'
+  import { lineRange, lineText } from './lib/quickedit.js'
   import { findBlock } from './lib/templates.js'
   import { packageEdit, blockInsertion } from './lib/latex/insert.js'
   import { useEditorServices } from './lib/monaco.js'
@@ -138,6 +140,47 @@
     } catch (e) {
       ui.toast(e.status === 404 ? 'This file is not part of the compiled PDF.' : `Could not locate the line: ${e.message}`, 'error')
     }
+  }
+
+  /** `{ file, line, text, x, y }` while the quick-edit box is open over the PDF. */
+  let quick = $state(null)
+
+  /** Alt+click on the PDF: edit the source line behind the spot in place. */
+  async function startQuickEdit(where) {
+    // A stale build's line numbers may not match the file any more: show the
+    // place instead (jumpToSource says why).
+    if (where.stale) return jumpToSource(where)
+    let current = null
+    try {
+      const open = documents.get(where.file)
+      current = lineText(open ? open.text : (await api.getFile(where.file)).content, where.line)
+    } catch {
+      /* fall through to opening the file */
+    }
+    if (current === null) return jumpToSource(where)
+    quick = { file: where.file, line: where.line, text: current, exact: where.exact !== false, x: where.clientX, y: where.clientY }
+  }
+
+  function openQuickInEditor() {
+    const q = quick
+    quick = null
+    if (q) jumpToSource({ file: q.file, line: q.line })
+  }
+
+  async function commitQuickEdit(newLine) {
+    const q = quick
+    quick = null
+    if (!q || newLine === q.text) return
+    await openFile(q.file)
+    const doc = documents.get(q.file)
+    const at = doc && lineRange(doc.text, q.line)
+    // Only replace the line the box was showing; if it moved, edit nothing.
+    if (!at || doc.text.slice(at.start, at.end) !== q.text) {
+      ui.toast('That line changed in the meantime, so nothing was edited.', 'error')
+      return
+    }
+    documents.replaceRange(q.file, at.start, at.end, newLine)
+    await compileNow()
   }
 
   /** A spot on the PDF was double-clicked: open the source behind it. */
@@ -473,6 +516,7 @@
               oncompile={compileNow}
               onvisualproposal={onVisualProposal}
               onjump={jumpToSource}
+              onquickedit={startQuickEdit}
               onlocate={showInPdf}
               onnotice={(m) => ui.toast(m, 'info')}
             />
@@ -530,6 +574,15 @@
       {recent}
       onclose={() => ui.closeDialog()}
       onopen={(path) => (ui.closeDialog(), openFile(path))}
+    />
+  {/if}
+
+  {#if quick}
+    <QuickEdit
+      {...quick}
+      onsubmit={commitQuickEdit}
+      onopen={openQuickInEditor}
+      onclose={() => (quick = null)}
     />
   {/if}
 

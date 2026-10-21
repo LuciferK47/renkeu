@@ -17,6 +17,7 @@
     onvisualproposal = () => {},
     oncompile = () => {},
     onjump = () => {},
+    onquickedit = () => {},
     onlocate = null,
     onnotice = () => {},
     paper = new PaperState()
@@ -149,6 +150,21 @@
     try {
       const where = await api.synctexBackward({ build: compile.buildId, page: n, x, y })
       onjump(where)
+    } catch (e) {
+      onnotice(e.status === 404 ? 'No source position for that spot.' : `Could not find the source: ${e.message}`)
+    }
+  }
+
+  /** Alt+click: the source line behind the spot, to edit in a small box. */
+  async function quick(event, n) {
+    if (!event.altKey || visualFix || !compile.buildId) return
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = (event.clientX - rect.left) / pxPerPt
+    const y = (event.clientY - rect.top) / pxPerPt
+    try {
+      const where = await api.synctexBackward({ build: compile.buildId, page: n, x, y })
+      onquickedit({ ...where, clientX: event.clientX, clientY: event.clientY })
     } catch (e) {
       onnotice(e.status === 404 ? 'No source position for that spot.' : `Could not find the source: ${e.message}`)
     }
@@ -290,7 +306,8 @@
           style:min-height={`${basePx * zoom * 1.294}px`}
           role="presentation"
           ondblclick={(e) => jump(e, n)}
-          title={visualFix ? undefined : 'Double-click to jump to the source'}
+          onclick={(e) => quick(e, n)}
+          title={visualFix ? undefined : 'Double-click: go to the source. Alt+click: quick edit.'}
         >
           {#if seen.has(n)}
             <img src={url(n)} alt={`Page ${n}`} draggable="false" onload={onImageLoad} style:width="100%" />
