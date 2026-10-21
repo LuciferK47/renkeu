@@ -94,10 +94,10 @@ impl JobRegistry {
                     .get(id)
                     .is_none_or(|(rx, _)| rx.borrow().phase.is_terminal())
             });
-            if let Some(index) = evictable {
-                if let Some(oldest) = inner.order.remove(index) {
-                    inner.jobs.remove(&oldest);
-                }
+            if let Some(index) = evictable
+                && let Some(oldest) = inner.order.remove(index)
+            {
+                inner.jobs.remove(&oldest);
             }
         }
         inner.jobs.insert(job_id.to_owned(), (rx, cancel.clone()));

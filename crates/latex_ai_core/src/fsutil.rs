@@ -46,12 +46,11 @@ async fn replace(path: &Path, content: &[u8], private: bool) -> std::io::Result<
         Err(e) => Err(e),
     };
 
-    if result.is_err() {
-        if let Err(e) = tokio::fs::remove_file(&tmp).await {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(error = %e, tmp = %tmp.display(), "could not remove temp file");
-            }
-        }
+    if result.is_err()
+        && let Err(e) = tokio::fs::remove_file(&tmp).await
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!(error = %e, tmp = %tmp.display(), "could not remove temp file");
     }
     result
 }

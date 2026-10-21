@@ -376,6 +376,40 @@ jobs:
             frontend/test-results
           retention-days: 7
 
+  # The Action runs the same binary the Rust job tests; this proves the
+  # composite action itself (inputs, exit status, summary) on a real runner.
+  action:
+    name: GitHub Action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Tectonic build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libgraphite2-dev libharfbuzz-dev \
+            libicu-dev libfreetype-dev libssl-dev zlib1g-dev
+      - run: cargo build -p latex-ai-server
+      - name: Run the action on the sample document
+        uses: ./action
+        with:
+          path: examples/sample.tex
+          pages: 3
+          binary: ${{ github.workspace }}/target/debug/latex-ai
+      - name: A document over its page limit must fail the action
+        id: over
+        uses: ./action
+        continue-on-error: true
+        with:
+          path: action/test/two-pages.tex
+          pages: 1
+          binary: ${{ github.workspace }}/target/debug/latex-ai
+      - name: The failure was seen
+        if: steps.over.outcome != 'failure'
+        run: echo "the over-limit run should have failed" && exit 1
+
   desktop:
     name: Tauri shell builds
     runs-on: ubuntu-latest

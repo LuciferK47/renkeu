@@ -247,13 +247,13 @@ impl Store {
         // selection cannot half-write (masterplan §12 M4 audit: security).
         let current_etag = etag_of(&old_content);
         for edit in edits {
-            if let Some(expected) = &edit.expected_etag {
-                if expected != &current_etag {
-                    return Err(StorageError::EtagConflict {
-                        expected: expected.clone(),
-                        actual: current_etag,
-                    });
-                }
+            if let Some(expected) = &edit.expected_etag
+                && expected != &current_etag
+            {
+                return Err(StorageError::EtagConflict {
+                    expected: expected.clone(),
+                    actual: current_etag,
+                });
             }
         }
 

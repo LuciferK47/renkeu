@@ -339,13 +339,13 @@ fn read_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>, C
 #[cfg(unix)]
 fn warn_if_group_or_world_readable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = std::fs::metadata(path) {
-        if meta.permissions().mode() & 0o077 != 0 {
-            tracing::warn!(
-                path = %path.display(),
-                "secrets file is accessible to other users; run `chmod 600` on it"
-            );
-        }
+    if let Ok(meta) = std::fs::metadata(path)
+        && meta.permissions().mode() & 0o077 != 0
+    {
+        tracing::warn!(
+            path = %path.display(),
+            "secrets file is accessible to other users; run `chmod 600` on it"
+        );
     }
 }
 

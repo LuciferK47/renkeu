@@ -99,12 +99,11 @@ pub fn denied_files(root: &Path) -> io::Result<Vec<PathBuf>> {
                 if name != "node_modules" && name != "target" {
                     dirs.push(path);
                 }
-            } else if kind.is_file() {
-                if let Ok(rel) = path.strip_prefix(root) {
-                    if is_denied(rel) {
-                        found.push(rel.to_owned());
-                    }
-                }
+            } else if kind.is_file()
+                && let Ok(rel) = path.strip_prefix(root)
+                && is_denied(rel)
+            {
+                found.push(rel.to_owned());
             }
         }
     }

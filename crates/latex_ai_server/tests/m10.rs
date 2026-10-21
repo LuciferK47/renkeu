@@ -544,10 +544,10 @@ async fn finish(api: &Api, job_id: &str) -> Value {
     for line in text.lines() {
         if let Some(name) = line.strip_prefix("event:") {
             name.trim().clone_into(&mut event);
-        } else if let Some(data) = line.strip_prefix("data:") {
-            if event == "compiled" {
-                return serde_json::from_str(data.trim()).unwrap();
-            }
+        } else if let Some(data) = line.strip_prefix("data:")
+            && event == "compiled"
+        {
+            return serde_json::from_str(data.trim()).unwrap();
         }
     }
     panic!("no compiled event in:\n{text}");

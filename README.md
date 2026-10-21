@@ -49,6 +49,36 @@ Nothing leaves your machine except the snippets actually sent to the AI and, if 
   compiles, then shows the edits for you to accept, per hunk and per file.
 - **Undo anything:** the history keeps what every save and AI change replaced.
 
+## Check a paper from a terminal, CI or an AI agent
+
+The same engine runs without the editor. Nothing here needs an API key or
+changes your files.
+
+```bash
+# Does it build, and how long is it? Exits 1 if not, or if it is over 8 pages.
+latex-ai check paper/ --pages 8
+latex-ai check paper/main.tex --json      # the same report as JSON
+latex-ai check paper/ --strict            # also fail on overfull boxes and unembedded fonts
+```
+
+- **GitHub Action** ([`action/`](action/README.md)): runs `check` on every push,
+  puts the report on the job summary and the errors on the lines they are about.
+  The release it downloads by default is not published yet (see M23); until then,
+  build `latex-ai` in an earlier step and pass it as `binary`.
+- **MCP server** for Claude Code, Codex, Cursor or any other MCP client. The
+  agent edits the `.tex` files with its own tools and calls Renkeu to see what
+  came of it, so the tokens are billed to the agent's own plan, not to us:
+
+  ```bash
+  claude mcp add renkeu -- latex-ai mcp /path/to/paper
+  ```
+
+  or, in a client's JSON config,
+  `{"mcpServers": {"renkeu": {"command": "latex-ai", "args": ["mcp", "/path/to/paper"]}}}`.
+  Tools: `compile`, `diagnostics`, `layout_report`, `locate_in_pdf`,
+  `locate_in_source` and `render_page` (the page as an image). The server only
+  reads the project.
+
 ## The one trick worth knowing
 
 Normally, turning LaTeX into a PDF means installing a giant toolkit (TeX Live —
@@ -317,7 +347,7 @@ package):
 |---|---|
 | `crates/compiler` | Compiles a project in a killable worker process (this binary, re-executed): main-file detection, project fingerprint, content-addressed build store, reads the TeX log through `texlog` |
 | `crates/latex_ai_core` | Use-case-agnostic services: config and secrets, AI planner, edit engine and TeX lint, storage + history, path sandbox, prompt safety, fuzzy search, metrics |
-| `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool |
+| `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool (`serve`, `compile`, `check`, `mcp`, `doctor`) |
 | `crates/texlog` | Structured diagnostics (errors, warnings, boxes) from TeX and BibTeX logs; pure, no I/O, publishable on its own |
 | `crates/layout` | Layout facts for a build, with no AI: page count, how full the last page is, where a page limit is crossed, overfull and underfull boxes with their place on the page, paragraphs ending in a very short line |
 | `crates/synctex` | `.synctex(.gz)` parser, scaled-point→PDF-point conversion, backward *and* forward search |

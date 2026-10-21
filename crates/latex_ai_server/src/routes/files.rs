@@ -40,16 +40,13 @@ pub(crate) fn list_workspace_files(root: &Path) -> Vec<String> {
                 {
                     dirs.push(path);
                 }
-            } else if file_type.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if matches!(ext, "tex" | "bib" | "sty" | "cls" | "tikz") {
-                        if let Ok(rel) = path.strip_prefix(root) {
-                            if !is_denied(rel) {
-                                result.push(rel.to_string_lossy().into_owned());
-                            }
-                        }
-                    }
-                }
+            } else if file_type.is_file()
+                && let Some(ext) = path.extension().and_then(|e| e.to_str())
+                && matches!(ext, "tex" | "bib" | "sty" | "cls" | "tikz")
+                && let Ok(rel) = path.strip_prefix(root)
+                && !is_denied(rel)
+            {
+                result.push(rel.to_string_lossy().into_owned());
             }
         }
     }

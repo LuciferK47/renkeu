@@ -84,10 +84,10 @@ pub fn parse_content(content: &str) -> SyncTexData {
             break;
         }
         if let Some(rest) = line.strip_prefix("Input:") {
-            if let Some((tag, name)) = rest.split_once(':') {
-                if let Ok(tag) = tag.parse::<u32>() {
-                    data.inputs.insert(tag, name.to_owned());
-                }
+            if let Some((tag, name)) = rest.split_once(':')
+                && let Ok(tag) = tag.parse::<u32>()
+            {
+                data.inputs.insert(tag, name.to_owned());
             }
         } else if let Some(v) = line.strip_prefix("SyncTeX Version:") {
             data.version = v.trim().parse().unwrap_or(1);

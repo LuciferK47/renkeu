@@ -148,10 +148,10 @@ impl Builds {
 
     /// Delete a scratch directory that will not be published.
     pub async fn discard(&self, scratch: &Path) {
-        if let Err(e) = tokio::fs::remove_dir_all(scratch).await {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(error = %e, "could not remove a scratch build directory");
-            }
+        if let Err(e) = tokio::fs::remove_dir_all(scratch).await
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(error = %e, "could not remove a scratch build directory");
         }
     }
 
@@ -161,10 +161,10 @@ impl Builds {
             return out;
         };
         while let Ok(Some(entry)) = entries.next_entry().await {
-            if let Some(id) = entry.file_name().to_str() {
-                if let Some(build) = self.get(id).await {
-                    out.push(build);
-                }
+            if let Some(id) = entry.file_name().to_str()
+                && let Some(build) = self.get(id).await
+            {
+                out.push(build);
             }
         }
         out

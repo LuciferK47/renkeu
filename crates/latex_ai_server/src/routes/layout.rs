@@ -9,10 +9,9 @@ use crate::AppState;
 use crate::error::ApiError;
 use axum::Json;
 use axum::extract::{Query, State};
-use layout::{LayoutReport, Options, Resolver};
+use layout::LayoutReport;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
-use synctex::resolve_input_name;
+use std::path::PathBuf;
 use tracing::instrument;
 
 /// A budget beyond this is a typo, not a page limit.
@@ -58,31 +57,13 @@ pub async fn layout(
     let main = build.manifest.main.clone();
     let diagnostics = build.manifest.diagnostics.clone();
     let page_limit = q.pages;
-    let analysed = {
-        let data = std::sync::Arc::clone(&data);
-        tokio::task::spawn_blocking(move || {
-            let file_of = |tag: u32| {
-                data.inputs
-                    .get(&tag)
-                    .and_then(|name| resolve_input_name(name, &root))
-                    .map_or_else(|| main.clone(), |p| slashes(&p))
-            };
-            let tag_of = |file: &str| data.tag_for_file(Path::new(file), &root, Path::new(&main));
-            layout::analyze(
-                &data,
-                &diagnostics,
-                &Resolver {
-                    file_of: &file_of,
-                    tag_of: &tag_of,
-                },
-                &Options { page_limit },
-            )
-        })
-        .await
-        .map_err(|e| ApiError::Internal {
-            message: e.to_string(),
-        })?
-    };
+    let analysed = tokio::task::spawn_blocking(move || {
+        crate::check::analyse_layout(&data, &diagnostics, &root, &main, page_limit)
+    })
+    .await
+    .map_err(|e| ApiError::Internal {
+        message: e.to_string(),
+    })?;
 
     let pdf: PathBuf = build.pdf_path();
     let fonts_not_embedded = tokio::task::spawn_blocking(move || {
@@ -101,11 +82,4 @@ pub async fn layout(
         report: analysed,
         fonts_not_embedded,
     }))
-}
-
-fn slashes(path: &Path) -> String {
-    path.components()
-        .map(|c| c.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
 }

@@ -423,16 +423,15 @@ async fn finish(
             Ok(outcomes) => {
                 // The errors that were healed on the way here are part of the
                 // audit trail for this change.
-                if let (Some(first), false) = (outcomes.first(), failures.is_empty()) {
-                    if let Err(e) = latex_ai_core::storage::jobs::record_compile_errors(
+                if let (Some(first), false) = (outcomes.first(), failures.is_empty())
+                    && let Err(e) = latex_ai_core::storage::jobs::record_compile_errors(
                         state.store.pool(),
                         first.history_id,
                         &failures,
                     )
                     .await
-                    {
-                        tracing::warn!(error = %e, "could not record compile errors");
-                    }
+                {
+                    tracing::warn!(error = %e, "could not record compile errors");
                 }
                 let of_active = outcomes.iter().find(|o| o.path == Path::new(active));
                 let files: Vec<_> = outcomes

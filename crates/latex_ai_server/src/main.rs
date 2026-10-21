@@ -54,6 +54,51 @@ enum Command {
     /// The container has no shell to inspect, and a missing library otherwise
     /// shows up only as a 500 on the first page request.
     Doctor,
+    /// Compile a project and report on it: whether it builds, how many pages
+    /// it has, overfull boxes, short last lines, unembedded fonts. Exits
+    /// non-zero when it does not build or goes over `--pages`.
+    ///
+    /// Prints Markdown (or JSON with `--json`) on stdout, so it can be
+    /// appended to a GitHub job summary. Nothing in the project is changed.
+    Check {
+        /// A `.tex` file, or a folder (its main file is found).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Main file inside a folder, when it has more than one candidate.
+        #[arg(long)]
+        main: Option<String>,
+        /// Fail when the PDF has more pages than this.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=10_000))]
+        pages: Option<u32>,
+        /// Also fail on overfull boxes and fonts that are not embedded.
+        #[arg(long)]
+        strict: bool,
+        /// Print the report as JSON.
+        #[arg(long, conflicts_with = "github")]
+        json: bool,
+        /// For GitHub Actions: add the report to the job summary
+        /// (`$GITHUB_STEP_SUMMARY`) and print workflow annotations that put
+        /// the findings on the lines they are about.
+        #[arg(long)]
+        github: bool,
+        /// TeX bundle to load: a URL or a local path. Tectonic's default when omitted.
+        #[arg(long)]
+        bundle: Option<String>,
+    },
+    /// Serve the checker to an AI agent over the Model Context Protocol
+    /// (stdio). Tools: compile, diagnostics, `layout_report`, `locate_in_pdf`,
+    /// `locate_in_source`, `render_page`. Reads the project, never writes to it.
+    Mcp {
+        /// A `.tex` file, or a folder (its main file is found).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Main file inside a folder, when it has more than one candidate.
+        #[arg(long)]
+        main: Option<String>,
+        /// TeX bundle to load: a URL or a local path.
+        #[arg(long)]
+        bundle: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -70,6 +115,9 @@ async fn run() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
+        // Stdout belongs to the command's output (and, for `mcp`, to the
+        // protocol); logs never go there.
+        .with_writer(std::io::stderr)
         .init();
 
     match Cli::parse().command {
@@ -77,6 +125,29 @@ async fn run() -> anyhow::Result<()> {
         Command::Compile { file, out } => compile(&file, &out).await,
         Command::Healthcheck { port } => healthcheck(port).await,
         Command::Doctor => doctor(),
+        Command::Check {
+            path,
+            main,
+            pages,
+            strict,
+            json,
+            github,
+            bundle,
+        } => {
+            let how = if json {
+                Output::Json
+            } else if github {
+                Output::Github
+            } else {
+                Output::Markdown
+            };
+            check(&path, main.as_deref(), pages, strict, how, bundle).await
+        }
+        Command::Mcp { path, main, bundle } => {
+            let bench = latex_ai_server::check::Workbench::open(&path, main.as_deref(), bundle)?;
+            tracing::info!(main = bench.main(), "MCP server ready on stdio");
+            latex_ai_server::mcp::serve(bench).await
+        }
     }
 }
 
@@ -86,6 +157,54 @@ fn doctor() -> anyhow::Result<()> {
     let source =
         latex_ai_server::bootstrap::check_pdfium().context("PDF rendering is unavailable")?;
     println!("pdfium: ok ({source})");
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum Output {
+    Markdown,
+    Json,
+    Github,
+}
+
+// The report is this command's output, not a log line.
+#[allow(clippy::print_stdout)]
+async fn check(
+    path: &std::path::Path,
+    main: Option<&str>,
+    pages: Option<u32>,
+    strict: bool,
+    output: Output,
+    bundle: Option<String>,
+) -> anyhow::Result<()> {
+    let bench = latex_ai_server::check::Workbench::open(path, main, bundle)?;
+    let report = bench.check(pages, strict).await?;
+    match output {
+        Output::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+        Output::Markdown => print!("{}", report.to_markdown()),
+        Output::Github => {
+            use std::io::Write as _;
+            for line in report.github_annotations() {
+                println!("{line}");
+            }
+            match std::env::var_os("GITHUB_STEP_SUMMARY") {
+                Some(file) => {
+                    let mut summary = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&file)
+                        .with_context(|| format!("opening {}", file.to_string_lossy()))?;
+                    writeln!(summary, "{}", report.to_markdown())?;
+                }
+                None => print!("{}", report.to_markdown()),
+            }
+        }
+    }
+    // Drop removes the build store; `exit` would skip it.
+    drop(bench);
+    if !report.passed {
+        std::process::exit(1);
+    }
     Ok(())
 }
 

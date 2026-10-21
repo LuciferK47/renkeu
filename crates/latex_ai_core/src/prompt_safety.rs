@@ -43,14 +43,14 @@ pub fn sanitize(instruction: &str, max_len: usize) -> Result<String, PromptInjec
         .collect();
     let lowered = cleaned.to_lowercase();
     for pat in PROMPT_INJECTION_PATTERNS {
-        if let Ok(re) = regex::Regex::new(pat) {
-            if re.is_match(&lowered) {
-                tracing::warn!(
-                    intent = %instruction.chars().take(100).collect::<String>(),
-                    "blocked injection attempt"
-                );
-                return Err(PromptInjectionError::Injection);
-            }
+        if let Ok(re) = regex::Regex::new(pat)
+            && re.is_match(&lowered)
+        {
+            tracing::warn!(
+                intent = %instruction.chars().take(100).collect::<String>(),
+                "blocked injection attempt"
+            );
+            return Err(PromptInjectionError::Injection);
         }
     }
     Ok(cleaned.trim().to_owned())

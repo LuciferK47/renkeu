@@ -159,10 +159,10 @@ impl ScratchProject {
 
     /// Remove the mirror now. Idempotent; also done on drop.
     pub fn cleanup(&self) {
-        if let Err(e) = std::fs::remove_dir_all(&self.root) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(root = %self.root.display(), error = %e, "scratch cleanup failed");
-            }
+        if let Err(e) = std::fs::remove_dir_all(&self.root)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(root = %self.root.display(), error = %e, "scratch cleanup failed");
         }
     }
 

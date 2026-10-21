@@ -16,8 +16,10 @@ use tower_http::trace::TraceLayer;
 
 pub(crate) mod agent;
 pub mod bootstrap;
+pub mod check;
 pub mod error;
 pub mod jobs;
+pub mod mcp;
 pub mod proposals;
 pub mod routes;
 pub(crate) mod sse;

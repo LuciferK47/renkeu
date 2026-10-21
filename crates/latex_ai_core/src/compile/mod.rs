@@ -124,13 +124,13 @@ impl AgentEdit {
 
         // A reversed range would otherwise be caught only at apply time, or
         // silently splice nothing.
-        if let (Some(start), Some(end)) = (self.start_line, self.end_line) {
-            if start > end {
-                return Err(EditValidationError::InvertedRange {
-                    start: start.get(),
-                    end: end.get(),
-                });
-            }
+        if let (Some(start), Some(end)) = (self.start_line, self.end_line)
+            && start > end
+        {
+            return Err(EditValidationError::InvertedRange {
+                start: start.get(),
+                end: end.get(),
+            });
         }
 
         let missing = |op, field| Err(EditValidationError::MissingField { op, field });
