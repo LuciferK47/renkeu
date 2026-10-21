@@ -28,10 +28,33 @@ fn fields() -> Fields {
     }
 }
 
-async fn compile_template(id: &str) -> Result<(), String> {
+/// Plain sample text for the gallery pictures.
+fn gallery_fields() -> Fields {
+    Fields {
+        title: "A Title for Your Work".to_owned(),
+        authors: vec![
+            Author {
+                name: "First Author".to_owned(),
+                affiliation: "Your Institution".to_owned(),
+                email: "first@example.org".to_owned(),
+            },
+            Author {
+                name: "Second Author".to_owned(),
+                affiliation: "Another Institution".to_owned(),
+                email: "second@example.org".to_owned(),
+            },
+        ],
+        abstract_text: "A short summary of what this document is about and what it finds."
+            .to_owned(),
+        keywords: "keyword one, keyword two".to_owned(),
+        date: String::new(),
+    }
+}
+
+async fn compile_template(id: &str, fields: &Fields) -> Result<Vec<u8>, String> {
     let dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(dir.path()).unwrap();
-    for file in render(id, &fields()).unwrap() {
+    for file in render(id, fields).unwrap() {
         let path = root.join(file.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, file.content).unwrap();
@@ -60,14 +83,14 @@ async fn compile_template(id: &str) -> Result<(), String> {
     if !out.pdf.starts_with(b"%PDF") {
         return Err("not a PDF".to_owned());
     }
-    Ok(())
+    Ok(out.pdf)
 }
 
 #[tokio::test]
 async fn every_template_compiles() {
     let mut failures = Vec::new();
     for t in list() {
-        if let Err(e) = compile_template(t.id).await {
+        if let Err(e) = compile_template(t.id, &fields()).await {
             failures.push(format!("{}: {e}", t.id));
         }
     }
@@ -76,4 +99,23 @@ async fn every_template_compiles() {
         "templates that failed:\n{}",
         failures.join("\n")
     );
+}
+
+/// Not a test: rewrites `templates/<id>/thumbnail.png` from the real engine.
+/// Run it after changing a template, then commit the PNGs:
+///
+///   cargo test -p latex-ai-server --test templates regenerate_thumbnails -- --ignored
+#[tokio::test]
+#[ignore = "writes files into the source tree"]
+async fn regenerate_thumbnails() {
+    let renderer = visual::render::renderer().expect("libpdfium (see README)");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../latex_ai_core/templates");
+    for t in list() {
+        let pdf = compile_template(t.id, &gallery_fields()).await.unwrap();
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), pdf).unwrap();
+        let page = renderer.render_page(tmp.path(), 0, 72).unwrap();
+        let thumb = page.resize(240, 340, image::imageops::FilterType::Lanczos3);
+        thumb.save(dir.join(t.id).join("thumbnail.png")).unwrap();
+    }
 }

@@ -4,7 +4,9 @@
 use crate::AppState;
 use crate::error::ApiError;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path as UrlPath, State};
+use axum::http::{HeaderValue, header};
+use axum::response::{IntoResponse, Response};
 use latex_ai_core::security::resolve_new_path;
 use latex_ai_core::storage::Precondition;
 use latex_ai_core::templates::{self, Fields, TemplateError, TemplateInfo};
@@ -139,4 +141,24 @@ pub async fn render_frontmatter(Json(body): Json<TemplateBody>) -> Result<Json<B
     let block = templates::frontmatter_block(&body.template, &body.fields)
         .map_err(|e| template_error(&e))?;
     Ok(Json(Block { block }))
+}
+
+/// `GET /api/templates/{id}/thumbnail` — a PNG of the template's first page.
+/// It only changes with a new build, so a day of caching is safe.
+pub async fn thumbnail(UrlPath(id): UrlPath<String>) -> Result<Response, ApiError> {
+    let png = templates::thumbnail(&id).ok_or_else(|| ApiError::NotFound {
+        message: format!("no template called `{id}`"),
+    })?;
+    let mut res = png.into_response();
+    let h = res.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    h.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=86400"),
+    );
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(res)
 }

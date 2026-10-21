@@ -164,3 +164,35 @@ async fn the_front_matter_route_returns_a_marked_block() {
     assert!(block.ends_with("% renkeu:frontmatter end"));
     assert!(block.contains(r"\title{Rust \& TeX}"));
 }
+
+#[tokio::test]
+async fn a_thumbnail_is_a_cacheable_png_and_unknown_ids_are_404() {
+    let app = app(&[]).await;
+    let res = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/templates/article/thumbnail")
+                .header("host", "localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.headers()["content-type"], "image/png");
+    assert!(
+        res.headers()["cache-control"]
+            .to_str()
+            .unwrap()
+            .contains("max-age")
+    );
+    let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(bytes.starts_with(b"\x89PNG"));
+
+    let (status, _) = request(&app, "GET", "/api/templates/nope/thumbnail", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

@@ -9,6 +9,9 @@ test('an empty project starts from a template and compiles', async ({ page }) =>
 
   const dialog = page.getByRole('dialog', { name: 'Start from a template' })
   await dialog.getByRole('tab', { name: 'Papers' }).click()
+  // Each card shows the compiled first page of its template.
+  const picture = dialog.getByRole('button', { name: /IEEE conference/ }).locator('img')
+  await expect.poll(() => picture.evaluate((img) => img.complete && img.naturalWidth > 0)).toBe(true)
   await dialog.getByRole('button', { name: /IEEE conference/ }).click()
 
   await page.getByLabel('Title', { exact: true }).fill('Cats & Dogs: 100% of everything')

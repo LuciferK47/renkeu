@@ -222,6 +222,10 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
         .route("/api/project/replace", post(routes::search::replace))
         .route("/api/templates", get(routes::templates::list_templates))
         .route(
+            "/api/templates/{id}/thumbnail",
+            get(routes::templates::thumbnail),
+        )
+        .route(
             "/api/templates/frontmatter",
             post(routes::templates::render_frontmatter),
         )

@@ -21,6 +21,8 @@ const END: &str = "% renkeu:frontmatter end";
 struct Embedded {
     id: &'static str,
     manifest: &'static str,
+    /// First page of the compiled template, as a PNG (see `tests/templates.rs`).
+    thumbnail: &'static [u8],
     files: &'static [(&'static str, &'static str)],
 }
 
@@ -29,6 +31,7 @@ macro_rules! template {
         Embedded {
             id: $id,
             manifest: include_str!(concat!("../templates/", $id, "/template.toml")),
+            thumbnail: include_bytes!(concat!("../templates/", $id, "/thumbnail.png")),
             files: &[$(($file, include_str!(concat!("../templates/", $id, "/", $file)))),+],
         }
     };
@@ -138,6 +141,12 @@ pub fn list() -> Vec<TemplateInfo> {
             })
         })
         .collect()
+}
+
+/// The gallery picture for `id`: a PNG of the template's first page.
+#[must_use]
+pub fn thumbnail(id: &str) -> Option<&'static [u8]> {
+    TEMPLATES.iter().find(|t| t.id == id).map(|t| t.thumbnail)
 }
 
 /// Escape text for a LaTeX argument. Newlines are kept so paragraphs survive.
@@ -347,6 +356,25 @@ mod tests {
                 t.id
             );
         }
+    }
+
+    #[test]
+    fn every_template_has_a_png_thumbnail() {
+        for t in TEMPLATES {
+            let png = thumbnail(t.id).unwrap();
+            assert!(
+                png.starts_with(b"\x89PNG\r\n\x1a\n"),
+                "{} thumbnail is not a PNG",
+                t.id
+            );
+            assert!(
+                png.len() < 60_000,
+                "{} thumbnail is {} bytes",
+                t.id,
+                png.len()
+            );
+        }
+        assert!(thumbnail("nope").is_none());
     }
 
     #[test]

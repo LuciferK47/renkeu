@@ -145,6 +145,10 @@ export class APIClient {
     return this.request('GET', '/templates');
   }
 
+  templateThumbnailUrl(id) {
+    return this.buildUrl(`/templates/${encodeURIComponent(id)}/thumbnail`);
+  }
+
   startFromTemplate(template, fields) {
     return this.request('POST', '/project/template', { body: { template, fields } });
   }

@@ -75,6 +75,7 @@
         {#each shown as t (t.id)}
           <li>
             <button type="button" class="card" onclick={() => choose(t.id)}>
+              <img src={api.templateThumbnailUrl(t.id)} alt="" width="120" height="170" loading="lazy" />
               <strong>{t.name}</strong>
               <span class="cat">{t.category}</span>
               <span class="desc">{t.description}</span>
@@ -140,6 +141,7 @@
   .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.6rem; }
   .card { display: flex; flex-direction: column; gap: 0.25rem; width: 100%; height: 100%; padding: 0.7rem; text-align: left; font: inherit; color: inherit; background: hsl(var(--surface-0)); border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); cursor: pointer; }
   .card:hover, .card:focus-visible { border-color: hsl(var(--primary)); outline: none; }
+  .card img { align-self: center; width: 100%; max-width: 8rem; height: auto; background: #fff; border: 1px solid hsl(var(--border)); border-radius: 2px; }
   .cat { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: hsl(var(--text-faint)); }
   .desc { font-size: 13px; color: hsl(var(--text-dim)); }
   form { display: flex; flex-direction: column; gap: 0.7rem; }
