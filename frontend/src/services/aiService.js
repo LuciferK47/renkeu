@@ -31,6 +31,8 @@ async function agentLoopStream(filePath, instruction, onEvent, onError, options 
     auto_apply: options.autoApply ?? false
   };
   if (options.maxIterations) body.max_iterations = options.maxIterations;
+  // Fit the document to this many pages; the server measures every attempt.
+  if (options.pages) body.pages = options.pages;
   return streamAgentEndpoint('/agent/stream', body, onEvent, onError, options.signal);
 }
 

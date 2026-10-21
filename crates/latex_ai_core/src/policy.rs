@@ -35,6 +35,10 @@ pub enum PolicyViolation {
     },
     #[error("proposed text line {line}: `\\{command}` is not allowed in AI edits")]
     ForbiddenCommand { command: String, line: usize },
+    #[error(
+        "proposed text line {line}: {what} is not allowed when fitting a page limit; venues ban it"
+    )]
+    LayoutTrick { what: &'static str, line: usize },
 }
 
 /// Commands that read or load a file named by their argument. Matched by
@@ -133,7 +137,7 @@ pub fn lint_edits<'a>(
 }
 
 /// The text an edit puts into the file (anchors and removed lines excluded).
-fn added_text(edit: &AgentEdit) -> String {
+pub(crate) fn added_text(edit: &AgentEdit) -> String {
     match edit.op {
         AgentOp::RewriteFile => edit.payload.clone().unwrap_or_default(),
         AgentOp::ApplyUnifiedDiff => edit
@@ -151,7 +155,7 @@ fn added_text(edit: &AgentEdit) -> String {
 
 /// Drop a trailing `% comment` (a `%` not escaped by an odd run of
 /// backslashes), so a commented-out hazard is not flagged.
-fn strip_comment(line: &str) -> &str {
+pub(crate) fn strip_comment(line: &str) -> &str {
     let bytes = line.as_bytes();
     let mut backslashes = 0;
     for (i, b) in bytes.iter().enumerate() {

@@ -6,7 +6,7 @@
   import { api } from '../lib/api/client.js'
   import { readPref, writePref } from '../lib/storage.js'
 
-  let { compile, onshow = () => {}, onreveal = () => {} } = $props()
+  let { compile, onshow = () => {}, onreveal = () => {}, onfit = null } = $props()
 
   const BUDGET_KEY = 'latex-ai:page-budget'
   let budget = $state(readPref(BUDGET_KEY, ''))
@@ -89,6 +89,9 @@
         <p class="note bad">
           {plural(report.pages, 'page')} against a limit of {report.budget.limit}: about {plural(report.budget.lines_over, 'line')} too many.
         </p>
+        {#if onfit}
+          <button class="fit" onclick={() => onfit(report.budget.limit)}>Fit to {plural(report.budget.limit, 'page')} with the assistant…</button>
+        {/if}
         {#if report.budget.first_over}
           {@const first = report.budget.first_over}
           <button class="item" onclick={() => onshow(first)}>
@@ -149,6 +152,7 @@
   .item { display: flex; gap: 0.5rem; align-items: baseline; width: 100%; text-align: left; padding: 0.25rem 0.75rem; background: none; border: none; font: inherit; color: hsl(var(--foreground)); cursor: pointer; }
   .item:hover:not(:disabled) { background: hsl(var(--accent)); }
   .item:disabled { cursor: default; }
+  .fit { margin: 0.3rem 0.75rem; padding: 0.25rem 0.7rem; font: inherit; color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); border: none; border-radius: var(--radius-xs); cursor: pointer; }
   .msg { flex: 1; }
   .loc { color: hsl(var(--text-dim)); font-family: 'JetBrains Mono', monospace; font-size: 12px; white-space: nowrap; }
   .note { margin: 0; padding: 0.15rem 0.75rem; color: hsl(var(--text-dim)); }

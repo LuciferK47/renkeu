@@ -62,6 +62,18 @@ export class AiState {
   }
 
   /**
+   * Bring the document down to `pages`. The server compiles and measures every
+   * attempt, refuses tricks like negative \vspace and edits that delete
+   * content, and offers only a result that meets the limit.
+   */
+  async fit(pages, note = '') {
+    const shown = `Fit to ${plural(pages, 'page')}${note ? `: ${note}` : ''}`;
+    return this.#run(shown, (path, onEvent, onError, signal) =>
+      this.#service.agentLoopStream(path, note, onEvent, onError, { signal, pages, maxIterations: 6 })
+    );
+  }
+
+  /**
    * One-shot plan without the compile loop (the "Ask the AI" box). Returns the
    * proposal, or null if there was none.
    */
@@ -149,13 +161,16 @@ export class AiState {
         break;
       case 'compiled':
         if (data.success) timeline.finish('ok', 'It compiles');
+        else if (typeof data.pages === 'number') timeline.finish('failed', `Still ${plural(data.pages, 'page')}`, data.error_summary);
+        else if (data.layout) timeline.finish('failed', 'Edit not accepted', data.error_summary);
         else timeline.finish('failed', 'It did not compile', data.error_summary);
         break;
       case 'proposal': {
         const files = data.files?.length ?? 1;
+        const fit = data.fit ? ` · ${data.fit.pages_before} → ${data.fit.pages_after} pages` : '';
         timeline.add(
           'proposal',
-          `Proposed ${plural(data.edit_count, 'edit')}${files > 1 ? ` in ${files} files` : ''}`,
+          `Proposed ${plural(data.edit_count, 'edit')}${files > 1 ? ` in ${files} files` : ''}${fit}`,
           'ok'
         );
         this.proposal = { ...data, file: path };
@@ -169,7 +184,7 @@ export class AiState {
       case 'done':
         if (run.outcome === null) {
           run.outcome = data.success ? OUTCOME.success : OUTCOME.failed;
-          if (!data.success && data.message) run.note = data.message;
+          if (data.message && (!data.success || data.fit)) run.note = data.message;
         }
         break;
       case 'error':

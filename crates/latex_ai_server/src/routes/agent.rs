@@ -28,6 +28,9 @@ use tracing::instrument;
 
 const MAX_INSTRUCTION_LEN: usize = 10_000;
 
+/// A limit beyond this is a typo, not a venue rule.
+const MAX_PAGE_LIMIT: u32 = 10_000;
+
 fn default_max_iterations() -> u8 {
     3
 }
@@ -43,6 +46,8 @@ pub struct PlanRequest {
 #[serde(deny_unknown_fields)]
 pub struct AgentLoopRequest {
     pub file_path: String,
+    /// What to change. Optional when `pages` is set.
+    #[serde(default)]
     pub instruction: String,
     /// `false` (default): run the loop, verify the result compiles, then
     /// stop at `awaiting_approval` with a reviewable proposal. `true`:
@@ -51,6 +56,10 @@ pub struct AgentLoopRequest {
     pub auto_apply: bool,
     #[serde(default = "default_max_iterations")]
     pub max_iterations: u8,
+    /// Fit the document to this many pages. Then `instruction` is optional
+    /// extra guidance, and the loop only succeeds when the page count is met.
+    #[serde(default)]
+    pub pages: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,13 +189,32 @@ pub async fn agent_loop_stream(
     } else {
         AccessKind::Read
     };
-    let (abs, instruction) = prepare(&state, &req.file_path, &req.instruction, access)?;
+    if req.pages.is_some_and(|p| p == 0 || p > MAX_PAGE_LIMIT) {
+        return Err(ApiError::Unprocessable {
+            message: format!("a page limit is between 1 and {MAX_PAGE_LIMIT}"),
+        });
+    }
+    // Fitting a page limit needs no words from the user; everything else does.
+    let wordless = req.pages.is_some() && req.instruction.trim().is_empty();
+    let said = if wordless {
+        "fit the page limit"
+    } else {
+        &req.instruction
+    };
+    let (abs, mut instruction) = prepare(&state, &req.file_path, said, access)?;
+    if wordless {
+        instruction.clear();
+    }
 
     let run = LoopRequest {
         active: relative(&state, &abs, &req.file_path),
         instruction,
         auto_apply: req.auto_apply,
-        max_iterations: req.max_iterations.clamp(1, 5),
+        // Shortening takes more tries than fixing an error does.
+        max_iterations: req
+            .max_iterations
+            .clamp(1, if req.pages.is_some() { 8 } else { 5 }),
+        page_limit: req.pages,
     };
     let cancel = CancellationToken::new();
     let (tx, rx) = tokio::sync::mpsc::channel(64);

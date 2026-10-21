@@ -21,6 +21,7 @@
 use crate::AppState;
 use crate::error::ApiError;
 use crate::sse::{EventSink, SseEvent};
+use latex_ai_compiler::builds::Build;
 use latex_ai_compiler::diagnostics::{Diagnostic, Severity};
 use latex_ai_compiler::project::project_files;
 use latex_ai_compiler::scratchpad::ScratchProject;
@@ -28,10 +29,13 @@ use latex_ai_compiler::{CompileError, CompileJob};
 use latex_ai_core::ai::{PlanFile, PlanRequest};
 use latex_ai_core::apply::edits_from_diff;
 use latex_ai_core::compile::AgentEdit;
+use latex_ai_core::pagefit::{Inventory, lint_page_fit};
 use latex_ai_core::policy::lint_edit;
 use latex_ai_core::security::has_writable_extension;
 use latex_ai_core::storage::jobs::CompileErrorRecord;
 use latex_ai_core::storage::{FileChange, etag_of};
+use layout::LayoutReport;
+use serde::Serialize;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -51,6 +55,115 @@ pub(crate) struct LoopRequest {
     pub instruction: String,
     pub auto_apply: bool,
     pub max_iterations: u8,
+    /// Succeed only when the document compiles to at most this many pages.
+    pub page_limit: Option<u32>,
+}
+
+/// What a page-fit run achieved, sent with its result.
+#[derive(Debug, Clone, Copy, Serialize)]
+struct FitSummary {
+    limit: u32,
+    pages_before: u32,
+    pages_after: u32,
+}
+
+/// What one compile of the working copy showed.
+struct Attempt {
+    success: bool,
+    diagnostics: Vec<Diagnostic>,
+    /// Measured only when a page limit is the goal.
+    layout: Option<LayoutReport>,
+}
+
+fn job_of(state: &AppState, root: &Path, main: &str) -> CompileJob {
+    let compile = state.settings.snapshot().config.compile.clone();
+    CompileJob {
+        root: root.to_path_buf(),
+        main: main.to_owned(),
+        synctex: false,
+        bundle: compile.bundle,
+        timeout: Duration::from_secs(compile.timeout_secs),
+    }
+}
+
+/// Compile the working copy. With a page limit the build is kept (it has a
+/// `SyncTeX` map) and measured; without one it is thrown away as before.
+async fn attempt(
+    state: &AppState,
+    job: &CompileJob,
+    page_limit: Option<u32>,
+    cancel: &CancellationToken,
+) -> Result<Attempt, CompileError> {
+    let Some(limit) = page_limit else {
+        let out = state.compiler.compile_scratch(job, cancel).await?;
+        return Ok(Attempt {
+            success: out.success,
+            diagnostics: out.diagnostics,
+            layout: None,
+        });
+    };
+    let measured = CompileJob {
+        synctex: true,
+        ..job.clone()
+    };
+    let build = state.compiler.compile(&measured, cancel).await?;
+    let success = build.manifest.success && build.manifest.has_pdf;
+    let layout = if success {
+        measure(&build, job, limit).await
+    } else {
+        None
+    };
+    Ok(Attempt {
+        success,
+        diagnostics: build.manifest.diagnostics.clone(),
+        layout,
+    })
+}
+
+async fn measure(build: &Build, job: &CompileJob, limit: u32) -> Option<LayoutReport> {
+    if !build.manifest.has_synctex {
+        return None;
+    }
+    let (path, root, main) = (build.synctex_path(), job.root.clone(), job.main.clone());
+    let diagnostics = build.manifest.diagnostics.clone();
+    tokio::task::spawn_blocking(move || {
+        let data = synctex::SyncTexData::parse(&path).ok()?;
+        Some(crate::check::analyse_layout(
+            &data,
+            &diagnostics,
+            &root,
+            &main,
+            Some(limit),
+        ))
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// The files holding the overflow and the short last lines: where the
+/// planner should look next.
+fn blamed_files(report: &LayoutReport) -> Vec<String> {
+    let first = report.budget.as_ref().and_then(|b| b.first_over.as_ref());
+    let mut out: Vec<String> = Vec::new();
+    for place in first.into_iter().chain(&report.short_last_lines) {
+        if !out.contains(&place.file) {
+            out.push(place.file.clone());
+        }
+    }
+    out
+}
+
+/// What the working copy lost compared with the user's files, if anything.
+async fn content_lost(scratch: &ScratchProject) -> Option<String> {
+    let changes = scratch.changes().await.ok()?;
+    let join = |pick: fn(&(String, String, String)) -> &str| {
+        changes.iter().map(pick).collect::<Vec<_>>().join("\n")
+    };
+    let before = Inventory::of(&join(|c| c.1.as_str()));
+    let after = Inventory::of(&join(|c| c.2.as_str()));
+    let lost = before.lost_in(&after);
+    (!lost.is_empty()).then(|| lost.join("; "))
 }
 
 /// Stamp server-computed hunk ids so a proposal can be applied per hunk
@@ -133,7 +246,12 @@ pub(crate) async fn run_loop(
         instruction: original,
         auto_apply,
         max_iterations,
+        page_limit,
     } = req;
+    let original = match page_limit {
+        Some(limit) => crate::fit::instruction(limit, &original),
+        None => original,
+    };
 
     let Ok(initial) = tokio::fs::read_to_string(state.workspace_root.join(&active)).await else {
         return sink.fail("could not read file").await;
@@ -172,6 +290,57 @@ pub(crate) async fn run_loop(
     // Diagnostics from every failed iteration, attached to the history row
     // once the run succeeds (masterplan §7.1, §12 M5).
     let mut failures: Vec<CompileErrorRecord> = Vec::new();
+
+    // A page limit starts from a measurement: how far over, and where.
+    let mut pages_before = 0;
+    let mut closest: Option<u32> = None;
+    if let Some(limit) = page_limit {
+        let job = job_of(&state, scratch.root(), &main);
+        let base = match attempt(&state, &job, page_limit, &cancel).await {
+            Ok(a) => a,
+            Err(CompileError::Cancelled) => return,
+            Err(e) => return sink.fail(e.to_string()).await,
+        };
+        let report = match base.layout {
+            Some(report) if base.success => report,
+            _ => {
+                return sink
+                    .fail(format!(
+                        "The document does not compile, so it cannot be fitted to {limit} pages yet:\n{}",
+                        truncate(&describe_errors(&base.diagnostics), MAX_ERROR_SUMMARY_LEN)
+                    ))
+                    .await;
+            }
+        };
+        pages_before = report.pages;
+        if report.pages <= limit {
+            let fit = FitSummary {
+                limit,
+                pages_before,
+                pages_after: report.pages,
+            };
+            sink.emit(SseEvent::Done(json!({
+                "success": true,
+                "message": format!("Already fits: {} page(s), limit {limit}.", report.pages),
+                "iterations": 0,
+                "fit": fit,
+            })))
+            .await;
+            return;
+        }
+        if !sink
+            .emit(SseEvent::Progress(json!({
+                "message": format!("{} pages, limit {limit}. Looking for lines to save...", report.pages),
+                "progress": 0.1,
+            })))
+            .await
+        {
+            return;
+        }
+        feedback = crate::fit::feedback(&report, limit);
+        blamed = blamed_files(&report);
+        closest = Some(report.pages);
+    }
 
     for iteration in 1..=u32::from(max_iterations) {
         state.metrics.record_agent_iteration();
@@ -245,9 +414,15 @@ pub(crate) async fn run_loop(
                 .iter()
                 .find(|(p, _)| *p == edit.file_path)
                 .map_or("", |(_, c)| c.as_str());
-            lint_edit(edit, current)
-                .err()
-                .map(|v| format!("The AI proposed an unsafe edit: {v}"))
+            if let Err(v) = lint_edit(edit, current) {
+                return Some(format!("The AI proposed an unsafe edit: {v}"));
+            }
+            if page_limit.is_some()
+                && let Err(v) = lint_page_fit(edit, current)
+            {
+                return Some(format!("The edit was refused: {v}."));
+            }
+            None
         });
         stamp_hunk_ids(&mut edits);
 
@@ -301,18 +476,47 @@ pub(crate) async fn run_loop(
             continue;
         }
 
-        let job = CompileJob {
-            root: scratch.root().to_path_buf(),
-            main: main.clone(),
-            synctex: false,
-            bundle: state.settings.snapshot().config.compile.bundle.clone(),
-            timeout: Duration::from_secs(state.settings.snapshot().config.compile.timeout_secs),
-        };
-        match state.compiler.compile_scratch(&job, &cancel).await {
+        // Saving space by deleting content is not saving space.
+        if page_limit.is_some()
+            && let Some(lost) = content_lost(&scratch).await
+        {
+            let reason = format!(
+                "The edits removed content ({lost}). Keep every section, figure, table, equation, label and citation; save space by tightening wording instead."
+            );
+            if !reject_attempt(&mut sink, &reason, None).await {
+                return;
+            }
+            feedback = reason;
+            continue;
+        }
+
+        let job = job_of(&state, scratch.root(), &main);
+        match attempt(&state, &job, page_limit, &cancel).await {
             Ok(out) if out.success => {
+                let mut fit = None;
+                if let Some(limit) = page_limit {
+                    let Some(report) = out.layout else {
+                        return sink.fail("could not measure the page count").await;
+                    };
+                    if report.pages > limit {
+                        closest = Some(closest.map_or(report.pages, |c| c.min(report.pages)));
+                        let note = crate::fit::feedback(&report, limit);
+                        blamed = blamed_files(&report);
+                        if !reject_attempt(&mut sink, &note, Some(report.pages)).await {
+                            return;
+                        }
+                        feedback = note;
+                        continue;
+                    }
+                    fit = Some(FitSummary {
+                        limit,
+                        pages_before,
+                        pages_after: report.pages,
+                    });
+                }
                 return finish(
                     &state, &mut sink, &scratch, &original, &active, &initial, iteration,
-                    auto_apply, failures,
+                    auto_apply, failures, fit,
                 )
                 .await;
             }
@@ -361,10 +565,28 @@ pub(crate) async fn run_loop(
         }
     }
 
+    let message = match (page_limit, closest) {
+        (Some(limit), Some(pages)) => format!(
+            "Max iterations reached. Closest: {pages} pages, limit {limit}. Nothing was changed."
+        ),
+        _ => "Max iterations reached".to_owned(),
+    };
     sink.emit(SseEvent::Done(
-        json!({ "success": false, "message": "Max iterations reached" }),
+        json!({ "success": false, "message": message }),
     ))
     .await;
+}
+
+/// An attempt that compiled but is not what was asked for. Not a TeX error,
+/// so it is not recorded as one. `false` means the client is gone.
+async fn reject_attempt(sink: &mut EventSink, reason: &str, pages: Option<u32>) -> bool {
+    sink.emit(SseEvent::Compiled(json!({
+        "success": false,
+        "error_summary": reason,
+        "pages": pages,
+        "layout": true,
+    })))
+    .await
 }
 
 /// Record a failed iteration and tell the client. `false` means it is gone.
@@ -394,6 +616,7 @@ async fn finish(
     iteration: u32,
     auto_apply: bool,
     failures: Vec<CompileErrorRecord>,
+    fit: Option<FitSummary>,
 ) {
     let changes = match scratch.changes().await {
         Ok(c) => c,
@@ -450,6 +673,7 @@ async fn finish(
                     "new_etag": of_active.map_or_else(|| etag_of(initial), |o| o.new_etag.clone()),
                     "iterations": iteration,
                     "files": files,
+                    "fit": fit,
                 })))
                 .await;
             }
@@ -502,6 +726,7 @@ async fn finish(
             "etag": active_etag,
             "files": summary,
             "iterations": iteration,
+            "fit": fit,
         })))
         .await
     {

@@ -122,6 +122,47 @@ describe('AiState.send: the timeline', () => {
   })
 })
 
+describe('AiState.fit: fitting a page limit', () => {
+  it('asks the server for the limit, with room for more attempts, and says so in the chat', async () => {
+    const t = setup()
+    await t.ai.fit(8, 'keep the abstract')
+    expect(t.service.agentLoopStream).toHaveBeenCalledWith(
+      'main.tex', 'keep the abstract', expect.any(Function), expect.any(Function),
+      expect.objectContaining({ pages: 8, maxIterations: 6 })
+    )
+    expect(t.ai.messages[0].text).toBe('Fit to 8 pages: keep the abstract')
+  })
+
+  it('words a missed page count and a refused edit differently from a compile error', async () => {
+    const t = setup()
+    t.service.agentLoopStream.mockImplementation(emit([
+      ['thinking', { iteration: 1 }],
+      ['compiled', { success: false, pages: 9, layout: true, error_summary: 'The document compiles to 9 pages' }],
+      ['thinking', { iteration: 2 }],
+      ['compiled', { success: false, pages: null, layout: true, error_summary: 'The edits removed content' }],
+      ['thinking', { iteration: 3 }],
+      ['compiled', { success: true }],
+      ['proposal', { edit_count: 2, edits: [{}], fit: { limit: 8, pages_before: 9, pages_after: 8 } }],
+      ['done', { success: true, awaiting_approval: true }],
+    ]))
+    await t.ai.fit(8)
+    expect(texts(t.ai).filter((x) => !x.startsWith('Attempt'))).toEqual([
+      'Still 9 pages', 'Edit not accepted', 'It compiles', 'Proposed 2 edits · 9 → 8 pages',
+    ])
+    expect(t.ai.proposal.fit.pages_after).toBe(8)
+  })
+
+  it('a document that already fits ends as a success with the reason', async () => {
+    const t = setup()
+    t.service.agentLoopStream.mockImplementation(emit([
+      ['done', { success: true, message: 'Already fits: 5 page(s), limit 8.', fit: { limit: 8, pages_before: 5, pages_after: 5 } }],
+    ]))
+    await t.ai.fit(8)
+    expect(lastRun(t.ai).outcome).toBe('success')
+    expect(lastRun(t.ai).note).toMatch(/already fits/i)
+  })
+})
+
 describe('AiState.cancel', () => {
   it('aborts the request, marks the run stopped and leaves nothing running', async () => {
     const { ai, service } = setup()

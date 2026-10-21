@@ -26,7 +26,7 @@
   {/each}
   {#if run.outcome}
     <li class="outcome {run.outcome}">
-      {OUTCOME_TEXT[run.outcome]}{#if run.note && run.outcome === 'failed'} {run.note}{/if}
+      {OUTCOME_TEXT[run.outcome]}{#if run.note && (run.outcome === 'failed' || run.outcome === 'success')} {run.note}{/if}
     </li>
   {/if}
 </ol>

@@ -86,7 +86,11 @@
     </button>
   </header>
 
-  {#if proposal.verified}<p class="verified">These edits compile.</p>{/if}
+  {#if proposal.fit}
+    <p class="verified">
+      {proposal.fit.pages_before} → {proposal.fit.pages_after} pages (limit {proposal.fit.limit}). Measured on a compiled copy.
+    </p>
+  {:else if proposal.verified}<p class="verified">These edits compile.</p>{/if}
   {#if error}<p class="bad" role="alert">{error}</p>{/if}
 
   {#if loading}

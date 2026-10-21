@@ -4,7 +4,7 @@
   import { api } from '../lib/api/client.js'
   import LayoutReport from './LayoutReport.svelte'
 
-  let { compile, onreveal = () => {}, onshow = () => {}, onclose = () => {} } = $props()
+  let { compile, onreveal = () => {}, onshow = () => {}, onfit = null, onclose = () => {} } = $props()
 
   let tab = $state('problems')
   let log = $state({ buildId: null, text: '', loading: false, error: null })
@@ -66,7 +66,7 @@
         {/if}
       {/each}
     {:else if tab === 'layout'}
-      <LayoutReport {compile} {onshow} {onreveal} />
+      <LayoutReport {compile} {onshow} {onreveal} {onfit} />
     {:else if !compile.buildId}
       <p class="note">No build yet — compile to see the log.</p>
     {:else if log.loading}

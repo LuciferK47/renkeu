@@ -29,6 +29,7 @@
   import TemplateDialog from './components/TemplateDialog.svelte'
   import SearchDialog from './components/SearchDialog.svelte'
   import InsertDialog from './components/InsertDialog.svelte'
+  import FitDialog from './components/FitDialog.svelte'
   import QuickEdit from './components/QuickEdit.svelte'
   import { lineRange, lineText } from './lib/quickedit.js'
   import { findBlock } from './lib/templates.js'
@@ -256,6 +257,13 @@
   // ---- insert ----------------------------------------------------------
 
   let insertTab = $state('figure')
+  let fitSeed = $state('')
+
+  function openFit(pages = '') {
+    if (!documents.active) return
+    fitSeed = pages
+    ui.openDialog('fit')
+  }
 
   function openInsert(tab = 'figure') {
     if (!documents.active) return
@@ -389,6 +397,7 @@
       { id: 'insert-equation', title: 'Insert equation…', enabled: hasDoc, run: () => openInsert('equation') },
       { id: 'insert-citation', title: 'Insert citation…', enabled: hasDoc, run: () => openInsert('citation') },
       { id: 'insert-reference', title: 'Insert cross-reference…', enabled: hasDoc, run: () => openInsert('reference') },
+      { id: 'fit-pages', title: 'Fit the document to a page limit…', enabled: () => hasDoc() && aiEnabled, run: () => openFit() },
       { id: 'search-project', title: 'Find in project…', keys: 'Mod+Shift+F', enabled: isEditor, run: () => ui.openDialog('search') },
       { id: 'toggle-compile-on-save', title: 'Toggle compile after save', enabled: isEditor, run: () => ui.toggle('compileOnSave') },
       { id: 'toggle-spellcheck', title: 'Toggle spell check', enabled: isEditor, run: () => ui.toggle('spellcheck') },
@@ -539,7 +548,7 @@
         <!-- A thin strip while there is nothing to read; it opens up when there is. -->
         {#key hasProblems}
           <Pane size={hasProblems ? 22 : 9} minSize={4} maxSize={60}>
-            <ProblemsPanel {compile} onreveal={revealProblem} onshow={(place) => pdfPane?.showHit(place)} onclose={() => ui.toggle('problems')} />
+            <ProblemsPanel {compile} onfit={aiEnabled ? openFit : null} onreveal={revealProblem} onshow={(place) => pdfPane?.showHit(place)} onclose={() => ui.toggle('problems')} />
           </Pane>
         {/key}
       {/if}
@@ -604,6 +613,10 @@
 
   {#if ui.dialog === 'templates'}
     <TemplateDialog oncreated={templateCreated} onclose={() => ui.closeDialog()} />
+  {/if}
+
+  {#if ui.dialog === 'fit'}
+    <FitDialog pages={fitSeed} oncancel={() => ui.closeDialog()} onsubmit={({ pages, note }) => ask((n) => ai.fit(pages, n), note)} />
   {/if}
 
   {#if ui.dialog === 'details' && details}

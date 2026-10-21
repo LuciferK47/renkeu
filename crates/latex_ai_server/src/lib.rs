@@ -18,6 +18,7 @@ pub(crate) mod agent;
 pub mod bootstrap;
 pub mod check;
 pub mod error;
+pub(crate) mod fit;
 pub mod jobs;
 pub mod mcp;
 pub mod proposals;
