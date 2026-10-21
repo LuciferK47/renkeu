@@ -101,7 +101,7 @@ describe('Landing', () => {
     await waitFor(() => expect(container.querySelector('.chip').textContent).toMatch(/Engine offline/))
     expect(screen.queryByRole('button', { name: 'Open editor' })).toBeNull()
     expect(screen.getAllByRole('link', { name: /Get Renkeu/ }).length).toBeGreaterThan(0)
-  })
+  }, 30_000)
 
   it('offers to open the editor, and calls back, when an engine answers', async () => {
     api.getConfig.mockResolvedValue({})

@@ -87,7 +87,7 @@ export const capabilities = {
   title: 'Six tools. All of them run beside your files.',
   items: [
     { id: 'files', title: 'Multi-file projects', body: 'File tree you can group by type, tabs, autosave, upload, rename, delete, a main document of your choosing, and 13 starter templates (article, IEEE, ACM, thesis, slides, CV and more).' },
-    { id: 'edit', title: 'LaTeX-aware editing', body: 'Completion for citations, labels and packages; an outline; spell check; go to definition on \\ref, \\cite and \\input; find and replace across the project; optional compile after each save.' },
+    { id: 'edit', title: 'LaTeX-aware editing', body: 'Completion for citations, labels and packages; an outline; spell check; go to definition on \\ref, \\cite and \\input; find and replace across the project; an Insert menu for figures, tables, equations, citations and cross-references; optional compile after each save.' },
     { id: 'sync', title: 'SyncTeX both ways', body: 'From a source line to its place on the page, and from a click on the page back to the source.' },
     { id: 'ai', title: 'Review-gated AI repair', body: 'Tries fixes on a copy, checks that the document compiles, then lets you apply them change by change.' },
     { id: 'visual', title: 'Visual fix', body: 'Draw a box on the PDF and say what is wrong. Reading the picture needs a vision-capable model; without one it works from the source.' },
@@ -117,7 +117,7 @@ export const engine = {
 export const boundary = {
   eyebrow: 'The boundary',
   title: 'Your project is not our product.',
-  body: 'Editing, compiling, history and page rendering happen on your machine. Only when you ask the AI does anything cross the boundary.',
+  body: 'Editing, compiling, history and page rendering happen on your machine. Two things can cross it, and only when you ask: a request to the AI (listed below), and a citation lookup by DOI, which sends just the DOI to doi.org.',
   sent: [
     'your instruction',
     'the file you are working in, with line numbers',
@@ -126,7 +126,7 @@ export const boundary = {
     'the compiler errors'
   ],
   sentVisual: 'For a visual fix: a crop of the page, if a vision model is configured.',
-  local: 'With a local model such as Ollama, nothing leaves your machine.',
+  local: 'With a local model such as Ollama, the AI sends nothing off your machine.',
   small: 'This describes how the app is built to behave. The source is open, so you can check it.'
 };
 
@@ -161,7 +161,7 @@ export const faq = {
   items: [
     ['Do I need TeX Live?', 'No. The Tectonic engine is built in. Packages a document needs are downloaded the first time it is compiled, then cached.'],
     ['Does it work offline?', 'Editing and compiling do, once the packages are cached. The first compile of a document needs a network connection. The AI needs a provider; a local model such as Ollama works offline.'],
-    ['What exactly is sent to the AI?', 'Only when you ask it: your instruction, the file you are working in (with line numbers), up to 3 other files the compiler errors point to, the names of your other files, and the compiler errors. Nothing is sent when you do not use the AI.'],
+    ['What exactly is sent to the AI?', 'Only when you ask it: your instruction, the file you are working in (with line numbers), up to 3 other files the compiler errors point to, the names of your other files, and the compiler errors. Nothing is sent when you do not use the AI. The one other request the app makes is a citation lookup by DOI, which sends only the DOI to doi.org.'],
     ['Can I use my own or a local model?', 'Yes. Any model the genai library can reach, including local Ollama models. Small models may not find a fix; larger ones do better.'],
     ['What if the AI cannot fix my document?', 'It stops after 3 attempts and your files stay exactly as they were.'],
     ['Can it change my files without asking?', 'No. Changes are written only when you press Apply, and only the ones you ticked.'],

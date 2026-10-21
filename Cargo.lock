@@ -3331,6 +3331,7 @@ dependencies = [
  "image",
  "latex-ai-compiler",
  "latex-ai-core",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "similar",

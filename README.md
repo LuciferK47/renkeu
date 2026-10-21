@@ -29,7 +29,7 @@ Renkeu is an editor that takes the pain out of that:
 - you can point at a spot on the finished PDF and say "fix this," and it figures
   out which line of source you meant.
 
-Nothing leaves your machine except the snippets actually sent to the AI.
+Nothing leaves your machine except the snippets actually sent to the AI and, if you ask for a citation by DOI, that DOI (it goes to doi.org).
 
 ## What you can do with it
 
@@ -37,6 +37,7 @@ Nothing leaves your machine except the snippets actually sent to the AI.
   drag files in), tabs that keep their own undo history, autosave, and a choice
   of main file.
 - **Start from a template:** an empty project offers 13 starters (article, IEEE, ACM, Elsevier, Springer LNCS, APS/REVTeX, AMS maths, thesis, lab report, slides, CV, homework, letter). Fill in the title, authors and abstract in a form; later, **Document details** in the command menu (F1) re-edits them without touching the rest of the file. Class and style files come from the TeX bundle; only small skeletons of our own ship in the binary.
+- **Insert without typing LaTeX:** figures (with width, caption and label), tables (a grid editor that takes pasted spreadsheet cells), equations (a visual maths editor), citations (from your `.bib`, or fetched by DOI into it) and cross-references. Blocks land between blank lines and add the packages they need. An "Undefined control sequence" error offers a one-click `\usepackage` fix for well-known packages.
 - **Find and replace across the project** (Ctrl+Shift+F): literal or regular expression, matches grouped by file, and a replace that writes through History so it can be undone. The file tree can group files **by type** (documents, bibliography, figures), and **compile after each save** is a setting. The status bar shows words, pages and compile time.
 - **Write LaTeX comfortably:** syntax highlighting, completion for citations,
   labels, files, packages and environments, an outline, spell check, hover and

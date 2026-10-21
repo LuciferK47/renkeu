@@ -218,6 +218,7 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
             "/api/project",
             get(routes::manage::get_project).put(routes::manage::put_project),
         )
+        .route("/api/doi", get(routes::doi::lookup))
         .route("/api/project/search", post(routes::search::search))
         .route("/api/project/replace", post(routes::search::replace))
         .route("/api/templates", get(routes::templates::list_templates))

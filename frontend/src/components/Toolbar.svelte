@@ -13,6 +13,7 @@
     onsettings = () => {},
     onhistory = () => {},
     onpalette = () => {},
+    oninsert = () => {},
     onopenproject = null,
     onhome = null
   } = $props()
@@ -84,6 +85,7 @@
   ><PixelIcon name="play" size={13} />{compile.compiling ? 'Compiling…' : 'Compile'}</button>
 
   <span class="sep" aria-hidden="true"></span>
+  <button class="text" onclick={oninsert} disabled={!documents.active} title={`Insert a figure, table, equation, citation or reference${shortcut('insert')}`}><PixelIcon name="select" size={14} /> Insert</button>
   <button class="text" onclick={onpalette} title={`Ask the AI${shortcut('palette')}`}><PixelIcon name="spark" size={14} /> Ask AI</button>
   <button class="text" aria-pressed={ui.problems} onclick={() => ui.toggle('problems')} title={`Problems${shortcut('toggle-problems')}`}>
     <PixelIcon name="warn" size={14} /> Problems{#if compile.errors.length > 0}<span class="n">{compile.errors.length}</span>{/if}

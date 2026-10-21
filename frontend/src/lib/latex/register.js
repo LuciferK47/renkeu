@@ -3,11 +3,13 @@
 import { latexConfiguration, latexLanguage, bibtexConfiguration, bibtexLanguage } from './monarch.js';
 import { contextAt, suggest, suggestBib } from './completion.js';
 import { referenceAt, definitionFor, hoverFor } from './navigate.js';
+import { packageFixFor } from './insert.js';
 
 /**
  * @param monaco the Monaco API
  * @param {() => ({ index?: { snapshot(): object, ensureLoaded(): Promise<void> },
- *   spell?: { suggest(w: string): string[], add(w: string): void } } | null)} services
+ *   spell?: { suggest(w: string): string[], add(w: string): void },
+ *   openInsert?: (tab: string) => void } | null)} services
  *   what the editor can draw on; a function so the app can supply it late
  */
 export function registerLatex(monaco, services) {
@@ -120,11 +122,52 @@ export function registerLatex(monaco, services) {
 
   // Spelling quick fixes: the markers come from the editor pane, the fixes from here.
   monaco.editor.registerCommand('latex-ai.spell.add', (_accessor, word) => services()?.spell?.add(word));
+  monaco.editor.registerCommand('latex-ai.insert', (_accessor, tab) => services()?.openInsert?.(tab));
   languages.registerCodeActionProvider('latex', {
     provideCodeActions(model, _range, context) {
       const spell = services()?.spell;
       const actions = [];
       for (const marker of context.markers) {
+        // Compile errors we can fix without asking an AI.
+        if (marker.source === 'LaTeX') {
+          // Only read the document for the one error this can fix.
+          const fix = /^Undefined control sequence/.test(marker.message ?? '')
+            ? packageFixFor({
+                message: marker.message,
+                line: model.getLineContent(marker.startLineNumber),
+                text: model.getValue()
+              })
+            : null;
+          if (fix) {
+            const at = model.getPositionAt(fix.edit.offset);
+            actions.push({
+              title: `Add \\usepackage{${fix.package}} (defines \\${fix.command})`,
+              kind: 'quickfix',
+              diagnostics: [marker],
+              isPreferred: true,
+              edit: {
+                edits: [
+                  {
+                    resource: model.uri,
+                    versionId: model.getVersionId(),
+                    textEdit: {
+                      range: { startLineNumber: at.lineNumber, startColumn: at.column, endLineNumber: at.lineNumber, endColumn: at.column },
+                      text: fix.edit.text
+                    }
+                  }
+                ]
+              }
+            });
+          } else if (/Citation .* undefined/i.test(marker.message)) {
+            actions.push({
+              title: 'Insert a citation by search or DOI…',
+              kind: 'quickfix',
+              diagnostics: [marker],
+              command: { id: 'latex-ai.insert', title: 'Insert citation', arguments: ['citation'] }
+            });
+          }
+          continue;
+        }
         if (marker.source !== 'spell' || !spell) continue;
         const range = {
           startLineNumber: marker.startLineNumber,

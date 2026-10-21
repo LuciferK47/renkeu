@@ -174,6 +174,21 @@
     editor.focus()
   }
 
+  /** The cursor as a character offset into the text. */
+  export function cursorOffset() {
+    const position = editor?.getPosition()
+    return editor && position ? editor.getModel().getOffsetAt(position) : 0
+  }
+
+  /** Type `text` at the cursor (replacing a selection) as one undoable edit. */
+  export function insertText(text) {
+    if (!editor) return false
+    const selections = editor.getSelections() ?? []
+    editor.executeEdits('insert', selections.map((range) => ({ range, text, forceMoveMarkers: true })))
+    editor.focus()
+    return true
+  }
+
   export function focus() {
     editor?.focus()
   }

@@ -28,7 +28,10 @@
   import QuickOpen from './components/QuickOpen.svelte'
   import TemplateDialog from './components/TemplateDialog.svelte'
   import SearchDialog from './components/SearchDialog.svelte'
+  import InsertDialog from './components/InsertDialog.svelte'
   import { findBlock } from './lib/templates.js'
+  import { packageEdit, blockInsertion } from './lib/latex/insert.js'
+  import { useEditorServices } from './lib/monaco.js'
 
   const OPEN_KEY = 'latex-ai:open-files'
   const RECENT_KEY = 'latex-ai:recent-files'
@@ -207,6 +210,57 @@
     }
   }
 
+  // ---- insert ----------------------------------------------------------
+
+  let insertTab = $state('figure')
+
+  function openInsert(tab = 'figure') {
+    if (!documents.active) return
+    insertTab = tab
+    ui.openDialog('insert')
+  }
+
+  /** Add an entry to a .bib file, creating the file if the project has none. */
+  async function addBibEntry({ path, text }) {
+    try {
+      let created = false
+      try {
+        const current = await api.getFile(path)
+        const gap = current.content === '' || current.content.endsWith('\n\n') ? '' : current.content.endsWith('\n') ? '\n' : '\n\n'
+        await api.saveFile(path, current.content + gap + text, current.etag)
+      } catch (e) {
+        if (e.status !== 404) throw e
+        await api.createFile(path, text)
+        created = true
+      }
+      latexIndex.invalidate()
+      await project.refresh()
+      documents.checkExternalChanges()
+      ui.toast(created ? `Created ${path}. Load it with \\bibliography in your document.` : `Added the entry to ${path}.`, 'success')
+    } catch (e) {
+      ui.toast(`Could not save the entry to ${path}: ${e.message}`, 'error')
+    }
+  }
+
+  async function insertResult({ text, packages = [], bib = null, block = false }) {
+    ui.closeDialog()
+    if (bib) await addBibEntry(bib)
+    await tick()
+    const doc = documents.active
+    if (!doc) return
+    if (block) {
+      const at = blockInsertion(doc.text, editorPane?.cursorOffset() ?? 0, text)
+      documents.replaceRange(doc.path, at.offset, at.offset, at.text)
+    } else if (!editorPane?.insertText(text)) {
+      return
+    }
+    const edit = packageEdit(doc.text, packages)
+    if (edit) documents.replaceRange(doc.path, edit.offset, edit.offset, edit.text)
+  }
+
+  // The editor's quick fixes can open the Insert dialog.
+  useEditorServices({ index: latexIndex, spell, openInsert })
+
   // ---- templates -----------------------------------------------------
 
   /** What the "Document details" form starts from; null when the open file has no block. */
@@ -286,6 +340,12 @@
       { id: 'open-project', title: 'Open project folder…', enabled: () => isEditor() && isDesktop(), run: openProject },
       { id: 'forward-search', title: 'Show this line in the PDF', keys: 'Mod+Alt+J', enabled: hasDoc, run: showInPdf },
       { id: 'go-to-definition', title: 'Go to definition', keys: 'F12', enabled: hasDoc, run: () => editorPane?.followReference() },
+      { id: 'insert', title: 'Insert figure, table, equation, citation…', keys: 'Mod+Shift+I', enabled: hasDoc, run: () => openInsert('figure') },
+      { id: 'insert-figure', title: 'Insert figure…', enabled: hasDoc, run: () => openInsert('figure') },
+      { id: 'insert-table', title: 'Insert table…', enabled: hasDoc, run: () => openInsert('table') },
+      { id: 'insert-equation', title: 'Insert equation…', enabled: hasDoc, run: () => openInsert('equation') },
+      { id: 'insert-citation', title: 'Insert citation…', enabled: hasDoc, run: () => openInsert('citation') },
+      { id: 'insert-reference', title: 'Insert cross-reference…', enabled: hasDoc, run: () => openInsert('reference') },
       { id: 'search-project', title: 'Find in project…', keys: 'Mod+Shift+F', enabled: isEditor, run: () => ui.openDialog('search') },
       { id: 'toggle-compile-on-save', title: 'Toggle compile after save', enabled: isEditor, run: () => ui.toggle('compileOnSave') },
       { id: 'toggle-spellcheck', title: 'Toggle spell check', enabled: isEditor, run: () => ui.toggle('spellcheck') },
@@ -373,6 +433,7 @@
       onsettings={openSettings}
       onhistory={openHistory}
       onpalette={() => ui.openDialog('palette')}
+      oninsert={() => openInsert('figure')}
       onopenproject={isDesktop() ? openProject : null}
     />
 
@@ -470,6 +531,10 @@
       onclose={() => ui.closeDialog()}
       onopen={(path) => (ui.closeDialog(), openFile(path))}
     />
+  {/if}
+
+  {#if ui.dialog === 'insert'}
+    <InsertDialog tab={insertTab} {project} index={latexIndex} {ops} oninsert={insertResult} onclose={() => ui.closeDialog()} />
   {/if}
 
   {#if ui.dialog === 'search'}

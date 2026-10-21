@@ -157,6 +157,11 @@ export class APIClient {
     return this.request('POST', '/templates/frontmatter', { body: { template, fields } });
   }
 
+  // BibTeX for a DOI, fetched by the server from doi.org (the DOI is all that is sent).
+  lookupDoi(doi) {
+    return this.request('GET', '/doi', { params: { doi } });
+  }
+
   // Find and replace across the project's text files. Replace writes through
   // the store, so every change is in the history.
   searchProject(body) {

@@ -193,4 +193,27 @@ describe('registerLatex: hover and spelling quick fixes', () => {
     m.p['latex-ai.spell.add']({}, 'wrnog')
     expect(spell.add).toHaveBeenCalledWith('wrnog')
   })
+
+  it('offers the package for an undefined control sequence, and a citation search for an undefined citation', () => {
+    const m = monacoFake()
+    registerLatex(m, () => ({ index }))
+    const text = '\\documentclass{article}\n\\begin{document}\n\\toprule\n\\end{document}\n'
+    const model = {
+      uri: 'file:///a.tex',
+      getVersionId: () => 7,
+      getValue: () => text,
+      getLineContent: () => '\\toprule',
+      getPositionAt: (offset) => ({ lineNumber: 2, column: offset - 24 + 1 })
+    }
+    const at = (message) => ({ source: 'LaTeX', message, startLineNumber: 3, endLineNumber: 3, startColumn: 1, endColumn: 8 })
+
+    const fix = m.p.actions.provideCodeActions(model, null, { markers: [at('Undefined control sequence.')] }).actions
+    expect(fix.map((a) => a.title)).toEqual(['Add \\usepackage{booktabs} (defines \\toprule)'])
+    expect(fix[0].edit.edits[0].textEdit.text).toBe('\\usepackage{booktabs}\n')
+
+    const cite = m.p.actions.provideCodeActions(model, null, { markers: [at("LaTeX Warning: Citation `x' on page 1 undefined on input line 3.")] }).actions
+    expect(cite[0].command.arguments).toEqual(['citation'])
+
+    expect(m.p.actions.provideCodeActions(model, null, { markers: [at('Missing $ inserted.')] }).actions).toEqual([])
+  })
 })
