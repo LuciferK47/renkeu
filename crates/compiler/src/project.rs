@@ -181,7 +181,7 @@ pub fn detect_main(
     override_main: Option<&str>,
 ) -> Result<String, MainError> {
     let exists = |rel: &str| root.join(rel).is_file();
-    let path_str = |p: &Path| p.to_string_lossy().into_owned();
+    let path_str = |p: &Path| latex_ai_core::fsutil::to_slash(p);
 
     if let Some(m) = override_main {
         let rel =
@@ -228,10 +228,7 @@ pub fn detect_main(
         [(only, _)] => Ok(only.clone()),
         many => {
             // Prefer the root that actually pulls the active file in.
-            let stem = Path::new(active)
-                .with_extension("")
-                .to_string_lossy()
-                .into_owned();
+            let stem = latex_ai_core::fsutil::to_slash(&Path::new(active).with_extension(""));
             let including: Vec<&String> = many
                 .iter()
                 .filter(|(_, text)| includes(text, &stem))
@@ -272,7 +269,7 @@ pub fn resolve_log_name(root: &Path, main_dir: &Path, token: &str) -> Option<Str
         .into_iter()
         .filter_map(|candidate| normalise_inside(&main_rel.join(candidate)))
         .find(|rel| root.join(rel).is_file())
-        .map(|rel| rel.to_string_lossy().into_owned())
+        .map(|rel| latex_ai_core::fsutil::to_slash(&rel))
 }
 
 #[cfg(test)]
@@ -393,6 +390,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn project_files_skip_secrets_dotdirs_and_symlinks() {
         let p = project(&[

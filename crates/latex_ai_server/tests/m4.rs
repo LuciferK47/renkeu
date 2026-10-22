@@ -70,7 +70,7 @@ async fn test_app() -> TestApp {
     .unwrap();
 
     let workspace = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(workspace.path()).unwrap();
+    let root = latex_ai_core::fsutil::canonical(workspace.path()).unwrap();
     std::fs::write(root.join("main.tex"), DOC).unwrap();
 
     TestApp {

@@ -305,8 +305,7 @@ async fn healthcheck(port: u16) -> anyhow::Result<()> {
 }
 
 async fn compile(file: &std::path::Path, out: &std::path::Path) -> anyhow::Result<()> {
-    let file = tokio::fs::canonicalize(file)
-        .await
+    let file = latex_ai_core::fsutil::canonical(file)
         .with_context(|| format!("reading {}", file.display()))?;
     let root = file
         .parent()

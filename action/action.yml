@@ -40,7 +40,9 @@ runs:
     - name: Cache the TeX bundle
       uses: actions/cache@v4
       with:
-        path: ~/.cache/Tectonic
+        path: |
+          ~/.cache/Tectonic
+          ~/AppData/Local/TectonicProject
         key: renkeu-tex-bundle-${{ runner.os }}-v1
 
     - name: Check

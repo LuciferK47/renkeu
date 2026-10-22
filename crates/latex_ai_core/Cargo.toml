@@ -17,6 +17,7 @@ serde_json = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 hex = "0.4"
+dunce = "1"
 similar = "2.6"
 regex = "1.12.4"
 toml = "0.8"

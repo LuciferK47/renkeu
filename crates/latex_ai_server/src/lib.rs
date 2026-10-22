@@ -226,6 +226,7 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
         .route("/api/preflight", get(routes::preflight::run))
         .route("/api/preflight/profiles", get(routes::preflight::profiles))
         .route("/api/doi", get(routes::doi::lookup))
+        .route("/api/diagnostics", get(routes::diagnostics::report))
         .route("/api/project/search", post(routes::search::search))
         .route("/api/project/replace", post(routes::search::replace))
         .route("/api/templates", get(routes::templates::list_templates))
@@ -364,7 +365,7 @@ mod tests {
         .unwrap();
 
         let dir = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let root = latex_ai_core::fsutil::canonical(dir.path()).unwrap();
 
         let state = AppState {
             planner: Arc::new(NoPlanner),

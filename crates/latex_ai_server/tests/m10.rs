@@ -31,7 +31,7 @@ struct Project {
 
 fn project(files: &[(&str, &str)]) -> Project {
     let dir = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let root = latex_ai_core::fsutil::canonical(dir.path()).unwrap();
     for (name, content) in files {
         let path = root.join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

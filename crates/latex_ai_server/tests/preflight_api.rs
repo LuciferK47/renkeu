@@ -176,3 +176,37 @@ async fn an_unknown_profile_or_build_is_refused_and_a_path_is_not_a_profile() {
     let (status, _) = get(&a, "/api/preflight?build=0000&profile=arxiv").await;
     assert_ne!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn the_diagnostics_report_names_the_setup_and_leaks_nothing() {
+    let app = app(&[("main.tex", DOC)]).await;
+    let res = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/diagnostics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let text = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(text.starts_with("Renkeu "), "{text}");
+    for line in [
+        "PDF rendering:",
+        "Assistant:",
+        "TeX bundle:",
+        "Project folder:",
+    ] {
+        assert!(text.contains(line), "{line} missing from:\n{text}");
+    }
+    assert!(
+        !text.contains("Ada Lovelace"),
+        "project text leaked:\n{text}"
+    );
+}

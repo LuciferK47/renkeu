@@ -327,6 +327,11 @@ export class APIClient {
     return this.request('GET', '/config');
   }
 
+  // Plain text for a bug report: version, platform and setup, never project text or a key.
+  getDiagnostics() {
+    return this.request('GET', '/diagnostics');
+  }
+
   // --- builds ------------------------------------------------------------
 
   // Stop a running compile; the worker process is killed server-side.

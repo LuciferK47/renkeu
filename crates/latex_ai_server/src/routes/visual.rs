@@ -290,7 +290,7 @@ pub(crate) fn resolve_hit_path(
     hit: &synctex::SourceHit,
 ) -> Result<(String, std::path::PathBuf), ApiError> {
     let rel = synctex::resolve_input_name(&hit.file, &state.workspace_root)
-        .map_or_else(|| main.to_owned(), |p| p.to_string_lossy().into_owned());
+        .map_or_else(|| main.to_owned(), |p| latex_ai_core::fsutil::to_slash(&p));
     let abs = validate_path(&state.workspace_root, &rel, AccessKind::Read)?;
     Ok((rel, abs))
 }

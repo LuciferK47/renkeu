@@ -31,6 +31,18 @@ test.describe('settings and history', () => {
     await expect(page.getByRole('tab', { name: 'Assistant' })).toBeVisible()
   })
 
+  test('the privacy tab says what is sent and builds a report without project text', async ({ page }) => {
+    await openApp(page)
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('tab', { name: 'Privacy' }).click()
+    await expect(page.getByText('no telemetry')).toBeVisible()
+    await page.getByRole('button', { name: 'Copy diagnostics report' }).click()
+    const report = page.getByLabel('Diagnostics report')
+    await expect(report).toHaveValue(/^Renkeu \d/)
+    await expect(report).toHaveValue(/Project folder:/)
+    await expect(report).not.toHaveValue(/documentclass/)
+  })
+
   test('history lists a saved change and can put the file back as it was before it', async ({ page }) => {
     await openApp(page)
     await openFile(page, 'main.tex')

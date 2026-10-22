@@ -170,11 +170,10 @@ pub fn resolve_input_name(name: &str, root: &Path) -> Option<std::path::PathBuf>
     if name.is_empty() || name == "texput" || name == "texput.tex" {
         return None;
     }
-    let path = Path::new(name);
-    let relative = if path.is_absolute() {
-        path.strip_prefix(root).ok()?
+    let relative = if looks_absolute(name) {
+        std::path::PathBuf::from(strip_root(name, root)?)
     } else {
-        path
+        std::path::PathBuf::from(name)
     };
 
     let mut out = std::path::PathBuf::new();
@@ -186,6 +185,35 @@ pub fn resolve_input_name(name: &str, root: &Path) -> Option<std::path::PathBuf>
         }
     }
     (!out.as_os_str().is_empty()).then_some(out)
+}
+
+/// Whether a recorded name is absolute on *either* platform: `SyncTeX` files are
+/// plain text, and a Windows engine writes `C:/Users/me/proj/main.tex`.
+fn looks_absolute(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    name.starts_with(['/', '\\'])
+        || matches!(bytes, [drive, b':', ..] if drive.is_ascii_alphabetic())
+}
+
+/// `name` below `root` as a `/`-separated remainder, or `None` if it is
+/// elsewhere. Separators are compared as one character, and a drive path
+/// ignores case (`c:` and `C:` are the same disk), so the answer does not
+/// depend on which spelling the engine happened to write.
+fn strip_root(name: &str, root: &Path) -> Option<String> {
+    let slashed = |s: &str| s.replace('\\', "/");
+    let root = slashed(&root.to_string_lossy());
+    let root = root.trim_end_matches('/');
+    let original = slashed(name);
+    let drive = matches!(root.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic());
+    let (n, r) = if drive {
+        (original.to_ascii_lowercase(), root.to_ascii_lowercase())
+    } else {
+        (original.clone(), root.to_owned())
+    };
+    let rest = n.strip_prefix(&r)?.strip_prefix('/')?;
+    // Case folding never changes byte counts, so the same tail of the
+    // original spelling is what remains.
+    Some(original[original.len() - rest.len()..].to_owned())
 }
 
 impl SyncTexData {
@@ -297,6 +325,26 @@ mod resolve_tests {
             None,
             "a parent component is refused even if it would stay inside"
         );
+    }
+
+    #[test]
+    fn windows_spellings_resolve_the_same_way() {
+        let root = Path::new("C:/Users/me/proj");
+        for name in [
+            "C:/Users/me/proj/chapters/a.tex",
+            "c:\\users\\me\\proj\\chapters\\a.tex",
+            "C:\\Users\\me\\proj/chapters/a.tex",
+        ] {
+            assert_eq!(
+                resolve_input_name(name, root),
+                Some("chapters/a.tex".into()),
+                "{name}"
+            );
+        }
+        assert_eq!(resolve_input_name("C:/Users/me/other/a.tex", root), None);
+        assert_eq!(resolve_input_name("D:/Users/me/proj/a.tex", root), None);
+        assert_eq!(resolve_input_name("C:/Users/me/proj", root), None);
+        assert_eq!(resolve_input_name("C:/Users/me/projX/a.tex", root), None);
     }
 
     #[test]

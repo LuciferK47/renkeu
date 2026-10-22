@@ -86,7 +86,7 @@ impl Workbench {
     /// # Errors
     /// The path is missing, or no main file can be chosen.
     pub fn open(target: &Path, main: Option<&str>, bundle: Option<String>) -> anyhow::Result<Self> {
-        let target = std::fs::canonicalize(target)
+        let target = latex_ai_core::fsutil::canonical(target)
             .with_context(|| format!("reading {}", target.display()))?;
         let (root, main) = if target.is_file() {
             anyhow::ensure!(

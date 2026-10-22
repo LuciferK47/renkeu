@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod compile;
 pub mod config;
+pub mod diagnostics;
 pub mod doi;
 pub mod files;
 pub mod history;

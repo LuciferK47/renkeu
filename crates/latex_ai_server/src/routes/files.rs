@@ -46,7 +46,7 @@ pub(crate) fn list_workspace_files(root: &Path) -> Vec<String> {
                 && let Ok(rel) = path.strip_prefix(root)
                 && !is_denied(rel)
             {
-                result.push(rel.to_string_lossy().into_owned());
+                result.push(latex_ai_core::fsutil::to_slash(rel));
             }
         }
     }

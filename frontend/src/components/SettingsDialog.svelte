@@ -1,5 +1,5 @@
 <script>
-  // Settings, in four tabs. Appearance and Editor are preferences kept in this
+  // Settings, in five tabs. Appearance and Editor are preferences kept in this
   // browser or app; Assistant is the server's configuration. A value pinned by
   // an environment variable is shown but locked, and the API key is write-only:
   // the server never sends it back, only where it comes from.
@@ -13,6 +13,7 @@
     ['appearance', 'Appearance'],
     ['editor', 'Editor'],
     ['assistant', 'Assistant'],
+    ['privacy', 'Privacy'],
     ['shortcuts', 'Shortcuts']
   ]
   let tab = $state('appearance')
@@ -78,6 +79,26 @@
   }
 
   const removeKey = () => guarded(() => api.clearApiKey(), 'Key removed.')
+
+  // ---- privacy -----------------------------------------------------------
+  let report = $state('')
+  let reportNote = $state('')
+
+  async function copyReport() {
+    reportNote = ''
+    try {
+      report = await api.getDiagnostics()
+    } catch (e) {
+      reportNote = `Could not build the report: ${e.message}`
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(report)
+      reportNote = 'Copied. Paste it into your bug report.'
+    } catch {
+      reportNote = 'Copy it from the box below.'
+    }
+  }
 
   const chords = $derived(commands.list().filter((c) => c.keys))
 </script>
@@ -179,6 +200,24 @@
           {#if message}<p class="ok" role="status">{message}</p>{/if}
           {#if problem}<p class="bad" role="alert">{problem}</p>{/if}
         {/if}
+      {:else if tab === 'privacy'}
+        <p class="help">Renkeu has no account, no analytics and no telemetry. Your project stays on this computer.</p>
+        <h3>Stays here</h3>
+        <p class="help">Compiling, the page preview, jumping between source and PDF, the layout report and the submission checks all run on this computer and send nothing.</p>
+        <h3>Sent when you ask the assistant</h3>
+        <p class="help">
+          Only when you ask it something: your request, the file it is working on (a long file as the parts around the lines that matter), the other project files it needs, and the errors from its trial compiles. The visual fix also sends a picture of the page to the vision model.
+        </p>
+        <p class="help">
+          Where that goes follows the model name under Assistant. A hosted model's name sends it to that service with your key. A name the app does not recognise as a hosted model goes to Ollama on this computer, and nothing leaves it.
+        </p>
+        <h3>Other network use</h3>
+        <p class="help">The first compile downloads the TeX support files (no document text). Looking up a citation by DOI asks doi.org for that DOI, only when you use it.</p>
+        <h3>Bug reports</h3>
+        <p class="help">The report lists the version, your system, the assistant and bundle settings, and the project folder's name. It has no project text and no key.</p>
+        <button onclick={copyReport}>Copy diagnostics report</button>
+        {#if reportNote}<p class="ok" role="status">{reportNote}</p>{/if}
+        {#if report}<textarea class="report" readonly rows="6" aria-label="Diagnostics report" value={report}></textarea>{/if}
       {:else}
         <p class="help">These are fixed for now. F1 lists every command, including those without a shortcut.</p>
         <table>
@@ -217,6 +256,7 @@
   button { align-self: flex-start; padding: 0.3rem 0.9rem; font: inherit; border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); cursor: pointer; }
   button.primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); border-color: transparent; }
   button:disabled { opacity: 0.5; cursor: default; }
+  .report { width: 100%; box-sizing: border-box; font: 12px/1.4 var(--font-mono, monospace); background: hsl(var(--surface-0)); color: inherit; border: 1px solid hsl(var(--border)); border-radius: var(--radius-xs); padding: 0.4rem; resize: vertical; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   td { padding: 0.25rem 0; border-bottom: 1px solid hsl(var(--border)); }
   td:last-child { text-align: right; }

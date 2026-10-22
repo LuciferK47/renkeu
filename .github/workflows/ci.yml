@@ -376,6 +376,55 @@ jobs:
             frontend/test-results
           retention-days: 7
 
+  # Windows is a first-class target. Nobody has run this job yet, so it may
+  # need a round or two of fixes: it is allowed to fail, and a red result here
+  # is information, not a blocker. Remove `continue-on-error` after the first
+  # green run, and the comment with it.
+  windows:
+    name: Windows (build, portable tests)
+    runs-on: windows-latest
+    continue-on-error: true
+    env:
+      CARGO_TERM_COLOR: always
+      # Tectonic's own Windows job sets this for a file-locking problem in
+      # tests that open the same cache.
+      RUST_TEST_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/windows-deps
+
+      - name: Cache Tectonic bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/TectonicProject
+          key: tectonic-bundle-${{ runner.os }}-v1
+
+      - name: Fetch pdfium.dll
+        shell: bash
+        run: scripts/fetch-pdfium.sh "$RUNNER_TEMP/pdfium"
+
+      - name: Build the CLI
+        run: cargo build --release -p latex-ai-server
+
+      # The crates that never touch a window or a network, then the CLI and the
+      # SyncTeX round trip, which compile a real document.
+      - name: Test
+        shell: bash
+        env:
+          LATEX_AI_PDFIUM_DIR: ${{ runner.temp }}/pdfium
+        run: |
+          cargo test --release -p synctex -p texlog -p layout -p preflight -p visual \
+            -p latex-ai-core -p latex-ai-compiler
+          cargo test --release -p latex-ai-server --test check_cli --test synctex_roundtrip
+
+      - name: Package and smoke-test the CLI
+        shell: bash
+        run: |
+          PDFIUM_DIR="$RUNNER_TEMP/pdfium" scripts/package-cli.sh x86_64-pc-windows-msvc target/release/latex-ai.exe
+          scripts/smoke-cli.sh dist/latex-ai-x86_64-pc-windows-msvc.tar.gz
+
   # The Action runs the same binary the Rust job tests; this proves the
   # composite action itself (inputs, exit status, summary) on a real runner.
   action:

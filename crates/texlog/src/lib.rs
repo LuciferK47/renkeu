@@ -461,6 +461,19 @@ mod tests {
     }
 
     #[test]
+    fn a_windows_log_with_crlf_line_endings_parses_the_same() {
+        for name in ["undefined_cs.log", "missing_sty.log"] {
+            let unix = fixture(name);
+            let windows = unix.replace('\n', "\r\n");
+            assert_eq!(
+                parse_tex_log(&windows, &resolver),
+                parse_tex_log(&unix, &resolver),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn undefined_control_sequence_in_an_included_file() {
         let d = parse("undefined_cs.log");
         let e = errors(&d);

@@ -1,7 +1,29 @@
 //! Crash-safe file replacement (rust.md I.13, idea.md §7 contract 1).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
+
+/// A project-relative path as the API and the editor spell it: components
+/// joined with `/` on every platform, never Windows' `\\`.
+#[must_use]
+pub fn to_slash(path: &Path) -> String {
+    path.components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// `std::fs::canonicalize`, but without the `\\?\` prefix Windows adds.
+///
+/// Every root and every resolved path in the app goes through here, so they
+/// compare equal; the TeX engine and `SyncTeX` also hand back plain paths, which
+/// a verbatim prefix would never match. On other platforms it is the std call.
+///
+/// # Errors
+/// As `std::fs::canonicalize`.
+pub fn canonical(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
+    dunce::canonicalize(path)
+}
 
 /// Replace `path` with `content` so a reader sees either the old or the new
 /// bytes, never a mix.
@@ -161,6 +183,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn private_writes_are_owner_only_even_over_a_wider_target() {
         use std::os::unix::fs::PermissionsExt;
@@ -176,6 +199,7 @@ mod tests {
         assert_eq!(mode, 0o600);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn preserves_existing_permissions() {
         use std::os::unix::fs::PermissionsExt;

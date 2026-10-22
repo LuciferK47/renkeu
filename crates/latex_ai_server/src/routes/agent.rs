@@ -137,7 +137,7 @@ fn prepare(
 fn relative(state: &AppState, abs: &Path, requested: &str) -> String {
     abs.strip_prefix(&state.workspace_root).map_or_else(
         |_| requested.trim_start_matches("./").to_owned(),
-        |p| p.to_string_lossy().into_owned(),
+        latex_ai_core::fsutil::to_slash,
     )
 }
 
@@ -420,7 +420,7 @@ pub async fn apply_selected(
     let files: Vec<AppliedFile> = outcomes
         .iter()
         .map(|o| AppliedFile {
-            path: o.path.to_string_lossy().into_owned(),
+            path: latex_ai_core::fsutil::to_slash(&o.path),
             history_id: o.history_id,
             new_etag: o.new_etag.clone(),
         })

@@ -115,7 +115,7 @@ impl ScratchProject {
         let mut files = BTreeMap::new();
         for edit in edits {
             let rel = checked(&edit.file_path)?;
-            let key = rel.to_string_lossy().into_owned();
+            let key = latex_ai_core::fsutil::to_slash(&rel);
             if let std::collections::btree_map::Entry::Vacant(slot) = files.entry(key) {
                 let content = tokio::fs::read_to_string(self.root.join(&rel))
                     .await
@@ -394,6 +394,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn editing_a_linked_looking_file_never_writes_through_to_the_original() {
         // A source file is copied, so replacing it cannot touch the original;

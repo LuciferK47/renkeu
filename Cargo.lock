@@ -3337,6 +3337,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "blake3",
+ "dunce",
  "genai",
  "hex",
  "nucleo-matcher",

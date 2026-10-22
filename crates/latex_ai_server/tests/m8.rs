@@ -14,6 +14,7 @@ use latex_ai_core::config::{ConfiguredPlanner, EnvOverrides, Settings};
 use latex_ai_server::bootstrap::{BootOptions, build_state};
 use latex_ai_server::build_router;
 use serde_json::{Value, json};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tower::ServiceExt;
@@ -82,11 +83,14 @@ async fn key_is_write_only_hot_swapped_and_stored_owner_only() {
     assert_eq!(parse(&body)["ai_enabled"], true);
     assert!(!body.contains(SECRET), "GET leaked the key");
 
-    let mode = std::fs::metadata(home.path().join("secrets.toml"))
-        .unwrap()
-        .permissions()
-        .mode();
-    assert_eq!(mode & 0o777, 0o600);
+    #[cfg(unix)]
+    {
+        let mode = std::fs::metadata(home.path().join("secrets.toml"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
 
     let (s, body) = call(&app, req("DELETE", "/api/config/api-key", None)).await;
     assert_eq!(s, StatusCode::OK);

@@ -1,0 +1,31 @@
+name: Windows build dependencies
+description: >
+  The C libraries Tectonic links (fontconfig, freetype, harfbuzz, icu), from
+  vcpkg, and the environment that makes cargo use them. Follows Tectonic's own
+  Windows CI: static libraries and a static C runtime, so the binary has no DLLs
+  to ship besides libpdfium.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache vcpkg builds
+      uses: actions/cache@v4
+      with:
+        path: ~/AppData/Local/vcpkg/archives
+        key: vcpkg-x64-windows-static-release-v1
+
+    - name: Install libraries
+      shell: bash
+      run: |
+        set -euo pipefail
+        triplet=x64-windows-static-release
+        root="${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}"
+        "$root/vcpkg.exe" install --triplet "$triplet" \
+          fontconfig freetype "harfbuzz[graphite2]" icu
+        {
+          echo "TECTONIC_DEP_BACKEND=vcpkg"
+          echo "VCPKG_ROOT=$root"
+          echo "VCPKGRS_TRIPLET=$triplet"
+          echo "VCPKG_DEFAULT_HOST_TRIPLET=$triplet"
+          echo "RUSTFLAGS=-Ctarget-feature=+crt-static"
+        } >> "$GITHUB_ENV"

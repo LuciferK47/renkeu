@@ -55,7 +55,7 @@ async fn app() -> App {
     .await
     .unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let root = latex_ai_core::fsutil::canonical(dir.path()).unwrap();
     App {
         state: AppState {
             planner: Arc::new(NoPlanner),
@@ -268,6 +268,7 @@ async fn apply_selected_rewrite_cannot_clobber_a_changed_file() {
     );
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn a_symlink_loop_does_not_hang_the_file_listing() {
     let app = app().await;

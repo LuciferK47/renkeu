@@ -40,7 +40,7 @@ async fn compile_doc() -> (synctex::SyncTexData, (tempfile::TempDir, tempfile::T
     let build = compiler
         .compile(
             &CompileJob {
-                root: std::fs::canonicalize(project.path()).unwrap(),
+                root: latex_ai_core::fsutil::canonical(project.path()).unwrap(),
                 main: "main.tex".to_owned(),
                 synctex: true,
                 bundle: None,

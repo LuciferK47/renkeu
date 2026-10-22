@@ -53,7 +53,7 @@ fn gallery_fields() -> Fields {
 
 async fn compile_template(id: &str, fields: &Fields) -> Result<Vec<u8>, String> {
     let dir = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let root = latex_ai_core::fsutil::canonical(dir.path()).unwrap();
     for file in render(id, fields).unwrap() {
         let path = root.join(file.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

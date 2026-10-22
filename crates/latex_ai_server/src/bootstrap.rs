@@ -92,7 +92,7 @@ impl BootOptions {
     pub fn for_desktop() -> anyhow::Result<Self> {
         let mut opts = Self::from_process()?;
         let cwd = std::env::current_dir().context("reading the current directory")?;
-        let user_home = std::env::var_os("HOME").map(PathBuf::from);
+        let user_home = latex_ai_core::config::user_home();
         opts.workspace_root = desktop_workspace(&opts.home, &cwd, user_home.as_deref());
         Ok(opts)
     }
@@ -118,7 +118,7 @@ pub fn check_pdfium() -> anyhow::Result<String> {
 /// Any startup failure, with context. An invalid config file is fatal on
 /// purpose: running on a guessed configuration is worse than not starting.
 pub async fn build_state(opts: BootOptions) -> anyhow::Result<AppState> {
-    let workspace_root = std::fs::canonicalize(&opts.workspace_root)
+    let workspace_root = latex_ai_core::fsutil::canonical(&opts.workspace_root)
         .with_context(|| format!("canonicalizing {}", opts.workspace_root.display()))?;
 
     let settings =

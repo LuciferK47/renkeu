@@ -276,7 +276,7 @@ The desktop shell bundles the same server and the built SPA into one binary.
 cd frontend && npm ci && cd ..
 scripts/fetch-pdfium.sh      # libpdfium for the PDF preview, verified, into the bundle's resources
 cargo tauri build --config crates/latex_ai_tauri/tauri.conf.json --bundles deb
-# -> target/release/bundle/deb/*.deb   (also: appimage; dmg/msi need macOS/Windows)
+# -> target/release/bundle/deb/*.deb   (also: appimage; the Windows installer is built on Windows)
 sudo dpkg -i target/release/bundle/deb/*.deb && latex-ai-tauri
 ```
 
@@ -306,6 +306,33 @@ frontend first (`npm run build`) — the shell embeds `frontend/dist`.
 
 Building `.dmg` and `.msi` requires macOS and Windows respectively; Tauri does
 not cross-compile bundles.
+
+### Releases (Linux and Windows)
+
+Pushing a tag `vX.Y.Z` (it must equal the version in `crates/latex_ai_server/Cargo.toml`
+and `tauri.conf.json`) runs `.github/workflows/release.yml`. It builds, on their
+own platforms:
+
+| Platform | Output |
+|---|---|
+| Linux (Ubuntu 22.04 base) | `latex-ai-x86_64-unknown-linux-gnu.tar.gz` (CLI + libpdfium), `.deb`, `.AppImage` |
+| Windows | `latex-ai-x86_64-pc-windows-msvc.tar.gz` (CLI + `pdfium.dll`), NSIS installer `*-setup.exe` |
+
+Each CLI archive is unpacked and used to build the sample document before it is
+published (`scripts/smoke-cli.sh`); the Linux `.deb` goes through
+`scripts/smoke-desktop.sh`, and the Windows installer is installed silently and
+checked for `pdfium.dll`. The result is a **draft** release with `SHA256SUMS` for a
+person to read and publish. A manual run of the workflow does everything except
+the release.
+
+Set the repository variable `RELEASE_REPO` (and the secret `RELEASES_TOKEN`) to
+publish to a different, public repository while this one is private; the GitHub
+Action downloads from `seriouslysahid/renkeu-releases` by default.
+
+Not done yet: the Windows installer and the macOS builds are unsigned or absent,
+and there is no auto-updater (it needs a signing key that only the owner can
+create). The Windows jobs follow Tectonic's own recipe (vcpkg, static libraries) but
+have not run yet; expect a round of fixes on their first run.
 
 ### Production deployment
 

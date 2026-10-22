@@ -8,7 +8,8 @@ use tokio_util::sync::CancellationToken;
 #[tokio::test]
 async fn sample_tex_compiles_to_pdf() {
     let examples =
-        std::fs::canonicalize(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples")).unwrap();
+        latex_ai_core::fsutil::canonical(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples"))
+            .unwrap();
     let work = tempfile::tempdir().unwrap();
     let compiler = Compiler::new(CompilerConfig::new(
         env!("CARGO_BIN_EXE_latex-ai").into(),

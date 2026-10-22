@@ -113,7 +113,7 @@ pub fn validate_path(
     let stripped = requested.strip_prefix("./").unwrap_or(requested);
     let target = workspace_root.join(stripped);
 
-    let abs = std::fs::canonicalize(&target).map_err(|_| SecurityError::NotFound)?;
+    let abs = crate::fsutil::canonical(&target).map_err(|_| SecurityError::NotFound)?;
 
     if !abs.starts_with(workspace_root) {
         return Err(SecurityError::EscapesWorkspace);
@@ -230,7 +230,7 @@ pub fn resolve_new_path(workspace_root: &Path, requested: &str) -> Result<PathBu
     let mut ancestor = target.parent();
     while let Some(dir) = ancestor {
         if dir.exists() {
-            let resolved = std::fs::canonicalize(dir).map_err(|_| SecurityError::NotFound)?;
+            let resolved = crate::fsutil::canonical(dir).map_err(|_| SecurityError::NotFound)?;
             if !resolved.starts_with(workspace_root) {
                 return Err(SecurityError::EscapesWorkspace);
             }
@@ -251,7 +251,7 @@ mod tests {
     /// Canonicalized tempdir with one `doc.tex` inside.
     fn workspace() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(dir.path()).unwrap();
+        let root = crate::fsutil::canonical(dir.path()).unwrap();
         std::fs::write(root.join("doc.tex"), "x").unwrap();
         (dir, root)
     }
@@ -287,6 +287,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn rejects_symlink_pointing_out_of_workspace() {
         let (_dir, root) = workspace();
@@ -431,6 +432,7 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
     #[test]
     fn creating_through_a_symlinked_directory_that_leaves_the_workspace_is_refused() {
         let (_dir, root) = workspace();

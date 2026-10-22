@@ -413,6 +413,14 @@ async fn blocking<T: Send + 'static>(
 fn worker_env() -> Vec<(String, String)> {
     const PASS: &[&str] = &[
         "HOME",
+        // Windows: where Tectonic finds its cache, and what the loader and
+        // `GetTempPath` need to work at all.
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
         "XDG_CACHE_HOME",
         "XDG_CONFIG_HOME",
         "XDG_DATA_HOME",

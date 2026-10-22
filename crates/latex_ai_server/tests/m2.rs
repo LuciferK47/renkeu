@@ -142,7 +142,7 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
     .unwrap();
 
     let workspace = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(workspace.path()).unwrap();
+    let root = latex_ai_core::fsutil::canonical(workspace.path()).unwrap();
 
     TestApp {
         state: AppState {

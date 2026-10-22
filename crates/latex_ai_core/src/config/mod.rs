@@ -352,13 +352,23 @@ fn warn_if_group_or_world_readable(path: &Path) {
 #[cfg(not(unix))]
 fn warn_if_group_or_world_readable(_path: &Path) {}
 
-/// The data directory: `$LATEX_AI_HOME`, else `$HOME/.latex-ai`, else a
+/// The user's home directory: `$HOME`, or `%USERPROFILE%` where Windows has
+/// no `HOME`.
+#[must_use]
+pub fn user_home() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The data directory: `$LATEX_AI_HOME`, else `<home>/.latex-ai`, else a
 /// temp-dir fallback.
 #[must_use]
 pub fn default_home() -> PathBuf {
     std::env::var_os("LATEX_AI_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".latex-ai")))
+        .or_else(|| user_home().map(|h| h.join(".latex-ai")))
         .unwrap_or_else(|| std::env::temp_dir().join(".latex-ai"))
 }
 
