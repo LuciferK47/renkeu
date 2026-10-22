@@ -59,10 +59,16 @@ impl std::fmt::Debug for Snapshot {
 }
 
 impl Snapshot {
-    /// AI routes work only with a key.
+    /// AI routes work with a key, or with a model that runs on this computer.
     #[must_use]
     pub fn ai_enabled(&self) -> bool {
         self.planner.is_some()
+    }
+
+    /// The assistant is on without a key, because the model is a local one.
+    #[must_use]
+    pub fn ai_is_local(&self) -> bool {
+        self.planner.is_some() && self.key_source == KeySource::None
     }
 }
 
@@ -215,12 +221,24 @@ fn build_snapshot(
         (None, Some(k)) => (Some(k), KeySource::File),
         (None, None) => (None, KeySource::None),
     };
-    let planner = key.map(|k| {
-        Arc::new(
+    let planner = match key {
+        Some(k) => Some(Arc::new(
             LlmPlanner::with_api_key(config.ai.model.clone(), k)
                 .with_vision_model(config.ai.vision_model.clone()),
-        )
-    });
+        )),
+        // No key: only a model served from this computer can work, and the
+        // vision model must be one too, so nothing is sent to a hosted service.
+        None if crate::ai::is_local_model(&config.ai.model) => Some(Arc::new(
+            LlmPlanner::new(config.ai.model.clone()).with_vision_model(
+                config
+                    .ai
+                    .vision_model
+                    .clone()
+                    .filter(|m| crate::ai::is_local_model(m)),
+            ),
+        )),
+        None => None,
+    };
     Snapshot {
         config: config.clone(),
         overridden,
@@ -305,6 +323,38 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, AiError::Disabled), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_local_model_works_without_a_key_and_a_hosted_one_does_not() {
+        let (_d, s) = open(EnvOverrides::default());
+        let snap = s
+            .update(ConfigPatch {
+                model: Some("qwen2.5:7b".into()),
+                vision_model: Some("gpt-4o".into()),
+                ..ConfigPatch::default()
+            })
+            .await
+            .unwrap();
+        assert!(snap.ai_enabled());
+        assert!(snap.ai_is_local());
+        assert_eq!(snap.key_source, KeySource::None);
+        // A hosted vision model is dropped: no key means nothing leaves the machine.
+        assert_eq!(snap.planner.as_ref().unwrap().vision_model(), None);
+
+        let snap = s
+            .update(ConfigPatch {
+                model: Some("llama-3.3-70b-versatile".into()),
+                ..ConfigPatch::default()
+            })
+            .await
+            .unwrap();
+        assert!(!snap.ai_enabled());
+        assert!(!snap.ai_is_local());
+
+        // With a key, the assistant is not "local" even for a local model name.
+        let snap = s.set_api_key("gsk_test_key").await.unwrap();
+        assert!(snap.ai_enabled() && !snap.ai_is_local());
     }
 
     #[tokio::test]

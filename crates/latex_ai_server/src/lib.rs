@@ -200,6 +200,12 @@ pub fn build_router(state: AppState) -> Result<Router, StartupError> {
             "/api/config/api-key",
             put(routes::config::put_api_key).delete(routes::config::delete_api_key),
         )
+        .route("/api/ai/local", get(routes::setup::local_models))
+        .route(
+            "/api/setup",
+            get(routes::setup::get_setup).put(routes::setup::put_setup),
+        )
+        .route("/api/setup/prepare", post(routes::setup::prepare))
         .route("/api/history", get(routes::history::list_history))
         .route("/api/history/{id}", get(routes::history::history_entry))
         .route("/api/tree", get(routes::files::get_tree))

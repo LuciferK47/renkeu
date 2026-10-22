@@ -369,6 +369,30 @@ export class APIClient {
   clearApiKey() {
     return this.request('DELETE', '/config/api-key');
   }
+
+  // --- first run -----------------------------------------------------------
+
+  // -> { done }: whether the welcome screen was completed or skipped. Kept by
+  // the server, because the desktop app's address changes on every launch.
+  getSetup() {
+    return this.request('GET', '/setup');
+  }
+
+  finishSetup() {
+    return this.request('PUT', '/setup');
+  }
+
+  // Compile a one-line document so the TeX support files are downloaded now.
+  // -> { ok, message }; a failure is an answer, not an error.
+  prepareTex() {
+    return this.request('POST', '/setup/prepare');
+  }
+
+  // Is Ollama running on this computer, and which models does it have?
+  // -> { running, models: [{ name, size_bytes }] }
+  getLocalModels() {
+    return this.request('GET', '/ai/local');
+  }
 }
 
 export const api = new APIClient();

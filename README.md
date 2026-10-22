@@ -225,8 +225,8 @@ source .env
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GROQ_API_KEY` | *(or set it in Settings)* | Groq API key. Without any key the AI routes answer 503 and the chat says AI is off. |
-| `LATEX_AI_MODEL` | `llama-3.3-70b-versatile` | Planner model. Must be a name `genai` recognizes, or it silently falls back to Ollama. |
+| `GROQ_API_KEY` | *(or set it in Settings)* | Groq API key. With neither a key nor a local model the AI routes answer 503 and the chat says AI is off. |
+| `LATEX_AI_MODEL` | `llama-3.3-70b-versatile` | Planner model. A name `genai` does not recognise as a hosted model is served by Ollama on this computer, and then no key is needed (the first-run screen and Settings list the installed models). |
 | `LATEX_AI_VISION_MODEL` | *(unset)* | Model used for visual fix. **Groq currently serves no vision model**, so leave it unset for Groq and visual-fix degrades to a source-only fix (see below). Set it to any vision model `genai` can route — e.g. an OpenAI or Gemini one, with that provider's key exported — to have the PDF crop actually analysed. |
 | `ALLOWED_ORIGINS` | Vite dev origins | Comma-separated CORS allowlist |
 | `LATEX_AI_HOME` | `~/.latex-ai` | App data: `config.toml`, `secrets.toml`, per-project history, scratchpad |

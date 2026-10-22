@@ -27,6 +27,7 @@
   import CommandMenu from './components/CommandMenu.svelte'
   import QuickOpen from './components/QuickOpen.svelte'
   import TemplateDialog from './components/TemplateDialog.svelte'
+  import WelcomeDialog from './components/WelcomeDialog.svelte'
   import SearchDialog from './components/SearchDialog.svelte'
   import InsertDialog from './components/InsertDialog.svelte'
   import FitDialog from './components/FitDialog.svelte'
@@ -246,6 +247,23 @@
     })
   }
 
+  // The welcome screen is shown once; the server remembers it was dealt with.
+  let welcomeChecked = false
+  async function maybeWelcome() {
+    if (welcomeChecked) return
+    welcomeChecked = true
+    try {
+      if (!(await api.getSetup()).done) ui.openDialog('welcome')
+    } catch {
+      /* no server, no welcome: the editor reports the real problem */
+    }
+  }
+
+  // Only in the editor: the landing page is a brochure, not a setup screen.
+  $effect(() => {
+    if (route.view === 'editor') maybeWelcome()
+  })
+
   async function loadConfig() {
     try {
       aiEnabled = (await api.getConfig()).ai_enabled ?? true
@@ -386,6 +404,7 @@
       { id: 'close-tab', title: 'Close tab', keys: 'Alt+W', enabled: hasDoc, run: () => closeTab(documents.active.path) },
       { id: 'history', title: 'Show history', keys: 'Alt+H', enabled: isEditor, run: openHistory },
       { id: 'settings', title: 'Settings', keys: 'Mod+,', enabled: isEditor, run: openSettings },
+      { id: 'welcome', title: 'Welcome and setup…', enabled: isEditor, run: () => ui.openDialog('welcome') },
       { id: 'new-from-template', title: 'New project from a template…', enabled: isEditor, run: () => ui.openDialog('templates') },
       { id: 'document-details', title: 'Document details (title, authors, abstract)…', enabled: hasDoc, run: openDetails },
       { id: 'open-project', title: 'Open project folder…', enabled: () => isEditor() && isDesktop(), run: openProject },
@@ -629,6 +648,10 @@
       onclose={() => ui.closeDialog()}
       onrestore={(entry, which) => restoreVersion(entry, { which, documents, project, ui })}
     />
+  {/if}
+
+  {#if ui.dialog === 'welcome'}
+    <WelcomeDialog onclose={() => { ui.closeDialog(); loadConfig() }} />
   {/if}
 
   {#if ui.dialog === 'settings'}

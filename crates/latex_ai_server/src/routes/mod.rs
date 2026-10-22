@@ -10,6 +10,7 @@ pub mod manage;
 pub mod metrics;
 pub mod preflight;
 pub mod search;
+pub mod setup;
 pub mod synctex;
 pub mod templates;
 pub mod visual;

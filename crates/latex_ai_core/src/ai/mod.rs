@@ -31,7 +31,7 @@ pub enum AiError {
     #[error("no content in AI response")]
     EmptyResponse,
     /// No API key is configured, so there is no model to ask.
-    #[error("AI is not configured: add an API key in Settings")]
+    #[error("AI is not configured: add an API key or choose a local model in Settings")]
     Disabled,
     #[error("AI request timed out after {secs}s")]
     Timeout { secs: u64 },
@@ -242,6 +242,31 @@ Rules:
 - Propose the smallest edits that satisfy the instruction.
 "#;
 
+/// Whether `model` is served from this computer (Ollama) rather than by a
+/// hosted service. `genai` falls back to Ollama for any name it does not
+/// recognise as a hosted model, so this is also what lets the assistant run
+/// with no API key at all.
+#[must_use]
+pub fn is_local_model(model: &str) -> bool {
+    AdapterKind::from_model(model).is_ok_and(|kind| kind == AdapterKind::Ollama)
+}
+
+/// Say what to do when a request to a local model fails, instead of passing on
+/// a bare transport error.
+fn explain_request_error(model: &str, error: &str) -> String {
+    if !is_local_model(model) {
+        return error.to_owned();
+    }
+    let lower = error.to_lowercase();
+    if lower.contains("not found") {
+        format!("Ollama does not have the model `{model}`. Run `ollama pull {model}`, or pick an installed model in Settings. ({error})")
+    } else if lower.contains("connect") || lower.contains("sending request") {
+        format!("Ollama is not answering on localhost:11434. Start it (`ollama serve`) and try again. ({error})")
+    } else {
+        error.to_owned()
+    }
+}
+
 /// Planner backed by a remote LLM through [`genai`].
 ///
 /// Text planning and vision use separate models (masterplan §2.1 pins a
@@ -334,7 +359,7 @@ impl LlmPlanner {
 
         let res = tokio::select! {
             r = self.client.exec_chat(model, req, Some(&options)) => {
-                r.map_err(|e| AiError::Request(e.to_string()))?
+                r.map_err(|e| AiError::Request(explain_request_error(model, &e.to_string())))?
             }
             () = cancel.cancelled() => return Err(AiError::Cancelled),
         };
@@ -468,6 +493,28 @@ impl EditPlanner for LlmPlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_no_hosted_service_claims_is_a_local_model() {
+        for local in ["qwen2.5:7b", "llama3.2", "qwen2.5:3b-8k", "mistral"] {
+            assert!(is_local_model(local), "{local}");
+        }
+        for hosted in ["llama-3.3-70b-versatile", "gpt-4o", "claude-3-5-sonnet", "gemini-1.5-pro"] {
+            assert!(!is_local_model(hosted), "{hosted}");
+        }
+    }
+
+    #[test]
+    fn a_failed_local_request_says_what_to_do_and_a_hosted_one_is_left_alone() {
+        let down = explain_request_error("qwen2.5:7b", "error sending request for url");
+        assert!(down.contains("ollama serve"), "{down}");
+        let missing = explain_request_error("qwen2.5:7b", "model 'qwen2.5:7b' not found");
+        assert!(missing.contains("ollama pull qwen2.5:7b"), "{missing}");
+        assert_eq!(
+            explain_request_error("llama-3.3-70b-versatile", "error sending request"),
+            "error sending request"
+        );
+    }
 
     #[test]
     fn the_prompt_warns_that_latex_backslashes_must_be_doubled_in_json() {

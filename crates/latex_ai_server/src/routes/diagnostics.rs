@@ -47,10 +47,10 @@ fn render(state: &AppState) -> String {
         out,
         "Assistant: {} ({}), vision model {}, timeout {} s, key {key}",
         ai.model,
-        if snapshot.ai_enabled() {
-            "enabled"
-        } else {
-            "disabled"
+        match (snapshot.ai_enabled(), snapshot.ai_is_local()) {
+            (true, true) => "enabled, local model, no key",
+            (true, false) => "enabled",
+            (false, _) => "disabled",
         },
         ai.vision_model.as_deref().unwrap_or("none"),
         ai.timeout_secs,

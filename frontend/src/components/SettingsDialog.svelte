@@ -7,6 +7,7 @@
   import { api } from '../lib/api/client.js'
   import { formatChord } from '../lib/commands.js'
   import { FEEDBACK_URL } from '../lib/feedback.js'
+  import LocalModelPicker from './LocalModelPicker.svelte'
 
   let { ui, documents, commands, paper, onclose = () => {}, onchange = () => {} } = $props()
 
@@ -162,7 +163,13 @@
           <p class="help">Loading…</p>
         {:else}
           <p class="help">
-            {server.ai_enabled ? 'The assistant is on.' : 'The assistant is off until there is an API key.'}
+            {#if server.ai_local}
+              The assistant is on, using a model on this computer. No key is needed.
+            {:else if server.ai_enabled}
+              The assistant is on.
+            {:else}
+              The assistant is off until there is an API key or a local model.
+            {/if}
             {#if server.env_overridden.length > 0} Fields set by an environment variable are locked.{/if}
           </p>
           <div class="field">
@@ -180,6 +187,9 @@
             <input id="timeout" type="number" min="5" max="600" bind:value={form.timeout_secs} disabled={busy} />
           </div>
           <button class="primary" onclick={saveAssistant} disabled={busy}>Save</button>
+
+          <h3>Model on this computer</h3>
+          <LocalModelPicker {server} disabled={busy || pinned('model')} onchoose={(config) => { adopt(config); message = 'Saved.'; onchange() }} />
 
           <h3>API key</h3>
           {#if server.key_source === 'env'}

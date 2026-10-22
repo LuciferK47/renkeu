@@ -112,7 +112,7 @@ pub(crate) fn ensure_ai_available(state: &AppState) -> Result<(), ApiError> {
         Ok(())
     } else {
         Err(ApiError::Unavailable {
-            message: "AI is not configured: add an API key in Settings".to_owned(),
+            message: "AI is not configured: add an API key or choose a local model in Settings".to_owned(),
         })
     }
 }

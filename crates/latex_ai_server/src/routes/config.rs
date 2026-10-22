@@ -13,8 +13,11 @@ use tracing::instrument;
 
 #[derive(Serialize)]
 pub struct ConfigResponse {
-    /// Whether an LLM API key is present, i.e. AI routes will work.
+    /// Whether the assistant can work: an API key is present, or the model runs
+    /// on this computer.
     pub ai_enabled: bool,
+    /// The assistant works with no key because the model is a local one.
+    pub ai_local: bool,
     pub model: String,
     pub vision_model: Option<String>,
     pub timeout_secs: u64,
@@ -28,6 +31,7 @@ impl From<&Snapshot> for ConfigResponse {
     fn from(s: &Snapshot) -> Self {
         Self {
             ai_enabled: s.ai_enabled(),
+            ai_local: s.ai_is_local(),
             model: s.config.ai.model.clone(),
             vision_model: s.config.ai.vision_model.clone(),
             timeout_secs: s.config.ai.timeout_secs,

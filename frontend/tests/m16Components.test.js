@@ -10,6 +10,7 @@ vi.mock('../src/lib/api/client.js', () => ({
     clearApiKey: vi.fn(),
     getHistory: vi.fn(),
     searchWorkspace: vi.fn(),
+    getLocalModels: vi.fn(() => Promise.resolve({ running: false, models: [] })),
   },
   APIError: class extends Error {},
 }))

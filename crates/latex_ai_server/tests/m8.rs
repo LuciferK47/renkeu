@@ -290,3 +290,25 @@ async fn configured_planner_reports_unavailable_without_a_key() {
     let planner = ConfiguredPlanner::new(settings);
     assert!(!latex_ai_core::ai::EditPlanner::is_available(&planner));
 }
+
+#[tokio::test]
+async fn a_local_model_turns_the_assistant_on_with_no_key() {
+    let home = tempfile::tempdir().unwrap();
+    let ws = tempfile::tempdir().unwrap();
+    let state = state_in(home.path(), ws.path(), EnvOverrides::default()).await;
+    let app = build_router(state).unwrap();
+
+    let (_, body) = call(&app, req("GET", "/api/config", None)).await;
+    assert_eq!(parse(&body)["ai_enabled"], false);
+    assert_eq!(parse(&body)["ai_local"], false);
+
+    let (s, body) = call(
+        &app,
+        req("PATCH", "/api/config", Some(json!({ "model": "qwen2.5:7b" }))),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{body}");
+    assert_eq!(parse(&body)["ai_enabled"], true);
+    assert_eq!(parse(&body)["ai_local"], true);
+    assert_eq!(parse(&body)["key_source"], "none");
+}

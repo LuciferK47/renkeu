@@ -44,7 +44,7 @@ export class UiState {
 
   status = $state('Ready');
   toasts = $state([]);
-  dialog = $state(null); // null | 'settings' | 'history' | 'palette' | 'opener' | 'search'
+  dialog = $state(null); // null | 'settings' | 'history' | 'palette' | 'opener' | 'search' | 'welcome'
   /** Panel shown beside the chat: 'chat' | 'proposal' */
   chatTab = $state('chat');
 
