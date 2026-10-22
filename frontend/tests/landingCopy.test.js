@@ -14,7 +14,18 @@ describe('landing copy tells the truth', () => {
     const shipped = JSON.stringify({ ...copy.capabilities, planned: undefined, loop: copy.loop, hero: copy.hero }).toLowerCase();
     expect(shipped).not.toContain('collaborat');
     expect(shipped).not.toContain('8-bit');
-    expect(shipped).not.toContain('mcp');
+  });
+
+  it('names the page-fit, submission and command-line tools, and says what they are not', () => {
+    const items = Object.fromEntries(copy.capabilities.items.map((i) => [i.id, i.body.toLowerCase()]));
+    expect(items.fit).toContain('refuses');
+    expect(items.preflight).toContain('not that a venue will accept');
+    expect(items.cli).toContain('mcp');
+    expect(items.cli).toContain('nothing in them calls a model');
+  });
+
+  it('does not say the source is open while the repository is private', () => {
+    expect(text).not.toContain('source is open');
   });
 
   it('lists the planned features as planned', () => {

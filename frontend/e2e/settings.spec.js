@@ -36,6 +36,7 @@ test.describe('settings and history', () => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await page.getByRole('tab', { name: 'Privacy' }).click()
     await expect(page.getByText('no telemetry')).toBeVisible()
+    await expect(page.getByRole('link', { name: /issues\/new/ })).toBeVisible()
     await page.getByRole('button', { name: 'Copy diagnostics report' }).click()
     const report = page.getByLabel('Diagnostics report')
     await expect(report).toHaveValue(/^Renkeu \d/)

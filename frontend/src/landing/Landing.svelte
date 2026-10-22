@@ -215,7 +215,7 @@
           <ul class="cap-grid">
             {#each capabilities.items as item (item.id)}
               <li class="cap">
-                <span class="cap-icon" aria-hidden="true"><PixelIcon name={{ files: 'folder', edit: 'tex', sync: 'target', ai: 'spark', visual: 'select', history: 'history' }[item.id]} size={24} /></span>
+                <span class="cap-icon" aria-hidden="true"><PixelIcon name={{ files: 'folder', edit: 'tex', sync: 'target', ai: 'spark', visual: 'select', fit: 'fit', preflight: 'book', cli: 'terminal', history: 'history' }[item.id]} size={24} /></span>
                 <h3>{item.title}</h3>
                 <p>{item.body}</p>
               </li>

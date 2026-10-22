@@ -6,6 +6,7 @@
   import { onMount } from 'svelte'
   import { api } from '../lib/api/client.js'
   import { formatChord } from '../lib/commands.js'
+  import { FEEDBACK_URL } from '../lib/feedback.js'
 
   let { ui, documents, commands, paper, onclose = () => {}, onchange = () => {} } = $props()
 
@@ -215,6 +216,11 @@
         <p class="help">The first compile downloads the TeX support files (no document text). Looking up a citation by DOI asks doi.org for that DOI, only when you use it.</p>
         <h3>Bug reports</h3>
         <p class="help">The report lists the version, your system, the assistant and bundle settings, and the project folder's name. It has no project text and no key.</p>
+        <p class="help">
+          To report a problem or say how it went, write to
+          <a href={FEEDBACK_URL} target="_blank" rel="noreferrer noopener">{FEEDBACK_URL}</a>
+          and paste the report there.
+        </p>
         <button onclick={copyReport}>Copy diagnostics report</button>
         {#if reportNote}<p class="ok" role="status">{reportNote}</p>{/if}
         {#if report}<textarea class="report" readonly rows="6" aria-label="Diagnostics report" value={report}></textarea>{/if}

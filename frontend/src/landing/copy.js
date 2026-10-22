@@ -84,13 +84,16 @@ export const workspace = {
 
 export const capabilities = {
   eyebrow: 'What it does',
-  title: 'Six tools. All of them run beside your files.',
+  title: 'Nine tools. All of them run beside your files.',
   items: [
     { id: 'files', title: 'Multi-file projects', body: 'File tree you can group by type, tabs, autosave, upload, rename, delete, a main document of your choosing, and 13 starter templates (article, IEEE, ACM, thesis, slides, CV and more).' },
     { id: 'edit', title: 'LaTeX-aware editing', body: 'Completion for citations, labels and packages; an outline; spell check; go to definition on \\ref, \\cite and \\input; find and replace across the project; an Insert menu for figures, tables, equations, citations and cross-references; optional compile after each save.' },
     { id: 'sync', title: 'SyncTeX both ways', body: 'From a source line to its place on the page, and from a click on the page back to the source. A Layout tab checks a page limit, lists overfull boxes and finds paragraphs that end in a word or two.' },
     { id: 'ai', title: 'Review-gated AI repair', body: 'Tries fixes on a copy, checks that the document compiles, then lets you apply them change by change.' },
     { id: 'visual', title: 'Visual fix', body: 'Draw a box on the PDF and say what is wrong. Reading the picture needs a vision-capable model; without one it works from the source.' },
+    { id: 'fit', title: 'Fit to a page limit', body: 'Say how many pages you may use. The assistant tightens wording, narrows figures and moves floats on a copy, measures every try on the compiled PDF, and refuses to shrink the type, squeeze the spacing, move the margins or delete sections, equations and citations.' },
+    { id: 'preflight', title: 'Submission checks', body: 'Profiles for arXiv, double-blind review and accessibility check file names, the .bbl, author names left in the text and the PDF, alt text and embedded fonts. They are plain TOML files you can edit. A clean report means nothing was found, not that a venue will accept the paper.' },
+    { id: 'cli', title: 'Command line, CI and agents', body: 'latex-ai check builds a paper and reports its pages and problems; a GitHub Action puts that on every push; an MCP server lets Claude Code, Codex or Cursor compile, measure and locate in your project. Nothing in them calls a model.' },
     { id: 'history', title: 'History and undo', body: 'Every save and every applied change is recorded with what it replaced.' }
   ],
   planned: {
@@ -127,7 +130,7 @@ export const boundary = {
   ],
   sentVisual: 'For a visual fix: a crop of the page, if a vision model is configured.',
   local: 'With a local model such as Ollama, the AI sends nothing off your machine.',
-  small: 'This describes how the app is built to behave. The source is open, so you can check it.'
+  small: 'This describes how the app is built to behave.'
 };
 
 export const install = {
@@ -149,7 +152,7 @@ export const install = {
     {
       id: 'desktop',
       name: 'Desktop',
-      note: 'The first release is coming. The Linux .deb is built and tested in CI; macOS and Windows are configured but untested.',
+      note: 'The first alpha is coming, for Linux (.deb, AppImage) and Windows (an unsigned installer). Until then, run it from source.',
       cta: 'Watch releases'
     }
   ]
@@ -165,6 +168,7 @@ export const faq = {
     ['Can I use my own or a local model?', 'Yes. Any model the genai library can reach, including local Ollama models. Small models may not find a fix; larger ones do better.'],
     ['What if the AI cannot fix my document?', 'It stops after 3 attempts and your files stay exactly as they were.'],
     ['Can it change my files without asking?', 'No. Changes are written only when you press Apply, and only the ones you ticked.'],
+    ['Can a script or an AI agent use it?', 'Yes. latex-ai check compiles a project and reports pages, overfull boxes, fonts and submission problems, with a GitHub Action around it. latex-ai mcp serves the same tools to MCP clients. They compile and measure; they do not call a model, and they never change your files.'],
     ['Is there a hosted version or collaboration?', 'No. There are no accounts, no hosted projects and no real-time editing.'],
     ['What is the licence?', 'MIT or Apache-2.0, at your option.']
   ]
