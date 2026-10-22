@@ -112,3 +112,8 @@ crates/latex_ai_tauri/resources/pdfium/*
 bench/fit/corpus/
 bench/fit/results/
 bench/fit/seen.json
+
+# Planning and working notes stay local; only READMEs are tracked.
+*.md
+!README.md
+!**/README.md
