@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Latex-AI",
+  "productName": "Renkeu",
   "version": "0.1.0",
-  "identifier": "com.latex-ai.dev",
+  "identifier": "dev.renkeu.desktop",
   "build": {
-    "beforeDevCommand": "npm run build",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm --prefix ../frontend run build",
+    "beforeBuildCommand": "npm --prefix ../frontend run build",
     "frontendDist": "../../frontend/dist"
   },
   "app": {
@@ -19,8 +19,7 @@
     "targets": [
       "deb",
       "appimage",
-      "dmg",
-      "msi"
+      "nsis"
     ],
     "icon": [
       "icons/32x32.png",
@@ -30,6 +29,15 @@
       "icons/icon.ico"
     ],
     "category": "Productivity",
-    "shortDescription": "Local-first LaTeX editor with a self-healing AI compile loop"
+    "shortDescription": "Local-first LaTeX editor with a self-healing AI compile loop",
+    "resources": {
+      "resources/pdfium/": "pdfium/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "licenseFile": "../../LICENSE-MIT"
   }
 }

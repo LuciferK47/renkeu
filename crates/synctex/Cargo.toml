@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Reader for SyncTeX files: map between PDF coordinates and LaTeX source positions"
+keywords = ["latex", "synctex", "pdf", "tex", "parser"]
+categories = ["parser-implementations", "text-processing"]
+readme = "README.md"
 
 [dependencies]
 flate2 = "1.1.9"

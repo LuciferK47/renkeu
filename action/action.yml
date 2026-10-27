@@ -1,0 +1,59 @@
+name: Renkeu check
+description: >
+  Compile a LaTeX project with Renkeu's engine and report the page count,
+  overfull boxes and compile errors on the job summary and on the lines they
+  are about. Fails when the document does not build or goes over the page limit.
+author: Kushagra Singh
+
+inputs:
+  path:
+    description: A .tex file, or a folder (its main file is found).
+    default: "."
+  main:
+    description: Main file inside the folder, when it has more than one candidate.
+    default: ""
+  pages:
+    description: Fail when the PDF has more pages than this.
+    default: ""
+  profile:
+    description: 'Also run a preflight profile: arxiv, double-blind, accessibility, or the path to a profile .toml in the repository.'
+    default: ""
+  strict:
+    description: 'Also fail on overfull boxes and fonts that are not embedded ("true" or "false").'
+    default: "false"
+  binary:
+    description: >
+      Path to a `latex-ai` binary to use. When empty, the binary of `version`
+      is downloaded from `repository`'s releases.
+    default: ""
+  version:
+    description: Release tag to download when `binary` is empty.
+    default: latest
+  repository:
+    description: Repository whose releases hold the binary.
+    default: seriouslysahid/renkeu-releases
+
+runs:
+  using: composite
+  steps:
+    # The Tectonic bundle is about 40 MB and is fetched on the first compile.
+    - name: Cache the TeX bundle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/Tectonic
+          ~/AppData/Local/TectonicProject
+        key: renkeu-tex-bundle-${{ runner.os }}-v1
+
+    - name: Check
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_MAIN: ${{ inputs.main }}
+        INPUT_PAGES: ${{ inputs.pages }}
+        INPUT_STRICT: ${{ inputs.strict }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_BINARY: ${{ inputs.binary }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+      run: ${{ github.action_path }}/run.sh

@@ -1,7 +1,7 @@
 // Coordinate conversion for the visual-fix overlay. Getting this wrong sends
 // the backend a box over the wrong part of the page, so it is worth pinning.
 import { describe, it, expect } from 'vitest';
-import { normalizeDrag, isMeaningfulDrag, toImagePixels, MIN_DRAG_PX } from '../src/utils/bbox.js';
+import { normalizeDrag, isMeaningfulDrag, toPagePoints, fromPagePoints, MIN_DRAG_PX } from '../src/utils/bbox.js';
 
 const bounds = { width: 800, height: 1000 };
 
@@ -52,54 +52,23 @@ describe('isMeaningfulDrag', () => {
   });
 });
 
-describe('toImagePixels', () => {
-  const natural = { width: 1275, height: 1650 }; // Letter at 150dpi
-
-  it('is identity at 1:1 zoom', () => {
-    const box = { x: 100, y: 200, w: 300, h: 400 };
-    expect(toImagePixels(box, natural, natural)).toEqual(box);
+describe('toPagePoints', () => {
+  it('divides screen px by px-per-point, so zoom does not change the answer', () => {
+    // The same physical box at 100% (96/72 px per pt) and at 200%.
+    const at100 = toPagePoints({ x: 133.333, y: 66.667, w: 266.667, h: 133.333 }, 96 / 72);
+    const at200 = toPagePoints({ x: 266.667, y: 133.333, w: 533.333, h: 266.667 }, 192 / 72);
+    expect(at100).toEqual({ x: 100, y: 50, w: 200, h: 100 });
+    expect(at200).toEqual(at100);
   });
 
-  it('scales up when the page is displayed smaller than natural', () => {
-    // Displayed at half size: every screen px is two image px.
-    const displayed = { width: 637.5, height: 825 };
-    expect(toImagePixels({ x: 50, y: 100, w: 150, h: 200 }, displayed, natural)).toEqual({
-      x: 100,
-      y: 200,
-      w: 300,
-      h: 400
-    });
+  it('refuses a nonsensical scale rather than dividing by zero', () => {
+    for (const bad of [0, -1, NaN, undefined]) {
+      expect(toPagePoints({ x: 1, y: 1, w: 1, h: 1 }, bad)).toEqual({ x: 0, y: 0, w: 0, h: 0 });
+    }
   });
 
-  it('scales down when zoomed in past natural size', () => {
-    const displayed = { width: 2550, height: 3300 }; // 200% zoom
-    expect(toImagePixels({ x: 200, y: 400, w: 600, h: 800 }, displayed, natural)).toEqual({
-      x: 100,
-      y: 200,
-      w: 300,
-      h: 400
-    });
-  });
-
-  it('never lets a box run past the image edge', () => {
-    const box = { x: 1200, y: 1600, w: 500, h: 500 };
-    const region = toImagePixels(box, natural, natural);
-    expect(region.x + region.w).toBeLessThanOrEqual(natural.width);
-    expect(region.y + region.h).toBeLessThanOrEqual(natural.height);
-  });
-
-  it('always sends at least one pixel, so the backend never sees a zero box', () => {
-    const region = toImagePixels({ x: 10, y: 10, w: 0, h: 0 }, natural, natural);
-    expect(region.w).toBeGreaterThanOrEqual(1);
-    expect(region.h).toBeGreaterThanOrEqual(1);
-  });
-
-  it('degrades safely before the image has laid out', () => {
-    expect(toImagePixels({ x: 1, y: 1, w: 1, h: 1 }, { width: 0, height: 0 }, natural)).toEqual({
-      x: 0,
-      y: 0,
-      w: 0,
-      h: 0
-    });
+  it('round-trips with fromPagePoints', () => {
+    const region = { x: 72, y: 144, w: 36, h: 18 };
+    expect(toPagePoints(fromPagePoints(region, 1.5), 1.5)).toEqual(region);
   });
 });

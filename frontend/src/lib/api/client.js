@@ -68,15 +68,143 @@ export class APIClient {
   }
 
   // If-Match drives optimistic concurrency; a 409 carries { current_etag }.
-  saveFile(path, content, etag) {
+  // The server refuses a save with no etag (428), so fail here with a clear
+  // message instead of sending a request that is certain to be rejected.
+  // `autosave` marks a timer-driven save so the server folds a burst of them
+  // into one history entry.
+  saveFile(path, content, etag, { autosave = false } = {}) {
+    if (!etag) {
+      return Promise.reject(
+        new APIError('Cannot save before the file has been loaded (no ETag).', 428, null)
+      );
+    }
     return this.request('POST', '/file', {
-      body: { path, content },
-      headers: etag ? { 'If-Match': etag } : {}
+      body: { path, content, ...(autosave ? { autosave: true } : {}) },
+      headers: { 'If-Match': etag }
     });
   }
 
-  listFiles() {
-    return this.request('GET', '/files');
+  // --- file management ---------------------------------------------------
+
+  // New text file (parent folders are created). -> { path, etag }
+  createFile(path, content = '') {
+    return this.request('POST', '/files/create', { body: { path, content } });
+  }
+
+  // Move a file or folder; the server refuses to replace anything (409).
+  renameFile(from, to) {
+    return this.request('POST', '/files/rename', { body: { from, to } });
+  }
+
+  // Needs the file's current ETag, like a save (428 without, 409 if stale).
+  deleteFile(path, etag) {
+    return this.request('DELETE', '/file', { params: { path }, headers: { 'If-Match': etag } });
+  }
+
+  // ETag of any project file, binary included, without downloading it.
+  async fileEtag(path) {
+    const url = new URL(this.rawUrl(path), window.location.origin);
+    let res;
+    try {
+      res = await fetch(url, { method: 'HEAD' });
+    } catch (err) {
+      throw new APIError(err.message, 0, null);
+    }
+    if (!res.ok) throw new APIError(res.statusText || 'request failed', res.status, null);
+    return res.headers.get('etag')?.replace(/"/g, '') ?? null;
+  }
+
+  // The request body is the file itself; `file` is a File or Blob.
+  async uploadFile(path, file) {
+    const url = new URL(this.buildUrl('/upload'), window.location.origin);
+    url.searchParams.set('path', path);
+    let res;
+    try {
+      res = await fetch(url, { method: 'POST', body: file });
+    } catch (err) {
+      throw new APIError(err.message, 0, null);
+    }
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new APIError((data && (data.message || data.error)) || res.statusText, res.status, data);
+    return data;
+  }
+
+  // Bytes of a project file with their content type (for the image preview).
+  rawUrl(path) {
+    return `${this.buildUrl('/raw')}?path=${encodeURIComponent(path)}`;
+  }
+
+  // -> { main: string|null }; the root document the user picked.
+  getProject() {
+    return this.request('GET', '/project');
+  }
+
+  // Starter templates: the gallery, a new project from one (empty projects
+  // only, 409 otherwise), and the front-matter block for a set of values.
+  getTemplates() {
+    return this.request('GET', '/templates');
+  }
+
+  templateThumbnailUrl(id) {
+    return this.buildUrl(`/templates/${encodeURIComponent(id)}/thumbnail`);
+  }
+
+  startFromTemplate(template, fields) {
+    return this.request('POST', '/project/template', { body: { template, fields } });
+  }
+
+  renderFrontmatter(template, fields) {
+    return this.request('POST', '/templates/frontmatter', { body: { template, fields } });
+  }
+
+  // Layout facts for a build: pages, a page budget, boxes, short last lines, fonts.
+  getLayout(build, pages) {
+    return this.request('GET', '/layout', { params: { build, pages } });
+  }
+
+  // Submission checks: the profiles available, and one applied to a build.
+  getPreflightProfiles() {
+    return this.request('GET', '/preflight/profiles');
+  }
+
+  getPreflight(build, profile) {
+    return this.request('GET', '/preflight', { params: { build, profile } });
+  }
+
+  // BibTeX for a DOI, fetched by the server from doi.org (the DOI is all that is sent).
+  lookupDoi(doi) {
+    return this.request('GET', '/doi', { params: { doi } });
+  }
+
+  // Find and replace across the project's text files. Replace writes through
+  // the store, so every change is in the history.
+  searchProject(body) {
+    return this.request('POST', '/project/search', { body });
+  }
+
+  replaceProject(body) {
+    return this.request('POST', '/project/replace', { body });
+  }
+
+  setMain(main) {
+    return this.request('PUT', '/project', { body: { main } });
+  }
+
+  // The whole project as a nested tree: [{ name, path, kind: 'dir'|'file',
+  // editable, children? }]. Secrets and dot-directories are never listed.
+  getTree() {
+    return this.request('GET', '/tree');
+  }
+
+  // -> [{ id, file_path, command, diff, edit_type, created_at }]
+  getHistory(params) {
+    return this.request('GET', '/history', { params });
+  }
+
+  // One entry with the text it recorded -> { id, file_path, edit_type,
+  // created_at, text_after, text_before }. Used to restore a version.
+  getHistoryEntry(id) {
+    return this.request('GET', `/history/${encodeURIComponent(id)}`);
   }
 
   // --- search ------------------------------------------------------------
@@ -86,16 +214,16 @@ export class APIClient {
     return this.request('GET', '/search', { params: { q } });
   }
 
-  // Client supplies candidates (command palette entries).
-  searchCandidates(query, candidates) {
-    return this.request('POST', '/search', { body: { query, candidates } });
-  }
-
   // --- compile -----------------------------------------------------------
 
   // -> { job_id, status }
-  compile(filePath, signal) {
-    return this.request('POST', '/compile', { body: { file_path: filePath }, signal });
+  // `main` names the root document when the project has several candidates
+  // (otherwise the server picks it: \documentclass, `% !TEX root`, ...).
+  compile(filePath, signal, main = null) {
+    return this.request('POST', '/compile', {
+      body: { file_path: filePath, ...(main ? { main } : {}) },
+      signal
+    });
   }
 
   compileStreamUrl(jobId) {
@@ -107,12 +235,18 @@ export class APIClient {
   // unlike the `filter: invert()` every other LaTeX viewer resorts to.
   // paper === 1 means "send it exactly as it prints", which is what
   // hold-to-reveal asks for.
-  pdfPageUrl(filePath, page, dpi, tone) {
-    const params = new URLSearchParams({ file: filePath, n: String(page) });
+  //
+  // Pass `buildId` (from the `compiled` event) so the URL names exactly one
+  // compile: it never goes stale and the server lets the browser cache it.
+  // Without it the server serves "the newest build of this file".
+  pdfPageUrl(filePath, page, dpi, tone, buildId) {
+    const params = new URLSearchParams({ n: String(page) });
+    if (buildId) params.set('build', buildId);
+    else params.set('file', filePath);
     if (dpi) params.set('dpi', String(dpi));
     if (tone) {
-      if (tone.paper != null) params.set('paper', String(tone.paper));
-      if (tone.warmth != null) params.set('warmth', String(tone.warmth));
+      if (tone.paper !== undefined && tone.paper !== null) params.set('paper', String(tone.paper));
+      if (tone.warmth !== undefined && tone.warmth !== null) params.set('warmth', String(tone.warmth));
     }
     return `${this.buildUrl('/pdf/page')}?${params.toString()}`;
   }
@@ -127,35 +261,137 @@ export class APIClient {
     });
   }
 
-  // `expectedEtag` makes the write conditional on the file not having moved
-  // while the user reviewed; a 409 carries the winning etag.
-  applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag = null) {
-    const payload = expectedEtag
-      ? edits.map((e) => ({ ...e, expected_etag: expectedEtag }))
-      : edits;
+  // `expectedEtag` is required: it makes the write conditional on the file not
+  // having moved while the user reviewed; a 409 carries the winning etag.
+  // `instruction` is stored in the history row. `proposalId` (from the
+  // proposal event) lets the server check files other than `filePath` and
+  // lets `rebase` move the hunks onto a file that changed during review.
+  applySelectedHunks(
+    filePath,
+    edits,
+    selectedHunkIds,
+    expectedEtag,
+    instruction = null,
+    { proposalId = null, rebase = false } = {}
+  ) {
+    if (!expectedEtag) {
+      return Promise.reject(
+        new APIError('Cannot apply edits without the ETag of the file they were proposed for.', 428, null)
+      );
+    }
     return this.request('POST', '/agent/apply-selected', {
-      body: { file_path: filePath, edits: payload, selected_hunk_ids: selectedHunkIds }
+      body: {
+        file_path: filePath,
+        edits,
+        selected_hunk_ids: selectedHunkIds,
+        expected_etag: expectedEtag,
+        ...(instruction ? { instruction } : {}),
+        ...(proposalId ? { proposal_id: proposalId } : {}),
+        ...(rebase ? { rebase: true } : {})
+      }
     });
   }
 
-  // Region coordinates are pixels of the page image rendered at `dpi`.
-  repairVisualCrop({ filePath, page, x, y, w, h, dpi, instruction }) {
+  // The region is in PDF points from the page's top-left corner, so it means
+  // the same thing at any zoom.
+  repairVisualCrop({ filePath, buildId, page, x, y, w, h, instruction }) {
     return this.request('POST', '/visual-fix', {
       body: {
         file_path: filePath,
+        ...(buildId ? { build: buildId } : {}),
         page,
         x,
         y,
         w,
         h,
-        ...(dpi ? { dpi } : {}),
         ...(instruction ? { instruction } : {})
       }
     });
   }
 
+  // --- SyncTeX -----------------------------------------------------------
+
+  // Source line -> where it landed in the PDF.
+  // -> { build, stale, hits: [{ page, x, y, width, height, line }] } (points)
+  synctexForward({ file, line, build }) {
+    return this.request('GET', '/synctex/forward', { params: { file, line, build } });
+  }
+
+  // A point on a page (PDF points) -> the source line behind it.
+  // -> { file, line, column, exact, stale }
+  synctexBackward({ build, page, x, y }) {
+    return this.request('GET', '/synctex/backward', { params: { build, page, x, y } });
+  }
+
   getConfig() {
     return this.request('GET', '/config');
+  }
+
+  // Plain text for a bug report: version, platform and setup, never project text or a key.
+  getDiagnostics() {
+    return this.request('GET', '/diagnostics');
+  }
+
+  // --- builds ------------------------------------------------------------
+
+  // Stop a running compile; the worker process is killed server-side.
+  cancelCompile(jobId) {
+    return this.request('POST', `/compile/${encodeURIComponent(jobId)}/cancel`);
+  }
+
+  // What a compile found: success, main file, diagnostics with file and line.
+  getBuild(buildId) {
+    return this.request('GET', `/builds/${encodeURIComponent(buildId)}`);
+  }
+
+  // The TeX log of a build, as text (the tail, if it is very long).
+  getBuildLog(buildId) {
+    return this.request('GET', `/builds/${encodeURIComponent(buildId)}/log`);
+  }
+
+  // URL that downloads the finished PDF ("Export PDF").
+  exportPdfUrl(buildId) {
+    return this.buildUrl(`/builds/${encodeURIComponent(buildId)}/pdf`);
+  }
+
+  // Partial update of the server-side settings (model, vision_model,
+  // timeout_secs). Unknown fields are rejected with 422, and fields pinned by
+  // an environment variable with 409.
+  saveConfig(patch) {
+    return this.request('PATCH', '/config', { body: patch });
+  }
+
+  // The key is write-only: no response ever contains it.
+  setApiKey(key) {
+    return this.request('PUT', '/config/api-key', { body: { key } });
+  }
+
+  clearApiKey() {
+    return this.request('DELETE', '/config/api-key');
+  }
+
+  // --- first run -----------------------------------------------------------
+
+  // -> { done }: whether the welcome screen was completed or skipped. Kept by
+  // the server, because the desktop app's address changes on every launch.
+  getSetup() {
+    return this.request('GET', '/setup');
+  }
+
+  finishSetup() {
+    return this.request('PUT', '/setup');
+  }
+
+  // Compile a one-line document so the TeX support files are downloaded now.
+  // -> { ok, message }; a failure is an answer, not an error.
+  prepareTex() {
+    return this.request('POST', '/setup/prepare');
+  }
+
+  // Is Ollama running on this computer, and which models does it have?
+  // -> { running, models: [{ name, size_bytes }] }
+  getLocalModels() {
+    return this.request('GET', '/ai/local');
   }
 }
 

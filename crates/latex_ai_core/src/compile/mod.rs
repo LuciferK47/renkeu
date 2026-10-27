@@ -15,14 +15,27 @@ pub enum AgentOp {
     ApplyUnifiedDiff,
 }
 
+impl AgentOp {
+    /// The wire name, also fed into [`AgentEdit::hunk_id`].
+    #[must_use]
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::RewriteFile => "rewrite_file",
+            Self::ReplaceRange => "replace_range",
+            Self::Insert => "insert",
+            Self::ApplyUnifiedDiff => "apply_unified_diff",
+        }
+    }
+}
+
 /// One structured edit proposed by the AI (masterplan.md §8.1).
 ///
-/// `hunk_id` is server-computed (blake3 of the search text) but remains a
+/// `hunk_id` is server-computed (see [`AgentEdit::hunk_id`]) but remains a
 /// plain optional field: proposals are sent to the client WITH it, and the
 /// client echoes edits back verbatim on apply-selected — a
 /// `skip_deserializing` attribute here would make `deny_unknown_fields`
 /// reject that round-trip.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentEdit {
     pub file_path: String,
@@ -38,8 +51,9 @@ pub struct AgentEdit {
     pub hunk_id: Option<String>,
 }
 
-/// Stable identity of an edit across replans: blake3 of the search text,
-/// first 16 hex chars (masterplan.md §13).
+/// Identity of an edit: blake3 over everything that defines what it does,
+/// first 16 hex chars (masterplan.md §13). Two edits share an id only if they
+/// are the same change to the same file.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct HunkId(pub String);
 
@@ -60,22 +74,41 @@ pub enum EditValidationError {
 }
 
 impl AgentEdit {
-    /// The text this edit anchors on (search text, else whole payload).
-    #[must_use]
-    pub fn search_text(&self) -> &str {
-        if let Some(text) = &self.text {
-            return text;
-        }
-        if let Some(payload) = &self.payload {
-            return payload;
-        }
-        ""
-    }
-
+    /// Identity of this edit: file, operation, anchor (search text and/or
+    /// line numbers), replacement text and payload.
+    ///
+    /// The id used to be a hash of the search text alone, which gave every
+    /// line-based edit and every insertion the same id (an empty anchor) and
+    /// made two different replacements of one anchor indistinguishable, so
+    /// selecting one hunk selected them all. `expected_etag` and `hunk_id`
+    /// are deliberately excluded: they describe the request, not the change.
     #[must_use]
     pub fn hunk_id(&self) -> HunkId {
-        let hash = blake3::hash(self.search_text().as_bytes());
-        let hex = hash.to_hex();
+        let mut hasher = blake3::Hasher::new();
+        let mut field = |bytes: Option<&[u8]>| match bytes {
+            // A presence byte and a length keep ("ab","c") distinct from
+            // ("a","bc") and None distinct from Some("").
+            Some(b) => {
+                hasher.update(&[1]);
+                hasher.update(&(b.len() as u64).to_le_bytes());
+                hasher.update(b);
+            }
+            None => {
+                hasher.update(&[0]);
+            }
+        };
+        let num = |n: Option<NonZeroU64>| n.map(|n| n.get().to_le_bytes());
+
+        field(Some(self.file_path.as_bytes()));
+        field(Some(self.op.tag().as_bytes()));
+        field(self.text.as_deref().map(str::as_bytes));
+        field(self.payload.as_deref().map(str::as_bytes));
+        field(self.insert_text.as_deref().map(str::as_bytes));
+        field(num(self.start_line).as_ref().map(<[u8; 8]>::as_slice));
+        field(num(self.end_line).as_ref().map(<[u8; 8]>::as_slice));
+        field(num(self.line).as_ref().map(<[u8; 8]>::as_slice));
+
+        let hex = hasher.finalize().to_hex();
         HunkId(hex[..16].to_owned())
     }
 
@@ -91,13 +124,13 @@ impl AgentEdit {
 
         // A reversed range would otherwise be caught only at apply time, or
         // silently splice nothing.
-        if let (Some(start), Some(end)) = (self.start_line, self.end_line) {
-            if start > end {
-                return Err(EditValidationError::InvertedRange {
-                    start: start.get(),
-                    end: end.get(),
-                });
-            }
+        if let (Some(start), Some(end)) = (self.start_line, self.end_line)
+            && start > end
+        {
+            return Err(EditValidationError::InvertedRange {
+                start: start.get(),
+                end: end.get(),
+            });
         }
 
         let missing = |op, field| Err(EditValidationError::MissingField { op, field });
@@ -122,10 +155,10 @@ impl AgentEdit {
 
 /// Collapse edits that share a [`HunkId`], keeping first occurrence order.
 ///
-/// Two prompts asking for the same change produce byte-identical hunks
-/// (the id is a hash of the anchor text), and applying one twice would
-/// either fail on the second pass or double-apply. Collapsing is the
-/// behaviour masterplan §12 M4's audit gate asks for.
+/// Two prompts asking for the same change produce identical hunks, and
+/// applying one twice would either fail on the second pass or double-apply.
+/// Only truly identical edits collapse: different replacements of the same
+/// anchor are different changes and both survive.
 #[must_use]
 pub fn dedupe_hunks<'a>(edits: &[&'a AgentEdit]) -> Vec<&'a AgentEdit> {
     let mut seen = std::collections::HashSet::new();
@@ -134,13 +167,6 @@ pub fn dedupe_hunks<'a>(edits: &[&'a AgentEdit]) -> Vec<&'a AgentEdit> {
         .filter(|edit| seen.insert(edit.hunk_id()))
         .copied()
         .collect()
-}
-
-/// A compile job bound to a scratchpad session.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CompileRequest {
-    pub session_id: String,
-    pub edits: Vec<AgentEdit>,
 }
 
 #[cfg(test)]
@@ -224,36 +250,87 @@ mod tests {
         assert_eq!(blank.validate(), Err(EditValidationError::EmptyFilePath));
     }
 
+    fn replace(text: &str, with: &str) -> AgentEdit {
+        let mut e = edit(AgentOp::ReplaceRange);
+        e.text = Some(text.into());
+        e.insert_text = Some(with.into());
+        e
+    }
+
     #[test]
-    fn identical_hunks_collapse_but_distinct_ones_survive() {
-        let mut a = edit(AgentOp::ReplaceRange);
-        a.text = Some("same anchor".into());
-        a.insert_text = Some("first".into());
-        // Same anchor text -> same hunk id, even with a different replacement.
-        let mut duplicate = a.clone();
-        duplicate.insert_text = Some("second".into());
-        let mut other = edit(AgentOp::ReplaceRange);
-        other.text = Some("different anchor".into());
-        other.insert_text = Some("third".into());
+    fn only_truly_identical_hunks_collapse() {
+        let a = replace("same anchor", "first");
+        let duplicate = a.clone();
+        let other_replacement = replace("same anchor", "second");
+        let other_anchor = replace("different anchor", "third");
 
         assert_eq!(a.hunk_id(), duplicate.hunk_id());
-        let deduped = dedupe_hunks(&[&a, &duplicate, &other]);
-        assert_eq!(deduped.len(), 2);
-        assert_eq!(deduped[0].insert_text.as_deref(), Some("first"));
-        assert_eq!(deduped[1].insert_text.as_deref(), Some("third"));
+        assert_ne!(a.hunk_id(), other_replacement.hunk_id());
+
+        let deduped = dedupe_hunks(&[&a, &duplicate, &other_replacement, &other_anchor]);
+        let replacements: Vec<_> = deduped.iter().map(|e| e.insert_text.as_deref()).collect();
+        assert_eq!(replacements, [Some("first"), Some("second"), Some("third")]);
     }
 
     #[test]
     fn hunk_ids_are_stable_across_replans() {
-        // The same plan produced twice must yield the same id set, which is
-        // what lets a user's selection survive a requery.
-        let plan = |replacement: &str| {
-            let mut e = edit(AgentOp::ReplaceRange);
-            e.text = Some("\\textwidth".into());
-            e.insert_text = Some(replacement.to_owned());
-            e
-        };
-        assert_eq!(plan("a").hunk_id(), plan("b").hunk_id());
+        // The same plan produced twice yields the same ids, which is what
+        // lets a user's selection survive a requery.
+        assert_eq!(
+            replace("\\textwidth", "a").hunk_id(),
+            replace("\\textwidth", "a").hunk_id()
+        );
+    }
+
+    #[test]
+    fn line_based_edits_and_insertions_no_longer_collide() {
+        // Before: every edit without `text` hashed the empty string, so all
+        // of these shared one id and selecting one selected all.
+        let mut by_lines_a = edit(AgentOp::ReplaceRange);
+        by_lines_a.start_line = Some(nz(1));
+        by_lines_a.end_line = Some(nz(2));
+        by_lines_a.insert_text = Some("x".into());
+        let mut by_lines_b = by_lines_a.clone();
+        by_lines_b.start_line = Some(nz(5));
+        by_lines_b.end_line = Some(nz(6));
+        let mut ins_a = edit(AgentOp::Insert);
+        ins_a.line = Some(nz(1));
+        ins_a.insert_text = Some("x".into());
+        let mut ins_b = ins_a.clone();
+        ins_b.line = Some(nz(2));
+        let mut other_file = ins_a.clone();
+        other_file.file_path = "chapter.tex".into();
+
+        let ids = [&by_lines_a, &by_lines_b, &ins_a, &ins_b, &other_file].map(AgentEdit::hunk_id);
+        let unique: std::collections::HashSet<_> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len(), "{ids:?}");
+    }
+
+    #[test]
+    fn field_boundaries_cannot_be_forged() {
+        let mut a = edit(AgentOp::ReplaceRange);
+        a.text = Some("ab".into());
+        a.insert_text = Some("c".into());
+        let mut b = edit(AgentOp::ReplaceRange);
+        b.text = Some("a".into());
+        b.insert_text = Some("bc".into());
+        assert_ne!(a.hunk_id(), b.hunk_id());
+
+        // None is not the same as an empty string.
+        let mut none = edit(AgentOp::Insert);
+        none.insert_text = Some(String::new());
+        let mut empty_payload = none.clone();
+        empty_payload.payload = Some(String::new());
+        assert_ne!(none.hunk_id(), empty_payload.hunk_id());
+    }
+
+    #[test]
+    fn request_metadata_does_not_change_identity() {
+        let a = replace("x", "y");
+        let mut b = a.clone();
+        b.expected_etag = Some("etag".into());
+        b.hunk_id = Some("whatever the client echoed".into());
+        assert_eq!(a.hunk_id(), b.hunk_id());
     }
 
     #[test]

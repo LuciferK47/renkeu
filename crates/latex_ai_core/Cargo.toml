@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+arc-swap = "1"
 genai = "0.1"
 nucleo-matcher = { workspace = true }
 serde = { workspace = true }
@@ -16,12 +17,15 @@ serde_json = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 hex = "0.4"
+dunce = "1"
 similar = "2.6"
 regex = "1.12.4"
+toml = "0.8"
 tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+proptest = "1"
 
 [lints]
 workspace = true

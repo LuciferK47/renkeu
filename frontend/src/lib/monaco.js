@@ -1,0 +1,54 @@
+// Monaco, loaded on first use so the app shell paints before the editor's
+// ~MBs are parsed, plus the text-model factory the document store uses.
+
+import { registerLatex } from './latex/register.js';
+import { defineEditorThemes } from './editorThemes.js';
+
+let loading = null;
+/**
+ * What the language features draw on, set by the app: `index` (labels,
+ * citations, files) and `spell` (the dictionary).
+ */
+let services = null;
+
+export function useEditorServices(s) {
+  services = s;
+}
+
+export function loadMonaco() {
+  // editor.api alone is the bare core: no suggest widget, snippets, comment
+  // toggling, find or folding. editor.all registers those contributions.
+  loading ??= Promise.all([
+    import('monaco-editor/esm/vs/editor/editor.all.js'),
+    import('monaco-editor/esm/vs/editor/editor.api')
+  ]).then(([, monaco]) => {
+    registerLatex(monaco, () => services);
+    defineEditorThemes(monaco);
+    return monaco;
+  });
+  return loading;
+}
+
+const LANGUAGE = {
+  tex: 'latex',
+  sty: 'latex',
+  cls: 'latex',
+  tikz: 'latex',
+  bib: 'bibtex'
+};
+
+function languageFor(path) {
+  const ext = path.split('.').pop()?.toLowerCase() ?? '';
+  return LANGUAGE[ext] ?? 'plaintext';
+}
+
+/** Builds one Monaco model per open file. */
+export const monacoModels = {
+  async create(path, text) {
+    const monaco = await loadMonaco();
+    return monaco.editor.createModel(text, languageFor(path), monaco.Uri.file(`/${path}`));
+  },
+  dispose(model) {
+    model.dispose();
+  }
+};

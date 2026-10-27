@@ -1,0 +1,6 @@
+name = "IEEE conference"
+category = "Papers"
+description = "Two-column IEEE conference paper (IEEEtran)."
+fields = ["title", "authors", "abstract", "keywords"]
+author_item = '''\IEEEauthorblockN{{{name}}}\IEEEauthorblockA{\textit{{{affiliation}}}\\{{email}}}'''
+author_sep = ''' \and '''

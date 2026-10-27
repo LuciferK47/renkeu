@@ -1,0 +1,6 @@
+name = "Springer LNCS"
+category = "Papers"
+description = "Springer Lecture Notes in Computer Science (llncs)."
+fields = ["title", "authors", "abstract", "keywords"]
+author_item = '''{{name}}'''
+author_sep = ''' \and '''

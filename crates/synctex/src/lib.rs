@@ -13,6 +13,7 @@
 //! renders from — and [`SyncTexData`] converts. The factor is
 //! `65536 sp/pt × 72.27 pt/inch ÷ 72 bp/inch`; a document's 1-inch margin
 //! shows up as `4736287 sp`, which is exactly 72 bp, confirming it.
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
@@ -80,6 +81,11 @@ pub struct Node {
     pub width: i64,
     pub height: i64,
     pub depth: i64,
+    /// Index (within the same page's node list) of the box this node sits
+    /// directly inside; `None` at the top of the page. Lets a search tell a
+    /// line's own kerns and glue from vertical glue that merely shares its
+    /// baseline.
+    pub parent: Option<usize>,
 }
 
 impl Node {
@@ -147,6 +153,69 @@ pub struct SyncTexData {
     pub pages: BTreeMap<u32, Vec<Node>>,
 }
 
+/// Turn an `Input:` name from a map into a project-relative path.
+///
+/// When a document is compiled from a file on disk, Tectonic records inputs
+/// by their **absolute** path (`/work/proj/chapters/a.tex`); bundle files
+/// (`article.cls`, fonts) are recorded with an empty name. Documents
+/// compiled from an in-memory buffer record the placeholder `texput`. The
+/// answer is `None` for anything that is not a file inside `root`: empty
+/// names, the placeholder, paths elsewhere on disk, and anything that tries
+/// to climb out with `..`. Callers treat `None` as "the main file".
+#[must_use]
+pub fn resolve_input_name(name: &str, root: &Path) -> Option<std::path::PathBuf> {
+    use std::path::Component;
+
+    let name = name.trim();
+    if name.is_empty() || name == "texput" || name == "texput.tex" {
+        return None;
+    }
+    let relative = if looks_absolute(name) {
+        std::path::PathBuf::from(strip_root(name, root)?)
+    } else {
+        std::path::PathBuf::from(name)
+    };
+
+    let mut out = std::path::PathBuf::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(p) => out.push(p),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
+}
+
+/// Whether a recorded name is absolute on *either* platform: `SyncTeX` files are
+/// plain text, and a Windows engine writes `C:/Users/me/proj/main.tex`.
+fn looks_absolute(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    name.starts_with(['/', '\\'])
+        || matches!(bytes, [drive, b':', ..] if drive.is_ascii_alphabetic())
+}
+
+/// `name` below `root` as a `/`-separated remainder, or `None` if it is
+/// elsewhere. Separators are compared as one character, and a drive path
+/// ignores case (`c:` and `C:` are the same disk), so the answer does not
+/// depend on which spelling the engine happened to write.
+fn strip_root(name: &str, root: &Path) -> Option<String> {
+    let slashed = |s: &str| s.replace('\\', "/");
+    let root = slashed(&root.to_string_lossy());
+    let root = root.trim_end_matches('/');
+    let original = slashed(name);
+    let drive = matches!(root.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic());
+    let (n, r) = if drive {
+        (original.to_ascii_lowercase(), root.to_ascii_lowercase())
+    } else {
+        (original.clone(), root.to_owned())
+    };
+    let rest = n.strip_prefix(&r)?.strip_prefix('/')?;
+    // Case folding never changes byte counts, so the same tail of the
+    // original spelling is what remains.
+    Some(original[original.len() - rest.len()..].to_owned())
+}
+
 impl SyncTexData {
     /// Parse a `.synctex` or `.synctex.gz` file.
     ///
@@ -205,6 +274,22 @@ impl SyncTexData {
             .min()
     }
 
+    /// The input tag for a project file, for forward search.
+    ///
+    /// `rel` is project-relative. Inputs are matched through
+    /// [`resolve_input_name`], so absolute names recorded by a file-based
+    /// compile and relative ones both work. A main file recorded only as the
+    /// `texput` placeholder is found through [`Self::primary_tag`].
+    #[must_use]
+    pub fn tag_for_file(&self, rel: &Path, root: &Path, main: &Path) -> Option<u32> {
+        self.inputs
+            .iter()
+            .filter(|(_, name)| resolve_input_name(name, root).as_deref() == Some(rel))
+            .map(|(tag, _)| *tag)
+            .min()
+            .or_else(|| (rel == main).then(|| self.primary_tag()).flatten())
+    }
+
     /// PDF position -> source position. `x`/`y` are PDF points from the page's
     /// top-left corner. Returns `None` when the page is absent or has no
     /// usable nodes.
@@ -217,5 +302,124 @@ impl SyncTexData {
     #[must_use]
     pub fn forward_search(&self, tag: u32, line: u32) -> Vec<PdfHit> {
         search::forward_search(self, tag, line)
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    #[test]
+    fn absolute_names_inside_the_root_become_relative() {
+        let root = Path::new("/work/proj");
+        assert_eq!(
+            resolve_input_name("/work/proj/main.tex", root),
+            Some("main.tex".into())
+        );
+        assert_eq!(
+            resolve_input_name("/work/proj/chapters/a.tex", root),
+            Some("chapters/a.tex".into())
+        );
+        assert_eq!(
+            resolve_input_name("/work/proj/./chapters/../b.tex", root),
+            None,
+            "a parent component is refused even if it would stay inside"
+        );
+    }
+
+    #[test]
+    fn windows_spellings_resolve_the_same_way() {
+        let root = Path::new("C:/Users/me/proj");
+        for name in [
+            "C:/Users/me/proj/chapters/a.tex",
+            "c:\\users\\me\\proj\\chapters\\a.tex",
+            "C:\\Users\\me\\proj/chapters/a.tex",
+        ] {
+            assert_eq!(
+                resolve_input_name(name, root),
+                Some("chapters/a.tex".into()),
+                "{name}"
+            );
+        }
+        assert_eq!(resolve_input_name("C:/Users/me/other/a.tex", root), None);
+        assert_eq!(resolve_input_name("D:/Users/me/proj/a.tex", root), None);
+        assert_eq!(resolve_input_name("C:/Users/me/proj", root), None);
+        assert_eq!(resolve_input_name("C:/Users/me/projX/a.tex", root), None);
+    }
+
+    #[test]
+    fn relative_names_are_kept_if_they_stay_inside() {
+        let root = Path::new("/work/proj");
+        assert_eq!(
+            resolve_input_name("./chapters/a.tex", root),
+            Some("chapters/a.tex".into())
+        );
+        assert_eq!(
+            resolve_input_name("chapters/a.tex", root),
+            Some("chapters/a.tex".into())
+        );
+    }
+
+    #[test]
+    fn everything_else_means_the_main_file() {
+        let root = Path::new("/work/proj");
+        for name in [
+            "",
+            "  ",
+            "texput",
+            "texput.tex",
+            "/etc/passwd",
+            "../up.tex",
+            "/work/other/x.tex",
+            "/work/proj",
+            "/",
+        ] {
+            assert_eq!(resolve_input_name(name, root), None, "{name:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tag_tests {
+    use super::*;
+
+    fn data(inputs: &[(u32, &str)]) -> SyncTexData {
+        SyncTexData {
+            version: 1,
+            magnification: 1000,
+            unit: 1,
+            x_offset: 0,
+            y_offset: 0,
+            inputs: inputs.iter().map(|(t, n)| (*t, (*n).to_owned())).collect(),
+            pages: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn finds_a_file_by_its_project_relative_path() {
+        let d = data(&[(1, "/work/p/main.tex"), (2, "/work/p/ch/a.tex"), (3, "")]);
+        let root = Path::new("/work/p");
+        let main = Path::new("main.tex");
+        assert_eq!(d.tag_for_file(Path::new("ch/a.tex"), root, main), Some(2));
+        assert_eq!(d.tag_for_file(Path::new("main.tex"), root, main), Some(1));
+        assert_eq!(d.tag_for_file(Path::new("other.tex"), root, main), None);
+    }
+
+    #[test]
+    fn a_main_recorded_only_as_the_placeholder_is_the_primary_input() {
+        let d = data(&[(1, "texput"), (2, "/work/p/ch/a.tex")]);
+        let (root, main) = (Path::new("/work/p"), Path::new("main.tex"));
+        assert_eq!(d.tag_for_file(Path::new("main.tex"), root, main), Some(1));
+        // Only the main file gets the fallback.
+        assert_eq!(d.tag_for_file(Path::new("x.tex"), root, main), None);
+    }
+
+    #[test]
+    fn a_file_outside_the_root_never_matches() {
+        let d = data(&[(1, "/elsewhere/a.tex")]);
+        assert_eq!(
+            d.tag_for_file(Path::new("a.tex"), Path::new("/work/p"), Path::new("m.tex")),
+            None
+        );
     }
 }

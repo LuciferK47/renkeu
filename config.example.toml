@@ -1,0 +1,25 @@
+# Renkeu configuration. Copy to ~/.latex-ai/config.toml (or $LATEX_AI_HOME).
+# Precedence: built-in defaults < this file < environment variables.
+# Unknown keys are rejected at startup.
+#
+# The API key is NOT set here. Use the Settings dialog (stored in the 0600
+# file ~/.latex-ai/secrets.toml) or the GROQ_API_KEY environment variable.
+
+[ai]
+# Text planner model. Overridden by LATEX_AI_MODEL.
+model = "llama-3.3-70b-versatile"
+# Optional vision model for visual fixes; omit for text-only fallback.
+# Overridden by LATEX_AI_VISION_MODEL.
+# vision_model = "meta-llama/llama-4-scout-17b-16e-instruct"
+# Upper bound on one LLM call, in seconds (5-600).
+timeout_secs = 120
+
+[compile]
+# Wall-clock budget for one compile, in seconds (5-600). A document still
+# running after this is killed. The very first compile also downloads the TeX
+# bundle, so keep it generous.
+timeout_secs = 60
+# Where the TeX bundle comes from: an https URL (a .tar or .ttb bundle) or an
+# absolute path to a .ttb / .zip / directory. Left out, Tectonic's built-in
+# default is used (TeX Live 2022). Point it at a newer or an offline bundle.
+# bundle = "/home/me/texlive2025.ttb"

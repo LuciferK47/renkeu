@@ -52,6 +52,8 @@ build/
 *.pdf
 *.aux
 *.log
+# Real Tectonic logs the diagnostics parser is tested against.
+!crates/texlog/tests/fixtures/**/*.log
 *.out
 *.fls
 *.fdb_latexmk
@@ -103,3 +105,16 @@ history.db
 # Design scratch: screenshots and the published plan page live outside the build
 .design/
 .playwright-mcp/
+
+# Downloaded by scripts/fetch-pdfium.sh for the desktop bundle.
+crates/latex_ai_tauri/resources/pdfium/*
+!crates/latex_ai_tauri/resources/pdfium/README.md
+bench/fit/corpus/
+bench/fit/results/
+bench/fit/seen.json
+
+# Planning and working notes stay local; only READMEs are tracked.
+*.md
+!README.md
+!**/README.md
+!SECURITY.md

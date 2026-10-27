@@ -37,6 +37,15 @@ ignore = [
     # when tauri bumps quick-xml past 0.37.5.
     { id = "RUSTSEC-2026-0194", reason = "quick-xml via tauri (M5 desktop shell); not on the daemon request path" },
     { id = "RUSTSEC-2026-0195", reason = "quick-xml via tauri (M5 desktop shell); not on the daemon request path" },
+    # --- zip 4.x, pulled in by tectonic_bundles. ---
+    # All three advisories concern ZipArchive::extract on an attacker-supplied
+    # archive (SUID bits, symlinks escaping the target). Tectonic reads single
+    # entries from its own downloaded bundle and never calls `extract`, and the
+    # fix needs zip >= 9, which tectonic 0.16 cannot take. Reviewed 2026-10-18.
+    # Clears when tectonic moves to zip 9.
+    { id = "RUSTSEC-2026-0367", reason = "zip extract(); tectonic_bundles never extracts archives, needs zip>=9 which tectonic 0.16 cannot take" },
+    { id = "RUSTSEC-2026-0368", reason = "zip extract(); tectonic_bundles never extracts archives, needs zip>=9 which tectonic 0.16 cannot take" },
+    { id = "RUSTSEC-2026-0369", reason = "zip extract(); tectonic_bundles never extracts archives, needs zip>=9 which tectonic 0.16 cannot take" },
 ]
 
 [licenses]

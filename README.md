@@ -1,14 +1,17 @@
-# LaTeX-AI
+# Renkeu
+
+> Renkeu was called LaTeX-AI. The product name changed; the crates, the `latex-ai`
+> command, `LATEX_AI_*` settings and `~/.latex-ai` keep their names for now.
 
 A writing app for LaTeX documents that **fixes its own mistakes using AI**, and
 runs **entirely on your own computer**.
 
-> **Status:** all five milestones (M1–M5) implemented. The engine compiles
-> in-process, the AI self-healing loop works end to end, drawing a box on the
-> PDF maps back to the source line that produced it, changes are accepted hunk
-> by hunk, and the desktop shell bundles the lot. See
-> [`masterplan.md`](masterplan.md) §12 for the per-milestone record and §15.1
-> for where the implementation knowingly differs from the plan.
+> **Status:** feature-complete (M1–M17). The engine compiles in its own
+> killable worker process, the AI works on a copy of your project and checks its
+> edits compile before showing them, every change is reviewed hunk by hunk and
+> can be undone from the history, and the desktop app bundles the lot. See
+> [`masterplan.md`](masterplan.md) §0 for how it is built, §15.1 for where the
+> build knowingly differs from the original plan.
 
 ## What is this, in plain words?
 
@@ -18,7 +21,7 @@ the kind of typesetting you see in research papers and textbooks. It looks
 great, but it's finicky: one wrong symbol and the whole thing refuses to build,
 usually with an error message only a robot could love.
 
-LaTeX-AI is an editor that takes the pain out of that:
+Renkeu is an editor that takes the pain out of that:
 
 - it turns your LaTeX into a PDF;
 - when the build breaks, an **AI reads the error, edits your source, and tries
@@ -26,7 +29,76 @@ LaTeX-AI is an editor that takes the pain out of that:
 - you can point at a spot on the finished PDF and say "fix this," and it figures
   out which line of source you meant.
 
-Nothing leaves your machine except the snippets actually sent to the AI.
+Nothing leaves your machine except the snippets actually sent to the AI and, if you ask for a citation by DOI, that DOI (it goes to doi.org).
+
+## What you can do with it
+
+- **Edit a whole project**, not one file: a file tree (create, rename, delete,
+  drag files in), tabs that keep their own undo history, autosave, and a choice
+  of main file.
+- **Start from a template:** an empty project offers 13 starters (article, IEEE, ACM, Elsevier, Springer LNCS, APS/REVTeX, AMS maths, thesis, lab report, slides, CV, homework, letter). Fill in the title, authors and abstract in a form; later, **Document details** in the command menu (F1) re-edits them without touching the rest of the file. Class and style files come from the TeX bundle; only small skeletons of our own ship in the binary.
+- **Check the layout** (the Layout tab beside Problems): page count, a page limit with the first line that no longer fits, overfull and underfull boxes pointing at the page, paragraphs that end in a word or two (cut those to win a line), and fonts left unembedded. It reads the build's SyncTeX map, log and PDF; no AI is involved.
+- **Fit to a page limit:** from the Layout tab (or the command menu), ask the assistant to bring a long document down to N pages. It starts from the measured overflow and the paragraphs that end in a word or two, tries each version on a copy, and compiles and counts pages after every attempt. It only offers a result that meets the limit, as hunks you accept one by one with "9 → 8 pages" shown. Code refuses the shortcuts venues ban (negative `\vspace`, smaller margins, fonts or line spacing, class option changes) and any edit that loses a section, figure, table, equation, label or citation, whatever the model says. If it cannot reach the limit it says how close it got and changes nothing.
+- **Insert without typing LaTeX:** figures (with width, caption and label), tables (a grid editor that takes pasted spreadsheet cells), equations (a visual maths editor), citations (from your `.bib`, or fetched by DOI into it) and cross-references. Blocks land between blank lines and add the packages they need. An "Undefined control sequence" error offers a one-click `\usepackage` fix for well-known packages.
+- **Find and replace across the project** (Ctrl+Shift+F): literal or regular expression, matches grouped by file, and a replace that writes through History so it can be undone. The file tree can group files **by type** (documents, bibliography, figures), and **compile after each save** is a setting. The status bar shows words, pages and compile time.
+- **Write LaTeX comfortably:** syntax highlighting, completion for citations,
+  labels, files, packages and environments, an outline, spell check, hover and
+  Ctrl+click on `\ref`, `\cite` and `\input`, and compile errors drawn on the line.
+- **See the PDF as you go:** continuous scrolling and zoom, **Ctrl+Alt+J** shows
+  where the cursor line landed, and double-clicking the PDF jumps to its source, and **Alt+click** edits the source line behind that spot in a small box, then recompiles.
+- **Ask the AI for changes:** it tries them on a copy, checks the document still
+  compiles, then shows the edits for you to accept, per hunk and per file.
+- **Undo anything:** the history keeps what every save and AI change replaced.
+
+## Check a paper from a terminal, CI or an AI agent
+
+The same engine runs without the editor. Nothing here needs an API key or
+changes your files.
+
+```bash
+# Does it build, and how long is it? Exits 1 if not, or if it is over 8 pages.
+latex-ai check paper/ --pages 8
+latex-ai check paper/main.tex --json      # the same report as JSON
+latex-ai check paper/ --strict            # also fail on overfull boxes and unembedded fonts
+latex-ai check paper/ --profile arxiv     # and run a submission profile (see below)
+latex-ai profiles                         # list the profiles
+```
+
+- **Submission profiles** (`--profile`, the **Submission** tab beside Layout, and the MCP `preflight` tool): checks before you submit, listed in plain TOML files so the code claims nothing about any venue. Shipped: `arxiv` (file names, hidden files, a `.bbl` named after the main file, unused files, `\today` in `\date`, referee mode, JavaScript; each rule restates arXiv's own submission pages, linked from the profile), `double-blind` (author names and emails, acknowledgements, "our previous work" sentences, the PDF's Author field) and `accessibility` (alt text, embedded fonts; not a tagged-PDF check). Add your own in `<home>/profiles/*.toml` or pass a file to `--profile`; a rule can be a page limit, a size limit, or any pattern that must not appear:
+
+  ```toml
+  id = "my-venue"
+  name = "My venue"
+  source = "https://example.org/instructions"
+
+  [[rule]]
+  check = "page_limit"
+  pages = 8
+
+  [[rule]]
+  check = "forbid_pattern"
+  pattern = '\\todo'
+  message = "Remove the todo notes."
+  ```
+
+  The checks read the source text, so they see what is written, not what a macro would expand to; a clean report means nothing was found, not that the venue will accept it.
+- **GitHub Action** ([`action/`](action/README.md)): runs `check` on every push,
+  puts the report on the job summary and the errors on the lines they are about.
+  The release it downloads by default is not published yet (see M23); until then,
+  build `latex-ai` in an earlier step and pass it as `binary`.
+- **MCP server** for Claude Code, Codex, Cursor or any other MCP client. The
+  agent edits the `.tex` files with its own tools and calls Renkeu to see what
+  came of it, so the tokens are billed to the agent's own plan, not to us:
+
+  ```bash
+  claude mcp add renkeu -- latex-ai mcp /path/to/paper
+  ```
+
+  or, in a client's JSON config,
+  `{"mcpServers": {"renkeu": {"command": "latex-ai", "args": ["mcp", "/path/to/paper"]}}}`.
+  Tools: `compile`, `diagnostics`, `layout_report`, `locate_in_pdf`,
+  `locate_in_source`, `preflight` and `render_page` (the page as an image). The server only
+  reads the project.
 
 ## The one trick worth knowing
 
@@ -86,8 +158,9 @@ sudo apt-get install -y pkg-config libfontconfig1-dev libgraphite2-dev \
     libharfbuzz-dev libicu-dev libfreetype-dev libssl-dev zlib1g-dev
 ```
 
-PDF preview additionally needs **libpdfium** on the loader path (no distro
-package exists; grab a prebuilt binary):
+PDF preview additionally needs **libpdfium** (no distro package exists; grab a
+prebuilt binary). The Docker image and the desktop bundle carry their own; for a
+source build either install it system-wide:
 
 ```sh
 # Pinned to the same build CI uses; `latest` moves and has broken this before.
@@ -95,6 +168,13 @@ curl -L -o /tmp/pdfium.tgz \
   https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7961/pdfium-linux-x64.tgz
 mkdir -p /tmp/pdfium && tar -xzf /tmp/pdfium.tgz -C /tmp/pdfium
 sudo cp /tmp/pdfium/lib/libpdfium.so /usr/local/lib/ && sudo ldconfig
+```
+
+or keep it anywhere and point at the folder with `LATEX_AI_PDFIUM_DIR=/path/to/dir`
+(`scripts/fetch-pdfium.sh DIR` downloads and verifies it for you). Check it with:
+
+```sh
+cargo run -p latex-ai-server -- doctor    # -> pdfium: ok (<where it was found>)
 ```
 
 Then:
@@ -114,12 +194,29 @@ The very first compile downloads the LaTeX support files into
 `~/.cache/Tectonic/`; after that it's offline.
 
 **The directory you launch from is the workspace** — every API path is sandboxed
-to it, and the history database lands there as `.latex-ai.db`.
+to it. App data (settings, API key, edit history) is kept under `~/.latex-ai`
+(`$LATEX_AI_HOME`), not inside your project: history is in
+`~/.latex-ai/projects/<id>/history.db`. A `.latex-ai.db` left in the workspace by
+an older version is imported automatically on first start and otherwise ignored;
+you can delete it afterwards.
 
 ### AI configuration
 
 The planner talks to **Groq** through the [`genai`](https://docs.rs/genai) crate.
-Put your key in a gitignored `.env` and source it:
+The easiest way to set it up is **Settings → AI** in the app: paste your key
+there and it takes effect immediately, no restart. It is stored in
+`~/.latex-ai/secrets.toml` (mode `0600`) and is never shown again. Model and
+timeout are saved to `~/.latex-ai/config.toml`; see
+[`config.example.toml`](config.example.toml).
+
+**TeX bundle.** Tectonic's built-in bundle is TeX Live 2022. To use a newer or an
+offline bundle, set `bundle` under `[compile]` in `config.toml` to an `https://`
+URL (a `.tar` or `.ttb` bundle) or an absolute path to a `.ttb`, `.zip` or
+directory.
+
+Or use the environment instead. Environment variables win over the files, and
+anything they set is shown as locked in the Settings dialog. For example, put
+your key in a gitignored `.env` and source it:
 
 ```sh
 echo 'export GROQ_API_KEY="gsk_..."' > .env && chmod 600 .env
@@ -128,11 +225,11 @@ source .env
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GROQ_API_KEY` | *(required for AI routes)* | Groq API key |
-| `LATEX_AI_MODEL` | `llama-3.3-70b-versatile` | Planner model. Must be a name `genai` recognizes, or it silently falls back to Ollama. |
+| `GROQ_API_KEY` | *(or set it in Settings)* | Groq API key. With neither a key nor a local model the AI routes answer 503 and the chat says AI is off. |
+| `LATEX_AI_MODEL` | `llama-3.3-70b-versatile` | Planner model. A name `genai` does not recognise as a hosted model is served by Ollama on this computer, and then no key is needed (the first-run screen and Settings list the installed models). |
 | `LATEX_AI_VISION_MODEL` | *(unset)* | Model used for visual fix. **Groq currently serves no vision model**, so leave it unset for Groq and visual-fix degrades to a source-only fix (see below). Set it to any vision model `genai` can route — e.g. an OpenAI or Gemini one, with that provider's key exported — to have the PDF crop actually analysed. |
 | `ALLOWED_ORIGINS` | Vite dev origins | Comma-separated CORS allowlist |
-| `LATEX_AI_HOME` | `~/.latex-ai` | Scratchpad root |
+| `LATEX_AI_HOME` | `~/.latex-ai` | App data: `config.toml`, `secrets.toml`, per-project history, scratchpad |
 | `ENV` | *(unset)* | Set to `production` to require an explicit `ALLOWED_ORIGINS` |
 | `LATEX_AI_HOST` | `127.0.0.1` | Bind address (`--host`). The daemon has no authentication, so leave it on loopback unless something in front restricts access; the container sets `0.0.0.0` (see below) |
 | `RUST_LOG` | `info` | Tracing filter |
@@ -143,19 +240,54 @@ source .env
 cd frontend && npm ci && npm run dev   # :5173, proxies /api to :3000
 ```
 
+A first visit opens the **landing page** (`#/landing`); "Open editor" goes to
+the editor (`#/editor`), and the app remembers that you have been there. The
+desktop app always opens the editor.
+
+#### The landing page
+
+The page is a pixel-art 3D tower ("Night Foundry") that the visitor scrolls
+down floor by floor: street, repair loop, workspace, engine bench, vault, dock.
+All the words are ordinary page content (`src/landing/copy.js`, checked by a
+test against what the code does); the scene is a backdrop.
+
+- **How it is drawn:** three.js renders procedural voxels into a small target,
+  magnifies it without smoothing, and dithers the colours (`src/landing/scene/`).
+  The characters (the courier crab, the repair bot) come from the same pixel
+  maps as the editor's 2D sprites (`src/lib/sprites/`).
+- **Fallbacks:** with no WebGL, reduced motion or data saver, it shows still
+  frames of each floor (`public/landing/poster-*.jpg`) instead. `?poster`
+  forces that, `?tier=lite` forces the light version. A pause button stops the
+  animation.
+- **Two states:** if a Renkeu server answers, the main button is "Open
+  editor" and an engine chip shows the delay; if not (a public copy), it is
+  "Get Renkeu".
+- **The public copy:** `BASE_PATH=/Latex-AI/ npm run build:site` builds only the
+  landing page into `frontend/dist-site/`, for any static host.
+- **Regenerating the pictures:** with the dev server (and, for the editor shot,
+  a `latex-ai serve` in a project folder) running,
+  `node scripts/capture-landing.mjs http://127.0.0.1:5173 --editor`.
+
 ### Desktop app
 
 The desktop shell bundles the same server and the built SPA into one binary.
 
 ```sh
-cd frontend && npm ci && npm run build && cd ..
+cd frontend && npm ci && cd ..
+scripts/fetch-pdfium.sh      # libpdfium for the PDF preview, verified, into the bundle's resources
 cargo tauri build --config crates/latex_ai_tauri/tauri.conf.json --bundles deb
-# -> target/release/bundle/deb/*.deb   (also: appimage; dmg/msi need macOS/Windows)
+# -> target/release/bundle/deb/*.deb   (also: appimage; the Windows installer is built on Windows)
 sudo dpkg -i target/release/bundle/deb/*.deb && latex-ai-tauri
 ```
 
-The bundle is **6.5 MB** (15.4 MB binary) — the whole LaTeX engine is in there;
-no TeX Live install.
+The whole LaTeX engine is in the binary (no TeX Live install) and the package
+carries its own libpdfium under `usr/lib/Latex-AI/pdfium/`. Without the
+`fetch-pdfium.sh` step the app still builds, but PDF preview then needs a
+system libpdfium.
+
+To check a package really works, `scripts/smoke-desktop.sh PACKAGE.deb` unpacks
+it, starts the unpacked app with no other libpdfium available, compiles a
+document and renders a page (it needs a display; CI runs it under `xvfb-run`).
 
 > **Note on `external-harfbuzz`.** The workspace enables Tectonic's
 > `external-harfbuzz` feature so it links the *system* harfbuzz. Without it the
@@ -174,6 +306,33 @@ frontend first (`npm run build`) — the shell embeds `frontend/dist`.
 
 Building `.dmg` and `.msi` requires macOS and Windows respectively; Tauri does
 not cross-compile bundles.
+
+### Releases (Linux and Windows)
+
+Pushing a tag `vX.Y.Z` (it must equal the version in `crates/latex_ai_server/Cargo.toml`
+and `tauri.conf.json`) runs `.github/workflows/release.yml`. It builds, on their
+own platforms:
+
+| Platform | Output |
+|---|---|
+| Linux (Ubuntu 22.04 base) | `latex-ai-x86_64-unknown-linux-gnu.tar.gz` (CLI + libpdfium), `.deb`, `.AppImage` |
+| Windows | `latex-ai-x86_64-pc-windows-msvc.tar.gz` (CLI + `pdfium.dll`), NSIS installer `*-setup.exe` |
+
+Each CLI archive is unpacked and used to build the sample document before it is
+published (`scripts/smoke-cli.sh`); the Linux `.deb` goes through
+`scripts/smoke-desktop.sh`, and the Windows installer is installed silently and
+checked for `pdfium.dll`. The result is a **draft** release with `SHA256SUMS` for a
+person to read and publish. A manual run of the workflow does everything except
+the release.
+
+Set the repository variable `RELEASE_REPO` (and the secret `RELEASES_TOKEN`) to
+publish to a different, public repository while this one is private; the GitHub
+Action downloads from `seriouslysahid/renkeu-releases` by default.
+
+Not done yet: the Windows installer and the macOS builds are unsigned or absent,
+and there is no auto-updater (it needs a signing key that only the owner can
+create). The Windows jobs follow Tectonic's own recipe (vcpkg, static libraries) but
+have not run yet; expect a round of fixes on their first run.
 
 ### Production deployment
 
@@ -234,9 +393,12 @@ package):
 
 | Crate | What it does |
 |---|---|
-| `crates/compiler` | Runs Tectonic to turn LaTeX into PDF bytes: global mutex, result cache, dedup/debounce queue, per-session scratchpads |
-| `crates/latex_ai_core` | Use-case-agnostic services: AI planner, edit application, storage + history + durable jobs, path sandbox, prompt safety, fuzzy search, metrics |
-| `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool |
+| `crates/compiler` | Compiles a project in a killable worker process (this binary, re-executed): main-file detection, project fingerprint, content-addressed build store, reads the TeX log through `texlog` |
+| `crates/latex_ai_core` | Use-case-agnostic services: config and secrets, AI planner, edit engine and TeX lint, storage + history, path sandbox, prompt safety, fuzzy search, metrics |
+| `crates/latex_ai_server` | The axum API + the `latex-ai` command-line tool (`serve`, `compile`, `check`, `mcp`, `doctor`) |
+| `crates/texlog` | Structured diagnostics (errors, warnings, boxes) from TeX and BibTeX logs; pure, no I/O, publishable on its own |
+| `crates/layout` | Layout facts for a build, with no AI: page count, how full the last page is, where a page limit is crossed, overfull and underfull boxes with their place on the page, paragraphs ending in a very short line |
+| `crates/preflight` | Submission checks driven by profiles that are plain TOML: file names, `.bbl`, unused files, anonymity, alt text, page limit, any forbidden pattern; reads the project and the facts a build produced |
 | `crates/synctex` | `.synctex(.gz)` parser, scaled-point→PDF-point conversion, backward *and* forward search |
 | `crates/visual` | pdfium page rendering and bbox cropping (one process-wide binding) |
 | `crates/latex_ai_tauri` | Desktop shell: embeds the server on an ephemeral loopback port and bundles the SPA (`.deb` / `.appimage`) |
@@ -247,11 +409,28 @@ Every change has to pass, and CI enforces all of it:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --exclude latex-ai-tauri --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings      # includes the desktop crate
 cargo nextest run --workspace --exclude latex-ai-tauri
 cargo deny check          # advisories + licenses + sources
 cargo machete             # no unused dependencies
-cd frontend && npx vitest run
+
+cd frontend
+npx eslint . && npm run check && npm run knip   # lint, svelte-check (warnings fail), dead code
+npx vitest run                                  # unit and component tests
+npm run build && npm run e2e                    # Playwright against the real server
+```
+
+The end-to-end tests start `latex-ai serve` and `vite preview` themselves; they
+need the server binary built (`cargo build -p latex-ai-server`, or set
+`E2E_SERVER_BIN`), libpdfium (on the loader path or `E2E_PDFIUM_DIR`), and a
+browser (`npx playwright install chromium firefox webkit`, or set `E2E_CHROME` for Chromium; `--project=firefox` picks one engine).
+
+To drive the assistant against a real model instead of a scripted stream
+(slow and not deterministic, so never part of CI), name one `genai` can reach —
+for example a local Ollama model — and run the live spec:
+
+```sh
+E2E_LLM_MODEL=qwen2.5:7b npm run e2e -- --project=chromium assistant-live
 ```
 
 ### Resource limits

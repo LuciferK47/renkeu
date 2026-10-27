@@ -3,16 +3,16 @@ resolver = "2"
 members = [
     "crates/compiler",
     "crates/latex_ai_core",
-    "crates/latex_ai_server", "crates/latex_ai_tauri", "crates/synctex", "crates/visual",
+    "crates/latex_ai_server", "crates/latex_ai_tauri", "crates/layout", "crates/preflight", "crates/synctex", "crates/texlog", "crates/visual",
 ]
 # synctex/visual/lsp (M3/M5) and latex_ai_tauri (M5) are created when implemented,
 # not scaffolded empty (rust.md I.15: don't open a crate until a use-case demands it).
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/sahid/Latex-AI"
+repository = "https://github.com/seriouslysahid/Latex-AI"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "signal", "sync", "time", "io-util"] }
@@ -36,7 +36,8 @@ tower-http = { version = "0.6", features = ["trace", "cors"] }
 # app_dirs2 -> directories cache-path swap), which breaks compilation with a
 # bare "the LaTeX engine failed" — verified 2026-08-02. Update specific crates
 # instead (`cargo update -p <crate>`) and re-run `cargo nextest run` after.
-tectonic = { version = "0.16", features = ["external-harfbuzz"] }
+tectonic = { version = "0.17", features = ["external-harfbuzz"] }
+tectonic_bundles = "0.4"
 
 blake3 = "1.5"
 thiserror = "2"
@@ -49,7 +50,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 
 clap = { version = "4.5", features = ["derive", "env"] }
-moka = { version = "0.12", features = ["future"] }
 nucleo-matcher = "0.3"
 
 # rust.md II.12 lint baseline, centralized. Crates opt in with `[lints] workspace = true`.
@@ -77,4 +77,7 @@ opt-level = "z"
 lto = "fat"
 codegen-units = 1
 strip = true
-panic = "abort"
+# "unwind", not "abort": a panic in one request must not take the whole
+# server (and every other request) with it. Compile workers are separate
+# processes either way.
+panic = "unwind"

@@ -101,3 +101,40 @@ describe('selectedHunkIds', () => {
     expect(selectedHunkIds(previews, new Set())).toEqual([]);
   });
 });
+
+import { groupByFile, isFileSelected, toggleFile } from '../src/utils/hunks.js'
+
+describe('per-file grouping', () => {
+  const previews = [
+    { hunk_id: 'a1', applies: true, edit: { file_path: 'a.tex' } },
+    { hunk_id: 'b1', applies: true, edit: { file_path: 'ch/b.tex' } },
+    { hunk_id: 'a2', applies: true, edit: { file_path: 'a.tex' } },
+    { hunk_id: 'a3', applies: false, edit: { file_path: 'a.tex' } },
+    { hunk_id: 'x', applies: true, edit: null },
+  ]
+
+  it('groups by file in first-seen order and keeps hunks of a file together', () => {
+    const groups = groupByFile(previews)
+    expect(groups.map((g) => g.path)).toEqual(['a.tex', 'ch/b.tex', '(unknown file)'])
+    expect(groups[0].previews.map((p) => p.hunk_id)).toEqual(['a1', 'a2', 'a3'])
+  })
+
+  it('selecting a file takes only what applies, and leaves other files alone', () => {
+    const [a] = groupByFile(previews)
+    const next = toggleFile(a, new Set(['b1']))
+    expect([...next].sort()).toEqual(['a1', 'a2', 'b1'])
+    expect(isFileSelected(a, next)).toBe(true)
+  })
+
+  it('selecting a selected file clears just that file', () => {
+    const [a] = groupByFile(previews)
+    const next = toggleFile(a, new Set(['a1', 'a2', 'b1']))
+    expect([...next]).toEqual(['b1'])
+    expect(isFileSelected(a, next)).toBe(false)
+  })
+
+  it('a file with nothing applicable is never "selected"', () => {
+    const group = { path: 'z.tex', previews: [{ hunk_id: 'z', applies: false }] }
+    expect(isFileSelected(group, new Set(['z']))).toBe(false)
+  })
+})

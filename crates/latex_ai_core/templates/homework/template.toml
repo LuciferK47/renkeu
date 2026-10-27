@@ -1,0 +1,6 @@
+name = "Homework"
+category = "Other"
+description = "Problem-set solutions with numbered problems and proofs."
+fields = ["title", "authors", "date"]
+author_item = '''{{name}}\\ {{email}}'''
+author_sep = ''' \and '''

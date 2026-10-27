@@ -1,10 +1,24 @@
 # syntax=docker/dockerfile:1
-# LaTeX-AI server. Single-binary Rust daemon; Tectonic is the only heavy
+# Renkeu server. Single-binary Rust daemon; Tectonic is the only heavy
 # external asset (fetched to ~/.cache/Tectonic at first compile).
 #
 # This image is the daemon alone. The SPA is served by Vite in development and
 # bundled into the Tauri shell for the desktop app (README "Desktop app"), so
 # there is no frontend build stage here.
+
+# libpdfium renders the PDF preview and the visual-fix crop. No distro packages
+# it, so fetch the pinned prebuilt (same build CI tests against; `latest` moves
+# and has broken this before). The archive is verified before use.
+FROM debian:bookworm-slim AS pdfium
+ARG PDFIUM_VERSION=chromium/7961
+ARG PDFIUM_SHA256=019665c8877d46fe65f625f80fd714ab07aac68554b0636acf2a2adf9288adb2
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    curl -fsSL -o /tmp/pdfium.tgz \
+      "https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_VERSION}/pdfium-linux-x64.tgz"; \
+    echo "${PDFIUM_SHA256}  /tmp/pdfium.tgz" | sha256sum -c -; \
+    mkdir -p /pdfium; tar -xzf /tmp/pdfium.tgz -C /pdfium
 
 FROM rust:1-slim-bookworm AS builder
 # g++ is not optional: tectonic_engine_xetex compiles vendored C *and* C++
@@ -34,6 +48,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo build --release -p latex-ai-server \
     && cp target/release/latex-ai /usr/local/bin/latex-ai
 
+COPY --from=pdfium /pdfium /opt/pdfium
+
 # Assemble the runtime filesystem while a shell and ldd still exist.
 #
 # Deriving the library set from the binary rather than hand-listing packages
@@ -45,9 +61,18 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 RUN set -eux; \
     mkdir -p /rootfs/usr/local/bin /rootfs/etc/ssl/certs /rootfs/tmp; \
     cp /usr/local/bin/latex-ai /rootfs/usr/local/bin/; \
+    # pdfium sits beside the loader's default search path; the binary is told
+    # where by LATEX_AI_PDFIUM_DIR below. Its licence travels with it (BSD-3).
+    mkdir -p /rootfs/usr/local/lib /rootfs/usr/share/licenses/pdfium; \
+    cp /opt/pdfium/lib/libpdfium.so /rootfs/usr/local/lib/; \
+    cp /opt/pdfium/LICENSE /rootfs/usr/share/licenses/pdfium/; \
     # The ELF interpreter and every DT_NEEDED library, kept at the paths ld.so
     # searches. -L because several are symlinks to versioned real files.
-    ldd /usr/local/bin/latex-ai | grep -oE '/[^ ]+\.so[^ ]*' | sort -u \
+    # With two arguments ldd prints a "<file>:" header per file; the colon
+    # exclusion keeps those out of the dependency list and the grep -v keeps
+    # pdfium itself (copied separately above) from being copied twice.
+    ldd /usr/local/bin/latex-ai /opt/pdfium/lib/libpdfium.so \
+      | grep -oE '/[^ :]+\.so[^ :]*' | grep -v '^/opt/pdfium/' | sort -u \
       | while read -r lib; do \
           mkdir -p "/rootfs$(dirname "$lib")"; \
           cp -L "$lib" "/rootfs$(dirname "$lib")/"; \
@@ -85,7 +110,8 @@ WORKDIR /home/latexai
 # OpenSSL's compiled-in CA path does not exist here either, so point at the
 # bundle explicitly: without it the bundle download fails TLS verification.
 ENV HOME=/home/latexai \
-    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    LATEX_AI_PDFIUM_DIR=/usr/local/lib
 
 EXPOSE 3000
 # Exec form, and the binary probes itself — there is no shell and no curl here.

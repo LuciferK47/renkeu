@@ -1,7 +1,16 @@
 pub mod agent;
 pub mod compile;
 pub mod config;
+pub mod diagnostics;
+pub mod doi;
 pub mod files;
 pub mod history;
+pub mod layout;
+pub mod manage;
 pub mod metrics;
+pub mod preflight;
+pub mod search;
+pub mod setup;
+pub mod synctex;
+pub mod templates;
 pub mod visual;

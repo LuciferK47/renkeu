@@ -1,0 +1,9 @@
+id = "accessibility"
+name = "Accessibility basics"
+description = "Basic checks that help a screen reader: every image described, every font embedded. This is not a tagged-PDF check; Renkeu's engine (XeTeX-based) cannot produce tagged PDFs, so it does not claim PDF/UA."
+
+[[rule]]
+check = "alt_text"
+
+[[rule]]
+check = "fonts_embedded"

@@ -51,8 +51,9 @@
     --card-foreground: 240 6.1% 9.6%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 6.1% 9.6%;
-    --primary: 240 6.1% 9.6%;
-    --primary-foreground: 60 11.1% 98.2%;
+    /* Rust is the one brand hue: the primary action and the focus ring. */
+    --primary: 11 76% 44%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 60 8.3% 95.3%;
     --secondary-foreground: 240 6.1% 9.6%;
     --muted: 60 8.3% 95.3%;
@@ -63,7 +64,7 @@
     --destructive-foreground: 0 0% 100%;
     --border: 60 5.3% 88.8%;
     --input: 60 5.3% 88.8%;
-    --ring: 240 6.1% 9.6%;
+    --ring: 11 76% 44%;
 
     /* Elevation. Surfaces step up, they do not lighten arbitrarily. */
     --surface-0: 60 11.1% 98.2%;
@@ -79,6 +80,9 @@
 
     /* State. These three are the only hues in the system; everything else is
      * neutral, which is what makes a compile error impossible to miss. */
+    /* Where something is: the SyncTeX flash and the source/page link. */
+    --locate: 190 80% 34%;
+
     --ok: 151.3 45% 38%;
     --warn: 38.9 92% 42%;
     --err: 355.8 70% 48%;
@@ -101,42 +105,43 @@
   }
 
   :root[data-theme='dark'] {
-    --background: 240 4.3% 4.5%;
-    --foreground: 60 7.1% 94.5%;
-    --card: 240 2.7% 7.3%;
-    --card-foreground: 60 7.1% 94.5%;
-    --popover: 0 0% 9.8%;
-    --popover-foreground: 60 7.1% 94.5%;
-    /* Monochrome: the primary action is white on near-black, not a brand hue. */
-    --primary: 60 7.1% 94.5%;
-    --primary-foreground: 240 4.3% 4.5%;
-    --secondary: 0 0% 9.8%;
-    --secondary-foreground: 60 7.1% 94.5%;
-    --muted: 0 0% 9.8%;
-    --muted-foreground: 60 1.5% 60.6%;
-    --accent: 0 0% 16.5%;
-    --accent-foreground: 60 7.1% 94.5%;
-    --destructive: 355.8 82.7% 66.1%;
-    --destructive-foreground: 240 4.3% 4.5%;
-    --border: 0 0% 16.5%;
-    --input: 0 0% 16.5%;
-    --ring: 60 7.1% 94.5%;
+    /* Night Foundry: steel-blue darks, sodium and rust light. */
+    --background: 220 27% 6%;
+    --foreground: 40 16% 91%;
+    --card: 220 22% 9%;
+    --card-foreground: 40 16% 91%;
+    --popover: 220 22% 10%;
+    --popover-foreground: 40 16% 91%;
+    --primary: 11 76% 53%;
+    --primary-foreground: 220 20% 7%;
+    --secondary: 220 20% 12%;
+    --secondary-foreground: 40 16% 91%;
+    --muted: 220 20% 12%;
+    --muted-foreground: 213 13% 70%;
+    --accent: 220 20% 17%;
+    --accent-foreground: 40 16% 91%;
+    --destructive: 355 100% 65%;
+    --destructive-foreground: 220 20% 7%;
+    --border: 217 20% 20%;
+    --input: 217 20% 20%;
+    --ring: 174 70% 56%;
 
-    --surface-0: 240 4.3% 4.5%;
-    --surface-1: 240 2.7% 7.3%;
-    --surface-2: 0 0% 9.8%;
-    --line-soft: 240 1.6% 12.4%;
+    --surface-0: 220 27% 6%;
+    --surface-1: 220 22% 9%;
+    --surface-2: 220 20% 12%;
+    --line-soft: 220 18% 15%;
 
-    --text-dim: 60 1.5% 60.6%;
-    /* 5.4:1 on surface-0; was 3.9:1 at 42.5%. */
-    --text-faint: 60 1.4% 52%;
+    --text-dim: 213 13% 70%;
+    /* 6.4:1 on surface-0. */
+    --text-faint: 213 10% 58%;
 
-    --ok: 151.3 49.8% 53.1%;
-    --warn: 38.9 100% 57.1%;
-    --err: 355.8 82.7% 66.1%;
+    --locate: 174 72% 56%;
 
-    /* Tone-mapped page: warm, because paper is warm and screens are not. This
-     * is the one place warmth appears in an otherwise neutral shell. */
+    --ok: 147 70% 64%;
+    --warn: 40 100% 62%;
+    --err: 355 100% 65%;
+
+    /* Tone-mapped page: warm, because paper is warm and screens are not. */
     --paper: 40 21.4% 89%;
 
     color-scheme: dark;

@@ -1,0 +1,8 @@
+name = "Elsevier journal"
+category = "Papers"
+description = "Elsevier preprint with a frontmatter block (elsarticle)."
+fields = ["title", "authors", "abstract", "keywords"]
+author_item = '''\author{{{name}}}
+\address{{{affiliation}}}'''
+author_sep = '''
+'''

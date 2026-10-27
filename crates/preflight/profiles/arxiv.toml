@@ -1,0 +1,41 @@
+id = "arxiv"
+name = "arXiv"
+description = "Checks before uploading LaTeX source to arXiv. Each rule restates something arXiv's own submission pages say (read on 2026-10-21); arXiv compiles with its own TeX Live, so also read its processing log."
+source = "https://info.arxiv.org/help/submit_tex.html"
+
+[[rule]]
+check = "portable_file_names"
+message = "arXiv accepts only a-z A-Z 0-9 _ + - . , = in file names (case-sensitive, no spaces)"
+
+[[rule]]
+check = "no_hidden_files"
+message = "arXiv asks for no hidden files or directories in the source package"
+
+[[rule]]
+check = "bbl_present"
+message = "arXiv takes a pre-generated .bbl, and it must have the same name as the main .tex file"
+
+[[rule]]
+check = "unused_files"
+message = "arXiv asks you to leave out unused figures, backup files and templates"
+
+[[rule]]
+check = "project_paths_only"
+message = "arXiv compiles from the root of the upload, so files outside the project will be missing"
+
+[[rule]]
+check = "forbid_pattern"
+pattern = '\\date\s*\{[^}]*\\today'
+message = "arXiv recommends against \\today in \\date: the date changes when the PDF is rebuilt"
+severity = "warning"
+
+[[rule]]
+check = "forbid_pattern"
+pattern = '\\(?:doublespacing|onehalfspacing)\b|\\documentclass\s*\[[^\]]*\b(?:referee|review)\b'
+message = "arXiv asks not to submit in double-spaced referee mode"
+severity = "warning"
+
+[[rule]]
+check = "forbid_pattern"
+pattern = '(?i)javascript'
+message = "arXiv automatically rejects submissions with embedded JavaScript"

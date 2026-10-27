@@ -84,10 +84,10 @@ pub fn parse_content(content: &str) -> SyncTexData {
             break;
         }
         if let Some(rest) = line.strip_prefix("Input:") {
-            if let Some((tag, name)) = rest.split_once(':') {
-                if let Ok(tag) = tag.parse::<u32>() {
-                    data.inputs.insert(tag, name.to_owned());
-                }
+            if let Some((tag, name)) = rest.split_once(':')
+                && let Ok(tag) = tag.parse::<u32>()
+            {
+                data.inputs.insert(tag, name.to_owned());
             }
         } else if let Some(v) = line.strip_prefix("SyncTeX Version:") {
             data.version = v.trim().parse().unwrap_or(1);
@@ -105,6 +105,8 @@ pub fn parse_content(content: &str) -> SyncTexData {
     // --- content ---
     let (unit, x_offset, y_offset) = (data.unit, data.x_offset, data.y_offset);
     let mut current_page: Option<(u32, Vec<Node>)> = None;
+    // Indices of the boxes currently open on this page, innermost last.
+    let mut open: Vec<usize> = Vec::new();
 
     for line in lines {
         if line.starts_with("Postamble:") {
@@ -117,6 +119,7 @@ pub fn parse_content(content: &str) -> SyncTexData {
             }
             let num = page_digits.trim().parse::<u32>().unwrap_or(1);
             current_page = Some((num, Vec::new()));
+            open.clear();
             continue;
         }
         if line.starts_with('}') {
@@ -129,7 +132,16 @@ pub fn parse_content(content: &str) -> SyncTexData {
         let Some((_, nodes)) = current_page.as_mut() else {
             continue; // stray record outside a page
         };
-        if let Some(node) = parse_record(line, unit, x_offset, y_offset) {
+        // A closer ends the innermost open box.
+        if line.starts_with(')') || line.starts_with(']') {
+            open.pop();
+            continue;
+        }
+        if let Some(mut node) = parse_record(line, unit, x_offset, y_offset) {
+            node.parent = open.last().copied();
+            if matches!(node.kind, NodeKind::VBox | NodeKind::HBox) {
+                open.push(nodes.len());
+            }
             nodes.push(node);
         }
     }
@@ -175,6 +187,7 @@ fn parse_record(line: &str, unit: i64, x_offset: i64, y_offset: i64) -> Option<N
         width: width * unit,
         height: height * unit,
         depth: depth * unit,
+        parent: None,
     })
 }
 

@@ -1,14 +1,14 @@
 /**
  * Bounding-box maths for the visual-fix overlay.
  *
- * Three coordinate spaces are involved:
- *  1. screen px  - where the pointer actually is, relative to the <img>;
- *  2. image px   - the rendered page PNG's natural size (what the backend
- *                  expects, because it rasterised at a known DPI);
- *  3. PDF points - the backend's own space; we never touch it here.
+ * Two coordinate spaces are involved:
+ *  1. screen px  - where the pointer is, relative to the page on screen;
+ *  2. PDF points - 1/72 inch from the page's top-left, the unit SyncTeX and the
+ *                  backend use. It does not change with zoom, device pixel
+ *                  ratio or the DPI a page image was rendered at.
  *
- * Zooming changes 1 without changing 2, which is exactly why the conversion
- * has to be explicit.
+ * Zoom changes the first without changing the second, so the conversion is
+ * explicit and every box sent to the server is in points.
  */
 
 /** Smallest drag (screen px) treated as a box rather than a stray click. */
@@ -39,24 +39,17 @@ export function isMeaningfulDrag(box) {
 }
 
 /**
- * Convert a box in displayed/screen px into the page image's own pixel grid.
- * `displayed` is the <img> element's rendered size, `natural` its intrinsic
- * size — their ratio is the zoom factor.
+ * Convert a box in screen px (relative to the page) to PDF points.
+ * `pxPerPt` is how many screen px one point occupies at the current zoom.
+ * Rounded to a tenth of a point: far finer than any glyph.
  */
-export function toImagePixels(box, displayed, natural) {
-  if (!displayed?.width || !displayed?.height) return { x: 0, y: 0, w: 0, h: 0 };
+export function toPagePoints(box, pxPerPt) {
+  if (!(pxPerPt > 0)) return { x: 0, y: 0, w: 0, h: 0 };
+  const pt = (v) => Math.round((v / pxPerPt) * 10) / 10;
+  return { x: pt(box.x), y: pt(box.y), w: pt(box.w), h: pt(box.h) };
+}
 
-  const scaleX = natural.width / displayed.width;
-  const scaleY = natural.height / displayed.height;
-
-  const x = Math.round(box.x * scaleX);
-  const y = Math.round(box.y * scaleY);
-
-  return {
-    // Clamp so a drag ending on the border cannot exceed the image.
-    x: Math.max(0, Math.min(x, natural.width - 1)),
-    y: Math.max(0, Math.min(y, natural.height - 1)),
-    w: Math.max(1, Math.min(Math.round(box.w * scaleX), natural.width - x)),
-    h: Math.max(1, Math.min(Math.round(box.h * scaleY), natural.height - y))
-  };
+/** The inverse: a region in points as screen px, for drawing it. */
+export function fromPagePoints(region, pxPerPt) {
+  return { x: region.x * pxPerPt, y: region.y * pxPerPt, w: region.w * pxPerPt, h: region.h * pxPerPt };
 }

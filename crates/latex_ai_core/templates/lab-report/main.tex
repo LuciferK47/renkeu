@@ -1,0 +1,49 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage[hidelinks]{hyperref}
+
+% renkeu:frontmatter begin
+\title{{{title}}}
+\author{{{authors}}}
+\date{{{date}}}
+\begin{document}
+\maketitle
+\begin{abstract}
+{{abstract}}
+\end{abstract}
+% renkeu:frontmatter end
+
+\section{Objective}
+State what this experiment sets out to measure.
+
+\section{Apparatus}
+List the equipment, with quantities such as \SI{9.81}{\metre\per\second\squared}.
+
+\section{Procedure}
+\begin{enumerate}
+  \item First step.
+  \item Second step.
+\end{enumerate}
+
+\section{Results}
+\begin{table}[h]
+  \centering
+  \begin{tabular}{lS[table-format=2.2]}
+    \toprule
+    Trial & {Value (\si{\metre})} \\
+    \midrule
+    1 & 10.25 \\
+    2 & 10.31 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Measured values.}
+\end{table}
+
+\section{Discussion}
+Interpret the results and name the main sources of error.
+
+\end{document}

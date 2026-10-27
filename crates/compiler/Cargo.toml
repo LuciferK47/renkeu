@@ -9,16 +9,19 @@ license.workspace = true
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tectonic = { workspace = true }
-moka = { workspace = true }
+tectonic_bundles = { workspace = true }
 blake3 = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+anyhow = { workspace = true }
+regex = "1.12.4"
+texlog = { path = "../texlog" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 latex-ai-core = { path = "../latex_ai_core" }
 
 [dev-dependencies]
 tokio = { workspace = true }
-synctex = { path = "../synctex" }
-flate2 = "1"
 tempfile = "3"
 
 [lints]

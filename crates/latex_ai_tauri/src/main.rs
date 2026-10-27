@@ -4,7 +4,7 @@
 //! and opens the SPA in a webview.
 //!
 //! The server is spawned on **Tauri's** async runtime, not via `#[tokio::main]`
-//! + `tokio::spawn`. `tauri::run()` installs its own runtime and blocks; tasks
+//! and `tokio::spawn`. `tauri::run()` installs its own runtime and blocks; tasks
 //! spawned on a separate `#[tokio::main]` runtime are orphaned the moment it
 //! does, which silently killed the embedded server (the process kept running
 //! with the listener closed). `tauri-plugin-axum` was evaluated and rejected —
@@ -15,9 +15,12 @@
 )]
 
 use anyhow::Context;
-use std::sync::Arc;
 
 fn main() -> anyhow::Result<()> {
+    // Compile workers are this same binary: run as one before anything else
+    // (no logging, no webview) if that is what we were started as.
+    latex_ai_compiler::worker::run_if_requested();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -36,13 +39,20 @@ fn main() -> anyhow::Result<()> {
     let api_base = format!("http://127.0.0.1:{api_port}/api");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![pick_project])
         .setup(move |handle| {
+            // The bundle carries its own libpdfium (see tauri.conf.json); tell
+            // the renderer where, before the first page is asked for.
+            if let Ok(resources) = tauri::Manager::path(handle).resource_dir() {
+                latex_ai_server::bootstrap::add_pdfium_search_dir(resources.join("pdfium"));
+            }
             tauri::WebviewWindowBuilder::new(
                 handle,
                 "main",
                 tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("LaTeX-AI")
+            .title("Renkeu")
             .inner_size(1200.0, 800.0)
             .initialization_script(format!(
                 "globalThis.__LATEX_AI_API__ = {};",
@@ -57,66 +67,40 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Let the user choose a project folder, remember it and restart into it.
+///
+/// A restart is the whole switch: the server, its history database, the build
+/// store and every open tab belong to one project, and tearing those down and
+/// rebuilding them in place would be a second, less-tested way to start. Resolves
+/// `false` when the dialog is cancelled; on success the process restarts and
+/// this never resolves.
+#[tauri::command]
+async fn pick_project(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_folder(move |picked| {
+        // A closed receiver means the window went away; nothing to report.
+        let _ = tx.send(picked);
+    });
+    let Some(picked) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let folder = picked
+        .into_path()
+        .map_err(|e| format!("that location is not a folder on this computer: {e}"))?;
+    let home = latex_ai_core::config::default_home();
+    latex_ai_server::bootstrap::remember_project(&home, &folder).map_err(|e| format!("{e:#}"))?;
+    app.restart()
+}
+
 /// Build the app state, bind the loopback listener, and start serving on
 /// Tauri's runtime. Returns the port the OS chose.
 async fn start_api() -> anyhow::Result<u16> {
-    let workspace_root =
-        std::fs::canonicalize(std::env::current_dir()?).context("canonicalizing workspace root")?;
-
-    let db_path = workspace_root.join(".latex-ai.db");
-    let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&db_url)
+    let opts = latex_ai_server::bootstrap::BootOptions::for_desktop()?;
+    let state = latex_ai_server::bootstrap::build_state(opts)
         .await
-        .context("connecting to the history database")?;
-
-    // Same migration set the daemon runs — no hand-rolled CREATE TABLE.
-    sqlx::migrate!("../latex_ai_server/migrations")
-        .run(&pool)
-        .await
-        .context("running migrations")?;
-
-    // SQLite leaves foreign keys off unless asked; compile_errors relies on
-    // its FK and cascade (masterplan §12 M5 audit: data integrity).
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&pool)
-        .await?;
-
-    // A job still marked running belongs to a process that died. Close those
-    // out so the queue does not show phantom work forever.
-    match latex_ai_core::storage::jobs::recover_abandoned(&pool).await {
-        Ok(0) => {}
-        Ok(n) => tracing::warn!(
-            count = n,
-            "recovered abandoned compile jobs from a previous run"
-        ),
-        Err(e) => tracing::warn!(error = %e, "compile-job recovery failed"),
-    }
-
-    let store = Arc::new(latex_ai_core::storage::Store::new(
-        pool,
-        workspace_root.clone(),
-    ));
-
-    let model =
-        std::env::var("LATEX_AI_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
-    let planner: Arc<dyn latex_ai_core::ai::EditPlanner> = Arc::new(
-        latex_ai_core::ai::LlmPlanner::new(model.clone())
-            .with_vision_model(std::env::var("LATEX_AI_VISION_MODEL").ok()),
-    );
-    let engine = Arc::new(latex_ai_compiler::Engine::new(10));
-    let queue = Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine));
-
-    let state = latex_ai_server::AppState {
-        planner,
-        queue,
-        store,
-        jobs: Arc::new(latex_ai_server::jobs::JobRegistry::default()),
-        workspace_root,
-        model,
-        metrics: std::sync::Arc::new(latex_ai_core::metrics::Metrics::new()),
-    };
+        .context("starting up")?;
 
     let app = latex_ai_server::build_router(state).context("building the router")?;
 

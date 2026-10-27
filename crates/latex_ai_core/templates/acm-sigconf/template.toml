@@ -1,0 +1,9 @@
+name = "ACM conference"
+category = "Papers"
+description = "ACM two-column conference paper (acmart, sigconf)."
+fields = ["title", "authors", "abstract", "keywords"]
+author_item = '''\author{{{name}}}
+\affiliation{\institution{{{affiliation}}}\city{City}\country{Country}}
+\email{{{email}}}'''
+author_sep = '''
+'''

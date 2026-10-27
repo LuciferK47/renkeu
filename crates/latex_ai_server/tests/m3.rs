@@ -12,7 +12,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, PlanRequest, VisualFixRequest};
 use latex_ai_core::compile::{AgentEdit, AgentOp};
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
@@ -76,8 +76,7 @@ impl RecordingPlanner {
 impl EditPlanner for RecordingPlanner {
     fn plan_edits<'a>(
         &'a self,
-        _instruction: &'a str,
-        _file_content: &'a str,
+        _req: PlanRequest<'a>,
         _cancel: CancellationToken,
     ) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::EmptyResponse) })
@@ -120,7 +119,7 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
         "CREATE TABLE history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_path TEXT NOT NULL, command TEXT NOT NULL, new_text TEXT NOT NULL,
-            diff TEXT NOT NULL, edit_type TEXT NOT NULL,
+            diff TEXT NOT NULL, edit_type TEXT NOT NULL, base_text TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
     )
     .execute(&pool)
@@ -128,17 +127,28 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
     .unwrap();
 
     let workspace = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(workspace.path()).unwrap();
-    let engine = Arc::new(latex_ai_compiler::Engine::new(4));
+    let root = latex_ai_core::fsutil::canonical(workspace.path()).unwrap();
 
     TestApp {
         state: AppState {
             planner,
-            queue: Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine)),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(
+                latex_ai_compiler::CompilerConfig::new(
+                    env!("CARGO_BIN_EXE_latex-ai").into(),
+                    tempfile::tempdir().unwrap().keep(),
+                ),
+            )),
             store: Arc::new(latex_ai_core::storage::Store::new(pool, root.clone())),
             jobs: Arc::new(JobRegistry::default()),
+            proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
             workspace_root: root.clone(),
-            model: "test-model".to_owned(),
+            settings: Arc::new(
+                latex_ai_core::config::Settings::open(
+                    tempfile::tempdir().unwrap().keep(),
+                    latex_ai_core::config::EnvOverrides::default(),
+                )
+                .unwrap(),
+            ),
             metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,
@@ -146,28 +156,29 @@ async fn test_app(planner: Arc<dyn EditPlanner>) -> TestApp {
     }
 }
 
-/// Write `main.tex` and compile it through the real engine so the PDF and
-/// `SyncTeX` map on disk are genuine.
-async fn compile_fixture(app: &TestApp, source: &str) {
+/// Write `main.tex` and compile it through the real engine so the stored PDF
+/// and `SyncTeX` map are genuine.
+async fn compile_fixture(app: &TestApp, source: &str) -> latex_ai_compiler::builds::Build {
     std::fs::write(app.root.join("main.tex"), source).unwrap();
 
-    let result = app
+    let build = app
         .state
-        .queue
-        .submit_with_synctex(source, "main.tex", &CancellationToken::new())
+        .compiler
+        .compile(
+            &latex_ai_compiler::CompileJob {
+                root: app.root.clone(),
+                main: "main.tex".to_owned(),
+                synctex: true,
+                bundle: None,
+                timeout: std::time::Duration::from_secs(120),
+            },
+            &CancellationToken::new(),
+        )
         .await
         .expect("fixture must compile");
-    assert!(result.success);
-
-    std::fs::write(app.root.join("main.pdf"), result.pdf_bytes.as_ref()).unwrap();
-    std::fs::write(
-        app.root.join("main.synctex.gz"),
-        result
-            .synctex_gz
-            .expect("fixture needs a synctex map")
-            .as_ref(),
-    )
-    .unwrap();
+    assert!(build.manifest.success, "{:?}", build.manifest.diagnostics);
+    assert!(build.manifest.has_synctex, "fixture needs a synctex map");
+    build
 }
 
 fn post(uri: &str, body: &Value) -> Request<Body> {
@@ -208,11 +219,11 @@ fn includegraphics_edit() -> AgentEdit {
 async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line() {
     let (planner, seen) = RecordingPlanner::new(Ok(vec![includegraphics_edit()]));
     let app = test_app(Arc::new(planner)).await;
-    compile_fixture(&app, FIGURE_DOC).await;
+    let build = compile_fixture(&app, FIGURE_DOC).await;
 
     // Find where the figure landed, so the bbox is derived from the document
     // rather than from guessed pixel coordinates.
-    let data = synctex::SyncTexData::parse(&app.root.join("main.synctex.gz")).unwrap();
+    let data = synctex::SyncTexData::parse(&build.synctex_path()).unwrap();
     let tag = data.primary_tag().unwrap();
     let figure = data
         .forward_search(tag, 7)
@@ -220,8 +231,6 @@ async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line(
         .next()
         .expect("line 7 (the includegraphics) must typeset something");
 
-    // PDF points -> page-image pixels at 150dpi.
-    let to_px = |bp: f64| (bp * 150.0 / 72.0).round() as u32;
     let res = build_router(app.state.clone())
         .unwrap()
         .oneshot(post(
@@ -229,11 +238,11 @@ async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line(
             &json!({
                 "file_path": "main.tex",
                 "page": figure.page,
-                "x": to_px(figure.x),
-                "y": to_px(figure.y),
-                "w": to_px(figure.width).max(1),
-                "h": to_px(figure.height).max(1),
-                "dpi": 150,
+                // Boxes are in PDF points, exactly as SyncTeX reports them.
+                "x": figure.x,
+                "y": figure.y,
+                "w": figure.width.max(1.0),
+                "h": figure.height.max(1.0),
                 "instruction": "shrink this image to fit the column"
             }),
         ))
@@ -250,6 +259,9 @@ async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line(
         body["line"]
     );
     assert_eq!(body["exact"], true);
+    // What the client needs to apply the proposal safely.
+    assert_eq!(body["build"], build.id());
+    assert_eq!(body["etag"], latex_ai_core::storage::etag_of(FIGURE_DOC));
 
     // Exactly one edit, confined to line 7.
     let edits = body["edits"].as_array().unwrap();
@@ -311,10 +323,10 @@ async fn bbox_over_the_figure_yields_an_edit_scoped_to_the_includegraphics_line(
 async fn missing_synctex_map_is_a_404_envelope() {
     let (planner, _) = RecordingPlanner::new(Ok(vec![]));
     let app = test_app(Arc::new(planner)).await;
-    compile_fixture(&app, FIGURE_DOC).await;
+    let build = compile_fixture(&app, FIGURE_DOC).await;
 
-    // Simulate a PDF compiled before SyncTeX was enabled.
-    std::fs::remove_file(app.root.join("main.synctex.gz")).unwrap();
+    // Simulate a stored build whose SyncTeX map is gone.
+    std::fs::remove_file(build.synctex_path()).unwrap();
 
     let res = build_router(app.state.clone())
         .unwrap()
@@ -403,12 +415,12 @@ async fn a_bbox_outside_the_page_is_422_not_500() {
     let app = test_app(Arc::new(planner)).await;
     compile_fixture(&app, FIGURE_DOC).await;
 
-    // Well beyond a Letter page at 150dpi (1275x1650).
+    // Well beyond a Letter page (612 x 792 points), but a plausible number.
     let res = build_router(app.state.clone())
         .unwrap()
         .oneshot(post(
             "/api/visual-fix",
-            &json!({"file_path": "main.tex", "page": 1, "x": 9000, "y": 9000, "w": 50, "h": 50}),
+            &json!({"file_path": "main.tex", "page": 1, "x": 2000, "y": 2000, "w": 50, "h": 50}),
         ))
         .await
         .unwrap();
@@ -479,8 +491,10 @@ async fn traversal_paths_are_rejected_before_any_work() {
 }
 
 #[tokio::test]
-async fn compiling_through_the_api_writes_a_synctex_map_beside_the_pdf() {
-    // The visual-fix flow depends on POST /api/compile leaving a map on disk.
+async fn compiling_through_the_api_stores_a_build_with_a_synctex_map_and_leaves_the_project_alone()
+{
+    // The visual-fix flow depends on POST /api/compile leaving a map in the
+    // build store, and nothing may be written beside the user's sources.
     let (planner, _) = RecordingPlanner::new(Ok(vec![]));
     let app = test_app(Arc::new(planner)).await;
     std::fs::write(app.root.join("main.tex"), FIGURE_DOC).unwrap();
@@ -504,18 +518,134 @@ async fn compiling_through_the_api_writes_a_synctex_map_beside_the_pdf() {
         )
         .await
         .unwrap();
-    let _ = axum::body::to_bytes(res.into_body(), usize::MAX)
-        .await
-        .unwrap();
+    let stream = String::from_utf8(
+        axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
 
-    assert!(app.root.join("main.pdf").exists(), "PDF written");
-    let map = app.root.join("main.synctex.gz");
-    assert!(map.exists(), "SyncTeX map written beside the PDF");
+    let build_id = stream
+        .lines()
+        .find_map(|l| l.strip_prefix("data:").filter(|d| d.contains("build_id")))
+        .map(|d| {
+            serde_json::from_str::<Value>(d.trim()).unwrap()["build_id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .expect("the compiled event names the build");
+    let build = app
+        .state
+        .compiler
+        .builds()
+        .get(&build_id)
+        .await
+        .expect("build stored");
+
+    assert!(build.pdf_path().exists(), "PDF stored");
     assert!(
-        synctex::SyncTexData::parse(&map)
+        synctex::SyncTexData::parse(&build.synctex_path())
             .unwrap()
             .pages
             .contains_key(&1),
-        "the written map parses and has page 1"
+        "the stored map parses and has page 1"
+    );
+    assert!(
+        !app.root.join("main.pdf").exists(),
+        "no PDF beside the source"
+    );
+    assert!(
+        !app.root.join("main.synctex.gz").exists(),
+        "no map beside the source"
+    );
+}
+
+#[tokio::test]
+async fn pdf_pages_are_addressed_by_build_and_cached_only_when_they_cannot_change() {
+    let (planner, _) = RecordingPlanner::new(Ok(vec![]));
+    let app = test_app(Arc::new(planner)).await;
+    let build = compile_fixture(&app, FIGURE_DOC).await;
+    let router = build_router(app.state.clone()).unwrap();
+    let get = |uri: String| Request::builder().uri(uri).body(Body::empty()).unwrap();
+
+    // By build: an image that names one compile, so it may be cached for good.
+    let res = router
+        .clone()
+        .oneshot(get(format!("/api/pdf/page?build={}&n=1", build.id())))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.headers()["content-type"], "image/png");
+    assert!(
+        res.headers()["cache-control"]
+            .to_str()
+            .unwrap()
+            .contains("immutable")
+    );
+
+    // By file: "the newest build", which a recompile can replace.
+    let res = router
+        .clone()
+        .oneshot(get("/api/pdf/page?file=main.tex&n=1".to_owned()))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.headers()["cache-control"], "no-cache");
+
+    // Unknown, malformed, and neither-given are clean client errors.
+    let missing = format!("/api/pdf/page?build={}&n=1", "0".repeat(32));
+    assert_eq!(
+        router.clone().oneshot(get(missing)).await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+    let bad = "/api/pdf/page?build=../../etc&n=1".to_owned();
+    assert_eq!(
+        router.clone().oneshot(get(bad)).await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        router
+            .oneshot(get("/api/pdf/page?n=1".to_owned()))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn a_box_drawn_on_an_out_of_date_pdf_is_refused_without_calling_the_model() {
+    let (planner, seen) = RecordingPlanner::new(Ok(vec![]));
+    let app = test_app(Arc::new(planner)).await;
+    let build = compile_fixture(&app, FIGURE_DOC).await;
+
+    // The user edits the source after the PDF was made: the box no longer
+    // corresponds to these lines.
+    std::fs::write(
+        app.root.join("main.tex"),
+        format!("% a new first line\n{FIGURE_DOC}"),
+    )
+    .unwrap();
+
+    let res = build_router(app.state.clone())
+        .unwrap()
+        .oneshot(post(
+            "/api/visual-fix",
+            &json!({"file_path": "main.tex", "build": build.id(), "page": 1, "x": 100, "y": 100, "w": 50, "h": 50}),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let body = body_json(res).await;
+    assert!(
+        body["message"].as_str().unwrap().contains("compile again"),
+        "{body}"
+    );
+    assert!(
+        seen.lock().unwrap().is_none(),
+        "the model must not be asked about stale geometry"
     );
 }

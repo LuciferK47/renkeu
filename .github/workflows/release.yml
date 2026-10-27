@@ -1,0 +1,204 @@
+name: Release
+
+# Builds Renkeu for Linux and Windows when a version tag is pushed, and leaves
+# a DRAFT release for a person to read and publish. Run it by hand
+# ("Run workflow") to build everything without a release: a dry run.
+#
+# Where the release goes: this repository, or the one named by the repository
+# variable RELEASE_REPO (a public, releases-only repository is the usual choice
+# while this one is private), written with the secret RELEASES_TOKEN.
+#
+# Signing: Linux packages are not signed. The Windows installer is NOT signed
+# either, so Windows SmartScreen warns on first run; see docs in README.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: The tag matches the code
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          set -euo pipefail
+          crate="$(sed -nE 's/^version = "([^"]+)".*/\1/p' crates/latex_ai_server/Cargo.toml | head -1)"
+          tauri="$(sed -nE 's/^ *"version": "([^"]+)".*/\1/p' crates/latex_ai_tauri/tauri.conf.json | head -1)"
+          echo "server crate $crate, desktop app $tauri"
+          [ "$crate" = "$tauri" ] || { echo "the crate and tauri.conf.json disagree"; exit 1; }
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            [ "${GITHUB_REF_NAME}" = "v$crate" ] || { echo "tag ${GITHUB_REF_NAME} is not v$crate"; exit 1; }
+          fi
+          echo "version=$crate" >> "$GITHUB_OUTPUT"
+
+  linux:
+    name: Linux (CLI, .deb, AppImage)
+    needs: version
+    # The oldest runner that has webkit2gtk 4.1: the packages then run on
+    # any distribution with a glibc at least this old.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libgraphite2-dev libharfbuzz-dev \
+            libicu-dev libfreetype-dev libssl-dev zlib1g-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev patchelf xvfb
+
+      - name: Cache Tectonic bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/Tectonic
+          key: tectonic-bundle-${{ runner.os }}-v1
+
+      - name: Fetch libpdfium
+        run: scripts/fetch-pdfium.sh
+
+      - name: Build the CLI
+        run: cargo build --release -p latex-ai-server
+
+      - name: Package the CLI
+        run: scripts/package-cli.sh x86_64-unknown-linux-gnu target/release/latex-ai
+
+      - name: Smoke-test the CLI archive
+        run: scripts/smoke-cli.sh dist/latex-ai-x86_64-unknown-linux-gnu.tar.gz
+
+      - name: Build the desktop app
+        run: |
+          npm --prefix frontend ci
+          npx --yes @tauri-apps/cli@2 build \
+            --config crates/latex_ai_tauri/tauri.conf.json --bundles deb,appimage
+
+      - name: Smoke-test the .deb
+        run: |
+          deb="$(ls target/release/bundle/deb/*.deb)"
+          xvfb-run -a scripts/smoke-desktop.sh "$deb"
+
+      - name: Collect
+        run: |
+          cp target/release/bundle/deb/*.deb dist/
+          cp target/release/bundle/appimage/*.AppImage dist/
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows (CLI, installer)
+    needs: version
+    runs-on: windows-latest
+    env:
+      RUST_TEST_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/windows-deps
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Cache Tectonic bundle
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/TectonicProject
+          key: tectonic-bundle-${{ runner.os }}-v1
+
+      - name: Fetch pdfium.dll
+        shell: bash
+        run: scripts/fetch-pdfium.sh
+
+      - name: Build the CLI
+        run: cargo build --release -p latex-ai-server
+
+      - name: Package and smoke-test the CLI
+        shell: bash
+        run: |
+          scripts/package-cli.sh x86_64-pc-windows-msvc target/release/latex-ai.exe
+          scripts/smoke-cli.sh dist/latex-ai-x86_64-pc-windows-msvc.tar.gz
+
+      - name: Build the desktop app
+        shell: bash
+        run: |
+          npm --prefix frontend ci
+          npx --yes @tauri-apps/cli@2 build \
+            --config crates/latex_ai_tauri/tauri.conf.json --bundles nsis
+
+      # Installing proves the package is well formed and carries libpdfium.
+      # Starting the window is not tested: the app has no console to read its
+      # port from, so a launch test would need a display and a probe we have
+      # not built.
+      - name: Install the installer silently and look inside
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP "renkeu-install"
+          Start-Process -FilePath $setup.FullName -ArgumentList "/S", "/D=$dir" -Wait
+          Get-ChildItem -Recurse $dir | Select-Object -First 40 FullName
+          if (-not (Get-ChildItem -Recurse $dir -Filter pdfium.dll)) { throw "the installer has no pdfium.dll" }
+          if (-not (Get-ChildItem -Recurse $dir -Filter "*.exe" | Where-Object { $_.Name -notlike "uninst*" })) { throw "the installer has no application" }
+
+      - name: Collect
+        shell: bash
+        run: cp target/release/bundle/nsis/*-setup.exe dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    # A dry run (manual start) stops after the builds above.
+    if: github.ref_type == 'tag'
+    needs: [version, linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          repository: ${{ vars.RELEASE_REPO || github.repository }}
+          token: ${{ secrets.RELEASES_TOKEN || github.token }}
+          tag_name: ${{ github.ref_name }}
+          name: Renkeu ${{ needs.version.outputs.version }}
+          draft: true
+          files: dist/*

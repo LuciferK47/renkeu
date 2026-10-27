@@ -1,0 +1,7 @@
+name = "Letter"
+category = "Other"
+description = "A formal letter with sender address and signature."
+fields = ["authors"]
+author_item = '''{{name}}'''
+author_sep = '''
+'''

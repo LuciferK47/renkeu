@@ -1,0 +1,52 @@
+\documentclass[sigconf,nonacm]{acmart}
+\usepackage{booktabs}
+
+\settopmatter{printacmref=false}
+\setcopyright{none}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+% renkeu:frontmatter begin
+\title{{{title}}}
+{{authors}}
+\begin{document}
+\begin{abstract}
+{{abstract}}
+\end{abstract}
+\keywords{{{keywords}}}
+\maketitle
+% renkeu:frontmatter end
+
+\section{Introduction}
+Replace this text with your own. Cite a work with \cite{knuth1984} and refer to a
+section with \ref{sec:method}.
+
+\section{Method}\label{sec:method}
+Equations are numbered automatically:
+\begin{equation}
+  e^{i\pi} + 1 = 0.
+\end{equation}
+
+\section{Results}
+A table, set with \texttt{booktabs}:
+\begin{table}[h]
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Case & Time (s) & Error \\
+    \midrule
+    A & 1.2 & 0.01 \\
+    B & 0.8 & 0.03 \\
+    \bottomrule
+  \end{tabular}
+  \caption{A small table.}
+  \label{tab:results}
+\end{table}
+
+\section{Conclusion}
+Summarise what you found.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{refs}
+
+\end{document}

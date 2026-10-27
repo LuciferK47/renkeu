@@ -58,3 +58,35 @@ export function selectedHunkIds(previews, selected) {
     .filter((p) => selected.has(p.hunk_id))
     .map((p) => p.hunk_id);
 }
+
+const UNKNOWN_FILE = '(unknown file)';
+
+/**
+ * Previews grouped by the file their edit belongs to, in first-seen order, so
+ * a multi-file proposal reads one file at a time.
+ * @returns {{ path: string, previews: object[] }[]}
+ */
+export function groupByFile(previews) {
+  const groups = new Map();
+  for (const p of previews) {
+    const path = p.edit?.file_path ?? UNKNOWN_FILE;
+    if (!groups.has(path)) groups.set(path, []);
+    groups.get(path).push(p);
+  }
+  return [...groups].map(([path, items]) => ({ path, previews: items }));
+}
+
+/** Whether every applicable hunk of one file is selected (and it has any). */
+export function isFileSelected(group, selected) {
+  const usable = applicable(group.previews);
+  return usable.length > 0 && usable.every((p) => selected.has(p.hunk_id));
+}
+
+/** Select or clear one file's hunks without touching the others. */
+export function toggleFile(group, selected) {
+  const next = new Set(selected);
+  const ids = applicable(group.previews).map((p) => p.hunk_id);
+  if (isFileSelected(group, selected)) ids.forEach((id) => next.delete(id));
+  else ids.forEach((id) => next.add(id));
+  return next;
+}

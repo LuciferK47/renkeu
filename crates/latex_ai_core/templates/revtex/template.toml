@@ -1,0 +1,9 @@
+name = "APS / REVTeX"
+category = "Papers"
+description = "American Physical Society journals (revtex4-2)."
+fields = ["title", "authors", "abstract"]
+author_item = '''\author{{{name}}}
+\affiliation{{{affiliation}}}
+\email{{{email}}}'''
+author_sep = '''
+'''

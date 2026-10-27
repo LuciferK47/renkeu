@@ -10,30 +10,45 @@ import { consumeSSE } from './_stream.js';
  * Stream a one-shot plan. `onEvent` receives { event, data } from the locked
  * §8.2 taxonomy: progress -> proposal -> done | error.
  */
-export async function streamAIPlan(filePath, instruction, onEvent, onError) {
-  return streamAgentEndpoint('/plan/stream', { file_path: filePath, instruction }, onEvent, onError);
+async function streamAIPlan(filePath, instruction, onEvent, onError, options = {}) {
+  return streamAgentEndpoint(
+    '/plan/stream',
+    { file_path: filePath, instruction },
+    onEvent,
+    onError,
+    options.signal
+  );
 }
 
 /**
  * Stream the self-healing agent loop.
  * Events: thinking -> proposal -> (awaiting_approval | applying -> compiled -> done).
  */
-export async function agentLoopStream(filePath, instruction, onEvent, onError, options = {}) {
+async function agentLoopStream(filePath, instruction, onEvent, onError, options = {}) {
   const body = {
     file_path: filePath,
     instruction,
     auto_apply: options.autoApply ?? false
   };
   if (options.maxIterations) body.max_iterations = options.maxIterations;
-  return streamAgentEndpoint('/agent/stream', body, onEvent, onError);
+  // Fit the document to this many pages; the server measures every attempt.
+  if (options.pages) body.pages = options.pages;
+  return streamAgentEndpoint('/agent/stream', body, onEvent, onError, options.signal);
 }
 
-async function streamAgentEndpoint(path, body, onEvent, onError) {
+/**
+ * `signal` lets the caller stop a run. Aborting closes the connection, which is
+ * what the server watches for: it cancels the planner call and any compile
+ * bound to the run. An aborted stream is the caller's own doing, so it is
+ * neither reported through `onError` nor thrown.
+ */
+async function streamAgentEndpoint(path, body, onEvent, onError, signal) {
   try {
     const response = await fetch(api.buildUrl(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal
     });
 
     if (!response.ok) {
@@ -57,19 +72,21 @@ async function streamAgentEndpoint(path, body, onEvent, onError) {
       throw new Error('Connection lost before the agent finished. It may still be running — reload to see the current state.');
     }
   } catch (error) {
+    if (error?.name === 'AbortError') return;
     if (onError) onError(error);
     else throw error;
   }
 }
 
-export async function previewHunks(filePath, edits) {
-  return api.previewHunks(filePath, edits);
+async function applySelectedHunks(
+  filePath,
+  edits,
+  selectedHunkIds,
+  expectedEtag = null,
+  options = {}
+) {
+  return api.applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag, null, options);
 }
 
-export async function applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag = null) {
-  return api.applySelectedHunks(filePath, edits, selectedHunkIds, expectedEtag);
-}
-
-export async function requestVisualFix(region) {
-  return api.repairVisualCrop(region);
-}
+/** What `AiState` talks to; tests pass a stand-in with the same three methods. */
+export const aiService = { agentLoopStream, streamAIPlan, applySelectedHunks };

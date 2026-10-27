@@ -12,7 +12,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, PlanRequest, VisualFixRequest};
 use latex_ai_core::compile::{AgentEdit, AgentOp};
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
@@ -32,8 +32,7 @@ struct NoPlanner;
 impl EditPlanner for NoPlanner {
     fn plan_edits<'a>(
         &'a self,
-        _instruction: &'a str,
-        _file_content: &'a str,
+        _req: PlanRequest<'a>,
         _cancel: CancellationToken,
     ) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::EmptyResponse) })
@@ -63,7 +62,7 @@ async fn test_app() -> TestApp {
         "CREATE TABLE history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_path TEXT NOT NULL, command TEXT NOT NULL, new_text TEXT NOT NULL,
-            diff TEXT NOT NULL, edit_type TEXT NOT NULL,
+            diff TEXT NOT NULL, edit_type TEXT NOT NULL, base_text TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
     )
     .execute(&pool)
@@ -71,21 +70,32 @@ async fn test_app() -> TestApp {
     .unwrap();
 
     let workspace = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(workspace.path()).unwrap();
+    let root = latex_ai_core::fsutil::canonical(workspace.path()).unwrap();
     std::fs::write(root.join("main.tex"), DOC).unwrap();
-    let engine = Arc::new(latex_ai_compiler::Engine::new(2));
 
     TestApp {
         state: AppState {
             planner: Arc::new(NoPlanner),
-            queue: Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine)),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(
+                latex_ai_compiler::CompilerConfig::new(
+                    env!("CARGO_BIN_EXE_latex-ai").into(),
+                    tempfile::tempdir().unwrap().keep(),
+                ),
+            )),
             store: Arc::new(latex_ai_core::storage::Store::new(
                 pool.clone(),
                 root.clone(),
             )),
             jobs: Arc::new(JobRegistry::default()),
+            proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
             workspace_root: root.clone(),
-            model: "test-model".to_owned(),
+            settings: Arc::new(
+                latex_ai_core::config::Settings::open(
+                    tempfile::tempdir().unwrap().keep(),
+                    latex_ai_core::config::EnvOverrides::default(),
+                )
+                .unwrap(),
+            ),
             metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,
@@ -160,7 +170,12 @@ async fn apply(
             &json!({
                 "file_path": "main.tex",
                 "edits": edits,
-                "selected_hunk_ids": selected
+                "selected_hunk_ids": selected,
+                // The version the proposal was made against: the file as it
+                // stands when the user clicks apply.
+                "expected_etag": latex_ai_core::storage::etag_of(
+                    &std::fs::read_to_string(app.root.join("main.tex")).unwrap()
+                )
             }),
         ))
         .await

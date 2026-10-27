@@ -1,13 +1,15 @@
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte'
 
 export default {
-  // Consult https://svelte.dev/docs#compile-time-svelte-preprocess
-  // for more information about preprocessors
   preprocess: vitePreprocess(),
-  
-  compilerOptions: {
-    // Enable Svelte 5 runes mode (opt-in for new features)
-    // Set to false to use compatibility mode for Svelte 4 components
-    runes: undefined  // Auto-detect based on component syntax
+
+  vitePlugin: {
+    // Runes everywhere in this project, so nothing can quietly fall back to the
+    // old `export let` / `$:` / store-subscription semantics. Dependencies are
+    // left alone: svelte-splitpanes still ships legacy-syntax components, which
+    // are not ours to force into runes mode.
+    dynamicCompileOptions({ filename }) {
+      return filename.includes('node_modules') ? undefined : { runes: true }
+    }
   }
 }

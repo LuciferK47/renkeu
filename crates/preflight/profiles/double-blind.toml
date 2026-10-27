@@ -1,0 +1,16 @@
+id = "double-blind"
+name = "Double-blind review"
+description = "Typical checks before a double-blind submission: no author names, no acknowledgements, no sentences that point back at the authors, nothing in the PDF's metadata. These are common practice, not any one venue's rules; read your venue's instructions, and treat a clean report as 'nothing found', not 'anonymous'."
+
+[[rule]]
+check = "anonymous_authors"
+
+[[rule]]
+check = "no_acknowledgements"
+message = "acknowledgements and funding statements usually wait for the camera-ready version"
+
+[[rule]]
+check = "no_self_reference"
+
+[[rule]]
+check = "pdf_metadata_clean"

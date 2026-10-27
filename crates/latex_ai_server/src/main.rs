@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use latex_ai_compiler::Engine;
+use latex_ai_compiler::{CompileJob, Compiler, CompilerConfig};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
@@ -48,83 +48,213 @@ enum Command {
         #[arg(long, default_value_t = 3000)]
         port: u16,
     },
+    /// Check that PDF rendering can start: bind libpdfium and say where it
+    /// came from. Exits non-zero if it cannot.
+    ///
+    /// The container has no shell to inspect, and a missing library otherwise
+    /// shows up only as a 500 on the first page request.
+    Doctor,
+    /// Compile a project and report on it: whether it builds, how many pages
+    /// it has, overfull boxes, short last lines, unembedded fonts. Exits
+    /// non-zero when it does not build or goes over `--pages`.
+    ///
+    /// Prints Markdown (or JSON with `--json`) on stdout, so it can be
+    /// appended to a GitHub job summary. Nothing in the project is changed.
+    Check {
+        /// A `.tex` file, or a folder (its main file is found).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Main file inside a folder, when it has more than one candidate.
+        #[arg(long)]
+        main: Option<String>,
+        /// Fail when the PDF has more pages than this.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=10_000))]
+        pages: Option<u32>,
+        /// Also fail on overfull boxes and fonts that are not embedded.
+        #[arg(long)]
+        strict: bool,
+        /// Print the report as JSON.
+        #[arg(long, conflicts_with = "github")]
+        json: bool,
+        /// For GitHub Actions: add the report to the job summary
+        /// (`$GITHUB_STEP_SUMMARY`) and print workflow annotations that put
+        /// the findings on the lines they are about.
+        #[arg(long)]
+        github: bool,
+        /// Also run a preflight profile: an id (`arxiv`, `double-blind`,
+        /// `accessibility`, or one in `<home>/profiles`) or the path to a
+        /// profile `.toml`. Fails the check on its errors.
+        #[arg(long)]
+        profile: Option<String>,
+        /// TeX bundle to load: a URL or a local path. Tectonic's default when omitted.
+        #[arg(long)]
+        bundle: Option<String>,
+    },
+    /// List the preflight profiles `check --profile` accepts.
+    Profiles,
+    /// Serve the checker to an AI agent over the Model Context Protocol
+    /// (stdio). Tools: compile, diagnostics, `layout_report`, `locate_in_pdf`,
+    /// `locate_in_source`, `render_page`. Reads the project, never writes to it.
+    Mcp {
+        /// A `.tex` file, or a folder (its main file is found).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Main file inside a folder, when it has more than one candidate.
+        #[arg(long)]
+        main: Option<String>,
+        /// TeX bundle to load: a URL or a local path.
+        #[arg(long)]
+        bundle: Option<String>,
+    },
+}
+
+fn main() -> anyhow::Result<()> {
+    // Compile workers are this same binary. This must run before anything
+    // else (no runtime, no logging): a worker is a one-shot child process.
+    latex_ai_compiler::worker::run_if_requested();
+    run()
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
+        // Stdout belongs to the command's output (and, for `mcp`, to the
+        // protocol); logs never go there.
+        .with_writer(std::io::stderr)
         .init();
 
     match Cli::parse().command {
         Command::Serve { port, host } => serve(&host, port).await,
         Command::Compile { file, out } => compile(&file, &out).await,
         Command::Healthcheck { port } => healthcheck(port).await,
+        Command::Doctor => doctor(),
+        Command::Profiles => {
+            profiles();
+            Ok(())
+        }
+        Command::Check {
+            path,
+            main,
+            pages,
+            strict,
+            json,
+            github,
+            profile,
+            bundle,
+        } => {
+            let how = if json {
+                Output::Json
+            } else if github {
+                Output::Github
+            } else {
+                Output::Markdown
+            };
+            check(
+                &path,
+                main.as_deref(),
+                pages,
+                strict,
+                how,
+                profile.as_deref(),
+                bundle,
+            )
+            .await
+        }
+        Command::Mcp { path, main, bundle } => {
+            let bench = latex_ai_server::check::Workbench::open(&path, main.as_deref(), bundle)?;
+            tracing::info!(main = bench.main(), "MCP server ready on stdio");
+            latex_ai_server::mcp::serve(bench).await
+        }
     }
 }
 
-async fn serve(host: &str, port: u16) -> anyhow::Result<()> {
-    // Model must be one genai 0.1.23 recognizes (unknown names fall back to Ollama).
-    let model =
-        std::env::var("LATEX_AI_MODEL").unwrap_or_else(|_| "llama-3.3-70b-versatile".to_string());
-    let planner: std::sync::Arc<dyn latex_ai_core::ai::EditPlanner> = std::sync::Arc::new(
-        latex_ai_core::ai::LlmPlanner::new(model.clone())
-            .with_vision_model(std::env::var("LATEX_AI_VISION_MODEL").ok()),
-    );
-
-    // The workspace root all API paths are sandboxed to (canonicalized so the
-    // security checks compare like with like).
-    let workspace_root =
-        std::fs::canonicalize(std::env::current_dir()?).context("canonicalizing workspace root")?;
-
-    // SQLite setup
-    let db_path = workspace_root.join(".latex-ai.db");
-    let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&db_url)
-        .await
-        .with_context(|| "Failed to connect to database")?;
-
-    sqlx::migrate!("./migrations").run(&pool).await?;
-
-    // SQLite leaves foreign keys off unless asked; compile_errors relies on
-    // its FK and cascade (masterplan §12 M5 audit: data integrity).
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(&pool)
-        .await?;
-
-    // A job still marked running belongs to a process that died. Close those
-    // out so the queue does not show phantom work forever.
-    match latex_ai_core::storage::jobs::recover_abandoned(&pool).await {
-        Ok(0) => {}
-        Ok(n) => tracing::warn!(
-            count = n,
-            "recovered abandoned compile jobs from a previous run"
-        ),
-        Err(e) => tracing::warn!(error = %e, "compile-job recovery failed"),
+// The list is this command's output, not a log line.
+#[allow(clippy::print_stdout)]
+fn profiles() {
+    for p in latex_ai_server::profiles::all(Some(&latex_ai_core::config::default_home())) {
+        println!("{:<14} {} ({} rules)", p.id, p.name, p.rules.len());
+        if !p.description.is_empty() {
+            println!("{:<14} {}", "", p.description);
+        }
+        if let Some(source) = &p.source {
+            println!("{:<14} rules from {source}", "");
+        }
     }
+}
 
-    let store = std::sync::Arc::new(latex_ai_core::storage::Store::new(
-        pool,
-        workspace_root.clone(),
-    ));
+// The report is this command's output, not a log line.
+#[allow(clippy::print_stdout)]
+fn doctor() -> anyhow::Result<()> {
+    let source =
+        latex_ai_server::bootstrap::check_pdfium().context("PDF rendering is unavailable")?;
+    println!("pdfium: ok ({source})");
+    Ok(())
+}
 
-    let engine = std::sync::Arc::new(latex_ai_compiler::Engine::new(10));
-    let queue = std::sync::Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine));
+#[derive(Clone, Copy)]
+enum Output {
+    Markdown,
+    Json,
+    Github,
+}
 
-    let state = latex_ai_server::AppState {
-        planner,
-        queue,
-        store,
-        jobs: std::sync::Arc::new(latex_ai_server::jobs::JobRegistry::default()),
-        workspace_root,
-        model,
-        metrics: std::sync::Arc::new(latex_ai_core::metrics::Metrics::new()),
-    };
+// The report is this command's output, not a log line.
+#[allow(clippy::print_stdout)]
+async fn check(
+    path: &std::path::Path,
+    main: Option<&str>,
+    pages: Option<u32>,
+    strict: bool,
+    output: Output,
+    profile: Option<&str>,
+    bundle: Option<String>,
+) -> anyhow::Result<()> {
+    let profile = profile
+        .map(|spec| {
+            latex_ai_server::profiles::find(spec, Some(&latex_ai_core::config::default_home()))
+        })
+        .transpose()
+        .map_err(anyhow::Error::msg)?;
+    let bench = latex_ai_server::check::Workbench::open(path, main, bundle)?;
+    let report = bench.check_with(pages, strict, profile.as_ref()).await?;
+    match output {
+        Output::Json => println!("{}", serde_json::to_string_pretty(&report)?),
+        Output::Markdown => print!("{}", report.to_markdown()),
+        Output::Github => {
+            use std::io::Write as _;
+            for line in report.github_annotations() {
+                println!("{line}");
+            }
+            match std::env::var_os("GITHUB_STEP_SUMMARY") {
+                Some(file) => {
+                    let mut summary = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&file)
+                        .with_context(|| format!("opening {}", file.to_string_lossy()))?;
+                    writeln!(summary, "{}", report.to_markdown())?;
+                }
+                None => print!("{}", report.to_markdown()),
+            }
+        }
+    }
+    // Drop removes the build store; `exit` would skip it.
+    drop(bench);
+    if !report.passed {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+async fn serve(host: &str, port: u16) -> anyhow::Result<()> {
+    let opts = latex_ai_server::bootstrap::BootOptions::from_process()?;
+    let state = latex_ai_server::bootstrap::build_state(opts)
+        .await
+        .context("starting up")?;
     let app = latex_ai_server::build_router(state).context("building the router")?;
     let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -175,18 +305,47 @@ async fn healthcheck(port: u16) -> anyhow::Result<()> {
 }
 
 async fn compile(file: &std::path::Path, out: &std::path::Path) -> anyhow::Result<()> {
-    let latex = tokio::fs::read_to_string(file)
-        .await
+    let file = latex_ai_core::fsutil::canonical(file)
         .with_context(|| format!("reading {}", file.display()))?;
-    let engine = Engine::new(10);
-    let result = engine
-        .compile(&latex, &CancellationToken::new())
-        .await
-        .context("tectonic compile")?;
-    anyhow::ensure!(result.success, "compile produced empty PDF");
-    tokio::fs::write(out, result.pdf_bytes.as_ref())
+    let root = file
+        .parent()
+        .context("the file has no directory")?
+        .to_path_buf();
+    let main = file
+        .file_name()
+        .context("the path has no file name")?
+        .to_string_lossy()
+        .into_owned();
+
+    let work = std::env::temp_dir().join(format!(
+        "latex-ai-cli-{}",
+        latex_ai_core::fsutil::unique_id()
+    ));
+    let compiler = Compiler::new(CompilerConfig::new(std::env::current_exe()?, work.clone()));
+    let result = compiler
+        .compile_scratch(
+            &CompileJob {
+                root,
+                main,
+                synctex: false,
+                bundle: None,
+                timeout: std::time::Duration::from_secs(120),
+            },
+            &CancellationToken::new(),
+        )
+        .await;
+    let _ = tokio::fs::remove_dir_all(&work).await;
+    let result = result.context("tectonic compile")?;
+
+    anyhow::ensure!(
+        result.success,
+        "compile failed: {}",
+        latex_ai_compiler::diagnostics::summarize(&result.diagnostics)
+            .unwrap_or_else(|| "no details".to_owned())
+    );
+    tokio::fs::write(out, &result.pdf)
         .await
         .with_context(|| format!("writing {}", out.display()))?;
-    tracing::info!(out = %out.display(), bytes = result.pdf_bytes.len(), "compiled");
+    tracing::info!(out = %out.display(), bytes = result.pdf.len(), "compiled");
     Ok(())
 }

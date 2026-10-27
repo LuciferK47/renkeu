@@ -1,0 +1,6 @@
+name = "Thesis / report"
+category = "Longer documents"
+description = "A book-length report with chapters, contents page and bibliography (memoir)."
+fields = ["title", "authors", "abstract", "date"]
+author_item = '''{{name}}'''
+author_sep = ''' \and '''

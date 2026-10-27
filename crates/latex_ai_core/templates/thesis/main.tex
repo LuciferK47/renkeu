@@ -1,0 +1,27 @@
+\documentclass[12pt,a4paper]{memoir}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[hidelinks]{hyperref}
+
+% renkeu:frontmatter begin
+\title{{{title}}}
+\author{{{authors}}}
+\date{{{date}}}
+\begin{document}
+\frontmatter
+\maketitle
+\begin{abstract}
+{{abstract}}
+\end{abstract}
+\tableofcontents
+\mainmatter
+% renkeu:frontmatter end
+
+\input{chapters/introduction}
+
+\backmatter
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

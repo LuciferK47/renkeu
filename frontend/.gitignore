@@ -1,4 +1,11 @@
 node_modules/
 dist/
+dist-site/
 .DS_Store
 *.log
+
+# Playwright
+e2e/.workspace/
+e2e/.home/
+test-results/
+playwright-report/

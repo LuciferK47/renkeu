@@ -1,6 +1,6 @@
 //! Reverse (PDF -> source) and forward (source -> PDF) lookup.
 
-use crate::{Node, SyncTexData};
+use crate::{Node, NodeKind, SyncTexData};
 
 /// A source position recovered from a PDF coordinate.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,22 +45,27 @@ pub fn backward_search(data: &SyncTexData, page: u32, x_bp: f64, y_bp: f64) -> O
     let y = data.bp_to_sp(y_bp);
 
     // Records with tag 0 or line 0 carry no usable source position.
-    let usable = || nodes.iter().filter(|n| n.tag != 0 && n.line != 0);
+    let usable = || {
+        nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.tag != 0 && n.line != 0)
+    };
 
     let containing = usable()
-        .filter(|n| n.contains(x, y))
+        .filter(|(_, n)| n.contains(x, y))
         // Tightest wins; among equals prefer a real box over a point node.
-        .min_by(|a, b| {
+        .min_by(|(_, a), (_, b)| {
             a.area()
                 .cmp(&b.area())
                 .then_with(|| b.kind.is_box().cmp(&a.kind.is_box()))
         });
 
     let node = match containing {
-        Some(n) => Some((n, true)),
+        Some((index, n)) => Some((refine_to_leaf(nodes, index, n, x), true)),
         None => usable()
-            .min_by(|a, b| a.distance_sq(x, y).cmp(&b.distance_sq(x, y)))
-            .map(|n| (n, false)),
+            .min_by(|(_, a), (_, b)| a.distance_sq(x, y).cmp(&b.distance_sq(x, y)))
+            .map(|(_, n)| (n, false)),
     };
 
     node.map(|(n, exact)| SourceHit {
@@ -70,6 +75,39 @@ pub fn backward_search(data: &SyncTexData, page: u32, x_bp: f64, y_bp: f64) -> O
         column: n.column,
         exact,
     })
+}
+
+/// A line box records the line where its *paragraph ended*, not the line of the
+/// text inside it, so a click on a wrapped paragraph would otherwise report the
+/// blank line after it. The kerns, glue and marks on the same baseline carry
+/// the real line; take the one of the box's own children horizontally nearest
+/// the point (what the reference `synctex` tool does). Anything that is not a line box is returned
+/// unchanged.
+///
+/// Leaves must lie strictly right of the box's left edge. Vertical glue (the
+/// gap between a figure and its caption) is recorded at the figure's baseline
+/// and left edge but carries the *next* line's number; counting it would make
+/// a click on a figure report the caption.
+fn refine_to_leaf<'a>(nodes: &'a [Node], index: usize, container: &'a Node, x: i64) -> &'a Node {
+    if container.kind != NodeKind::HBox {
+        return container;
+    }
+    // Only the box's own children: vertical glue between lines shares its
+    // baseline too, and would hand back the *next* line's number.
+    nodes
+        .iter()
+        .filter(|n| n.parent == Some(index) && !n.kind.is_box() && n.tag != 0 && n.line != 0)
+        .min_by_key(|n| {
+            let (from, _, to, _) = n.bounds();
+            if x < from {
+                from - x
+            } else if x > to {
+                x - to
+            } else {
+                0
+            }
+        })
+        .unwrap_or(container)
 }
 
 /// PDF regions produced by `line` of input `tag`, best match first.
@@ -217,6 +255,111 @@ mod tests {
         assert_eq!(hit.line, 5, "the enclosing vbox's line");
     }
 
+    /// One line box recorded at line 9 (where its paragraph ended) holding
+    /// kerns from lines 3 and 4 on the same baseline.
+    fn wrapped_paragraph() -> SyncTexData {
+        #[allow(clippy::cast_possible_truncation)]
+        let bp = |v: f64| (v * crate::SP_PER_BP).round() as i64;
+        parse_content(&format!(
+            "SyncTeX Version:1\nInput:1:texput\nMagnification:1000\nUnit:1\nX Offset:0\nY Offset:0\nContent:\n\
+             {{1\n\
+             (1,9:{x},{y}:{w},{h},0\n\
+             k1,3:{k1},{y}:0\n\
+             k1,4:{k2},{y}:0\n\
+             )\n\
+             (1,9:{x},{y2}:{w},{h},0\n\
+             k1,6:{k1},{y2}:0\n\
+             )\n\
+             }}1\nPostamble:\n",
+            x = bp(100.0),
+            y = bp(200.0),
+            y2 = bp(300.0),
+            w = bp(300.0),
+            h = bp(10.0),
+            k1 = bp(120.0),
+            k2 = bp(350.0),
+        ))
+    }
+
+    #[test]
+    fn a_click_on_a_wrapped_line_reports_the_text_line_not_the_paragraph_end() {
+        let d = wrapped_paragraph();
+        // Near the first kern -> line 3; near the second -> line 4; both inside
+        // the box that claims line 9.
+        assert_eq!(backward_search(&d, 1, 130.0, 195.0).unwrap().line, 3);
+        assert_eq!(backward_search(&d, 1, 340.0, 195.0).unwrap().line, 4);
+        // The next visual line only offers its own kern.
+        assert_eq!(backward_search(&d, 1, 340.0, 295.0).unwrap().line, 6);
+    }
+
+    #[test]
+    fn vertical_glue_at_a_boxs_left_edge_is_not_taken_for_its_content() {
+        #[allow(clippy::cast_possible_truncation)]
+        let bp = |v: f64| (v * crate::SP_PER_BP).round() as i64;
+        // A figure box (line 7) with the glue before its caption (line 8)
+        // recorded on the same baseline at the box's left edge.
+        let d = parse_content(&format!(
+            "SyncTeX Version:1\nInput:1:texput\nMagnification:1000\nUnit:1\nX Offset:0\nY Offset:0\nContent:\n\
+             {{1\n\
+             (1,7:{x},{y}:{w},{h},0\n\
+             )\n\
+             g1,8:{x},{y}\n\
+             }}1\nPostamble:\n",
+            x = bp(100.0),
+            y = bp(300.0),
+            w = bp(200.0),
+            h = bp(100.0),
+        ));
+        let hit = backward_search(&d, 1, 200.0, 250.0).unwrap();
+        assert_eq!(hit.line, 7, "the figure, not its caption");
+    }
+
+    #[test]
+    fn vertical_glue_on_the_same_baseline_is_not_a_leaf_of_the_line() {
+        #[allow(clippy::cast_possible_truncation)]
+        let bp = |v: f64| (v * crate::SP_PER_BP).round() as i64;
+        // An image line (line 7) with the vbox's caption-skip glue (line 8)
+        // sitting at the very same y, outside the line box.
+        let d = parse_content(&format!(
+            "SyncTeX Version:1\nInput:1:texput\nMagnification:1000\nUnit:1\nX Offset:0\nY Offset:0\nContent:\n\
+             {{1\n\
+             [1,5:{x},{y}:{w},{outer_h},0\n\
+             (1,7:{x},{y}:{w},{h},0\n\
+             )\n\
+             g1,8:{x},{y}\n\
+             ]\n\
+             }}1\nPostamble:\n",
+            x = bp(100.0),
+            y = bp(200.0),
+            w = bp(300.0),
+            h = bp(50.0),
+            outer_h = bp(120.0),
+        ));
+        assert_eq!(backward_search(&d, 1, 250.0, 170.0).unwrap().line, 7);
+    }
+
+    #[test]
+    fn nodes_know_the_box_they_are_inside() {
+        let d = wrapped_paragraph();
+        let nodes = &d.pages[&1];
+        // [hbox, kern, kern, hbox, kern]
+        assert_eq!(nodes[0].parent, None);
+        assert_eq!(nodes[1].parent, Some(0));
+        assert_eq!(nodes[2].parent, Some(0));
+        assert_eq!(nodes[3].parent, None, "the first line box was closed");
+        assert_eq!(nodes[4].parent, Some(3));
+    }
+
+    #[test]
+    fn refinement_never_borrows_a_kern_from_another_baseline() {
+        let d = wrapped_paragraph();
+        let hit = backward_search(&d, 1, 125.0, 295.0).unwrap();
+        assert_eq!(
+            hit.line, 6,
+            "the line-3 kern is 100bp above and must not win"
+        );
+    }
+
     #[test]
     fn unknown_page_returns_none() {
         assert!(backward_search(&fixture(), 99, 100.0, 100.0).is_none());
@@ -253,7 +396,7 @@ mod tests {
 
     #[test]
     fn forward_search_past_the_end_returns_nothing() {
-        assert!(forward_search(&fixture(), 1, 9999).is_empty());
+        assert_eq!(forward_search(&fixture(), 1, 9999).len(), 0);
     }
 
     #[test]
@@ -261,7 +404,7 @@ mod tests {
         let d = fixture();
         let hit = backward_search(&d, 1, 150.0, 150.0).expect("backward hit");
         let back = forward_search(&d, hit.tag, hit.line);
-        assert!(!back.is_empty());
+        assert_ne!(back.len(), 0);
         assert_eq!(back[0].page, 1);
         // The rect we get back must contain the point we started from.
         let h = &back[0];

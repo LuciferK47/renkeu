@@ -193,7 +193,7 @@ mod tests {
             "CREATE TABLE history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, file_path TEXT NOT NULL,
                 command TEXT NOT NULL, new_text TEXT NOT NULL, diff TEXT NOT NULL,
-                edit_type TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
+                edit_type TEXT NOT NULL, base_text TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
         )
         .execute(&pool)
         .await

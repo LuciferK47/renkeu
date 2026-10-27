@@ -10,7 +10,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, VisualFixRequest};
+use latex_ai_core::ai::{AiError, EditPlanner, PlanFuture, PlanRequest, VisualFixRequest};
 use latex_ai_server::{AppState, build_router, jobs::JobRegistry};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -51,8 +51,7 @@ struct FailingPlanner;
 impl EditPlanner for FailingPlanner {
     fn plan_edits<'a>(
         &'a self,
-        _instruction: &'a str,
-        _file_content: &'a str,
+        _req: PlanRequest<'a>,
         _cancel: CancellationToken,
     ) -> PlanFuture<'a> {
         Box::pin(async { Err(AiError::Request("provider unavailable".into())) })
@@ -81,7 +80,7 @@ async fn test_app() -> TestApp {
         "CREATE TABLE history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             file_path TEXT NOT NULL, command TEXT NOT NULL, new_text TEXT NOT NULL,
-            diff TEXT NOT NULL, edit_type TEXT NOT NULL,
+            diff TEXT NOT NULL, edit_type TEXT NOT NULL, base_text TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
     )
     .execute(&pool)
@@ -98,25 +97,36 @@ async fn test_app() -> TestApp {
     .unwrap();
 
     let workspace = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(workspace.path()).unwrap();
+    let root = latex_ai_core::fsutil::canonical(workspace.path()).unwrap();
     std::fs::write(
         root.join("main.tex"),
         "\\documentclass{article}\n\\begin{document}x\\end{document}\n",
     )
     .unwrap();
-    let engine = Arc::new(latex_ai_compiler::Engine::new(2));
 
     TestApp {
         state: AppState {
             planner: Arc::new(FailingPlanner),
-            queue: Arc::new(latex_ai_compiler::queue::CompilationQueue::new(engine)),
+            compiler: Arc::new(latex_ai_compiler::Compiler::new(
+                latex_ai_compiler::CompilerConfig::new(
+                    env!("CARGO_BIN_EXE_latex-ai").into(),
+                    tempfile::tempdir().unwrap().keep(),
+                ),
+            )),
             store: Arc::new(latex_ai_core::storage::Store::new(
                 pool.clone(),
                 root.clone(),
             )),
             jobs: Arc::new(JobRegistry::default()),
+            proposals: Arc::new(latex_ai_server::proposals::ProposalRegistry::default()),
             workspace_root: root,
-            model: "test-model".to_owned(),
+            settings: Arc::new(
+                latex_ai_core::config::Settings::open(
+                    tempfile::tempdir().unwrap().keep(),
+                    latex_ai_core::config::EnvOverrides::default(),
+                )
+                .unwrap(),
+            ),
             metrics: Arc::new(latex_ai_core::metrics::Metrics::new()),
         },
         _workspace: workspace,
